@@ -13,6 +13,7 @@
 #define DP_POWER_ON_BASE 103   /* + channel: power-on behaviour of one channel (ours) */
 #define DP_ACTION_BASE   105   /* + channel: wall switch gesture, event only (ours) */
 #define DP_FADE_TUNING   107   /* fade profile, both channels, RAM only (ours, for tuning) */
+#define DP_HOLD_TUNING   108   /* hold profile, both channels, RAM only (ours, for tuning) */
 
 enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
 
@@ -27,6 +28,7 @@ enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
 
 static dimmer_channel_t g_ch[DIMMER_CHANNELS];
 static uint32_t         g_fade_tuning;   /* DP 107, 0 = defaults; not saved */
+static uint32_t         g_hold_tuning;   /* DP 108, 0 = defaults; not saved */
 static uint8_t          g_power_on[DIMMER_CHANNELS];   /* 0 off, 1 on, 2 last state */
 
 /* What survives a power cut. The level is the one set while off, or the one the
@@ -231,12 +233,17 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         mark_dirty();
         return 1;
     }
-    if (dpid == DP_FADE_TUNING) {
+    if (dpid == DP_FADE_TUNING || dpid == DP_HOLD_TUNING) {
         if (type != TUYA_DP_TYPE_VALUE || len != 4) {
             return 0;
         }
-        g_fade_tuning = be32(value);
-        phase_set_tuning(g_fade_tuning);
+        if (dpid == DP_FADE_TUNING) {
+            g_fade_tuning = be32(value);
+            phase_set_tuning(g_fade_tuning);
+        } else {
+            g_hold_tuning = be32(value);
+            phase_set_hold_tuning(g_hold_tuning);
+        }
         return 1;
     }
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
@@ -355,6 +362,10 @@ void dimmer_report_dp(uint8_t dpid) {
     }
     if (dpid == DP_FADE_TUNING) {
         tuya_report_value(dpid, g_fade_tuning ? g_fade_tuning : DIM_TUNING_DEFAULT);
+        return;
+    }
+    if (dpid == DP_HOLD_TUNING) {
+        tuya_report_value(dpid, g_hold_tuning ? g_hold_tuning : DIM_HOLD_TUNING_DEFAULT);
         return;
     }
     if (dpid >= DP_POWER_ON_BASE && dpid < DP_POWER_ON_BASE + DIMMER_CHANNELS) {

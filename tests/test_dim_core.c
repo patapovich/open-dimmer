@@ -219,7 +219,46 @@ static void test_hold_up_from_dark_starts_at_min(void) {
     dim_fader_set(&f, 1, 600);
     dim_fader_tick(&f);                      /* fading in: current 5 */
     dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 200, 1000);
-    CHECK(dim_fader_tick(&f) == 200 + DIM_HOLD_RATE);
+    CHECK(dim_fader_tick(&f) == 200);        /* at the min, moving slowly */
+}
+
+static void test_hold_is_slow_just_above_the_min(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set(&f, 1, 60);
+    for (int i = 0; i < 50; i++) {
+        dim_fader_tick(&f);
+    }
+    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 60, 1000);
+    int n50 = 0, n200 = 0, n = 0;
+    uint16_t prev = 60;
+    while (f.current < 60 + DIM_HOLD_EASE_SPAN + 100 && n < 2000) {
+        uint16_t now = dim_fader_tick(&f);
+        CHECK(now >= prev && now - prev <= DIM_HOLD_RATE);
+        prev = now;
+        n++;
+        if (now < 60 + 50) {
+            n50 = n;
+        }
+        if (now < 60 + DIM_HOLD_EASE_SPAN) {
+            n200 = n;
+        }
+    }
+    CHECK(n50 > 3 * 50 / DIM_HOLD_RATE);              /* the dimmest 50 take > 3x longer */
+    CHECK(n200 > 2 * DIM_HOLD_EASE_SPAN / DIM_HOLD_RATE);
+    CHECK(n200 < 200);                                  /* still under 2 s */
+    /* down towards the min: slow there too, and stops at it */
+    dim_fader_hold_start(&f, -1, DIM_HOLD_RATE, 60, 1000);
+    for (int i = 0; i < 2000; i++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current == 60);
+    /* tuning: no slow-down = the plain rate */
+    dim_fader_set_hold_tuning(&f, 3u | 0u << 8);
+    dim_fader_hold_start(&f, +1, 1, 60, 1000);
+    CHECK(dim_fader_tick(&f) == 63);
+    dim_fader_set_hold_tuning(&f, 0);
+    CHECK(f.hold_ease_span == DIM_HOLD_EASE_SPAN && f.hold_bottom_q == DIM_HOLD_BOTTOM_Q);
 }
 
 static void test_remote_write_during_hold(void) {
@@ -399,21 +438,22 @@ static void test_hold_from_dark_and_cancel(void) {
     dim_fader_set_floor(&f, 60);
     dim_fader_set(&f, 1, 700);                /* on ... */
     dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 60, 1000);   /* ... rising from the bottom */
-    CHECK(dim_fader_tick(&f) == 60 + DIM_HOLD_RATE);
+    CHECK(dim_fader_tick(&f) == 60);          /* at the min first */
     for (int k = 0; k < 9; k++) {
         dim_fader_tick(&f);                   /* a 100 ms tap */
     }
-    CHECK(f.current == 60 + 10 * DIM_HOLD_RATE);
+    uint16_t tap = f.current;
+    CHECK(tap >= 60 && tap < 60 + 10);
     dim_fader_hold_cancel(&f);
     dim_fader_set(&f, 1, 700);
-    CHECK(dim_fader_tick(&f) == 60 + 10 * DIM_HOLD_RATE + DIM_STEP_ON);   /* quick on */
+    CHECK(dim_fader_tick(&f) == tap + DIM_STEP_ON);   /* quick on */
     int n = 0;
     while (f.current != 700 && n < 1000) {
         dim_fader_tick(&f);
         n++;
     }
     CHECK(f.current == 700);
-    CHECK(n < (700 - 90) / DIM_STEP_ON + 2);
+    CHECK(n < (700 - 60) / DIM_STEP_ON + 2);
     /* a real hold from dark: rises from the floor, frozen at release */
     dim_fader_set(&f, 0, 700);
     while (f.current) {
@@ -424,9 +464,10 @@ static void test_hold_from_dark_and_cancel(void) {
     for (int k = 0; k < 40; k++) {
         dim_fader_tick(&f);
     }
-    CHECK(f.current == 60 + 40 * DIM_HOLD_RATE);
-    CHECK(dim_fader_hold_stop(&f) == 60 + 40 * DIM_HOLD_RATE);
-    CHECK(dim_fader_tick(&f) == 60 + 40 * DIM_HOLD_RATE);    /* stays */
+    uint16_t held = f.current;
+    CHECK(held > 60 && held < 60 + 40 * DIM_HOLD_RATE);   /* rising slowly from the bottom */
+    CHECK(dim_fader_hold_stop(&f) == held);
+    CHECK(dim_fader_tick(&f) == held);                    /* stays */
 }
 
 static void test_fade_tuning(void) {
@@ -477,6 +518,7 @@ int main(void) {
     test_hold_follows_without_lag_and_freezes_on_release();
     test_hold_stops_at_bounds();
     test_hold_up_from_dark_starts_at_min();
+    test_hold_is_slow_just_above_the_min();
     test_remote_write_during_hold();
     test_off_during_hold_then_release_stays_off();
     if (g_failed) {

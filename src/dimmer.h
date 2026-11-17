@@ -6,6 +6,7 @@
  *     (written: both; reported: channel 1's, for the stock protocol)
  *   DP 103 / 104 power-on behaviour of channel 1 / 2 (ours)
  *   DP 107 fade profile (value, dim_fader_set_tuning; RAM only, for tuning)
+ *   DP 108 hold profile (value, dim_fader_set_hold_tuning; RAM only, for tuning)
  *   DP 105 / 106 wall switch gesture of channel 1 / 2, reported only, never
  *     in the DP dump (ours, gesture_core.h): 1 single, 2 double, 3 triple,
  *     4 hold, 5 release

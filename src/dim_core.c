@@ -13,6 +13,17 @@ void dim_fader_init(dim_fader_t *f) {
     f->floor_hold = 0;
     f->from_dark  = 0;
     dim_fader_set_tuning(f, 0);
+    dim_fader_set_hold_tuning(f, 0);
+    f->hold_acc = 0;
+}
+
+void dim_fader_set_hold_tuning(dim_fader_t *f, uint32_t packed) {
+    if (packed == 0) {
+        packed = DIM_HOLD_TUNING_DEFAULT;
+    }
+    f->hold_rate_cfg  = (uint8_t)packed;
+    f->hold_ease_span = (uint16_t)(((packed >> 8) & 0xFFu) * 4u);
+    f->hold_bottom_q  = (uint8_t)(packed >> 16);
 }
 
 void dim_fader_set_tuning(dim_fader_t *f, uint32_t packed) {
@@ -53,7 +64,8 @@ void dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint8_t rate, uint16_t lo,
     }
     f->hold_lo   = lo;
     f->hold_hi   = hi;
-    f->hold_rate = rate ? rate : 1;
+    f->hold_rate = f->hold_rate_cfg ? f->hold_rate_cfg : (rate ? rate : 1);
+    f->hold_acc  = 0;
     f->target    = f->current;
     f->hold_dir  = dir < 0 ? -1 : 1;
 }
@@ -72,6 +84,24 @@ void dim_fader_hold_cancel(dim_fader_t *f) {
     f->from_dark = 1;               /* the light is coming on: the quick step */
 }
 
+/* Hold step at value cur: the full rate, slower just above the min (in
+ * quarter steps, so below one per half cycle too). */
+static uint16_t hold_step(dim_fader_t *f, uint16_t cur) {
+    uint16_t full_q = (uint16_t)(f->hold_rate * 4u);
+    uint16_t q      = full_q;
+    if (f->hold_ease_span && f->hold_bottom_q < full_q) {
+        uint16_t d = cur > f->hold_lo ? (uint16_t)(cur - f->hold_lo) : 0;
+        if (d < f->hold_ease_span) {
+            q = (uint16_t)(f->hold_bottom_q +
+                           (uint32_t)(full_q - f->hold_bottom_q) * d / f->hold_ease_span);
+        }
+    }
+    f->hold_acc = (uint16_t)(f->hold_acc + q);
+    uint16_t step = (uint16_t)(f->hold_acc / 4u);
+    f->hold_acc = (uint16_t)(f->hold_acc % 4u);
+    return step;
+}
+
 static uint16_t hold_tick(dim_fader_t *f) {
     uint16_t cur = f->current;
 
@@ -79,12 +109,14 @@ static uint16_t hold_tick(dim_fader_t *f) {
         if (cur < f->hold_lo) {
             cur = f->hold_lo;               /* coming up from dark: start at min */
         }
-        cur = (uint16_t)(f->hold_hi - cur > f->hold_rate ? cur + f->hold_rate : f->hold_hi);
+        uint16_t step = hold_step(f, cur);
+        cur = (uint16_t)(f->hold_hi - cur > step ? cur + step : f->hold_hi);
     } else {
         if (cur > f->hold_hi) {
             cur = f->hold_hi;
         }
-        cur = (uint16_t)(cur - f->hold_lo > f->hold_rate ? cur - f->hold_rate : f->hold_lo);
+        uint16_t step = hold_step(f, cur);
+        cur = (uint16_t)(cur - f->hold_lo > step ? cur - step : f->hold_lo);
     }
     f->current = cur;
     f->target  = cur;

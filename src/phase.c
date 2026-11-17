@@ -254,6 +254,13 @@ void phase_set_tuning(uint32_t packed) {
     __enable_irq();
 }
 
+void phase_set_hold_tuning(uint32_t packed) {
+    __disable_irq();
+    dim_fader_set_hold_tuning(&g_fader[0], packed);
+    dim_fader_set_hold_tuning(&g_fader[1], packed);
+    __enable_irq();
+}
+
 void phase_hold_cancel(uint8_t ch) {
     if (ch < 2) {
         __disable_irq();

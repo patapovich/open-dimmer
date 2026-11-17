@@ -26,6 +26,9 @@
 #define ZC_WINDOW_DIV          12     /* once locked, edges only within +-1/12 (8 %) */
 
 #define DIM_HOLD_RATE          3      /* per half cycle while held: 1000 in 3.3 s */
+#define DIM_HOLD_EASE_SPAN     200    /* hold: just above the min it moves slower, so a  */
+#define DIM_HOLD_BOTTOM_Q      2      /* very dim level can be picked: at the min 2/4 per */
+                                      /* half cycle, full rate DIM_HOLD_EASE_SPAN above  */
 #define DIM_STEP_ON            10     /* per half cycle when coming on from dark: quick  */
 #define DIM_STEP_OFF           10     /* per half cycle going dark (above the ease span) */
 #define DIM_EASE_SPAN          120    /* going dark: just above the floor the steps      */
@@ -49,7 +52,15 @@ typedef struct {
     uint8_t  step_off;
     uint16_t ease_span;
     uint8_t  off_hold;
+    /* Hold profile (dim_fader_set_hold_tuning). */
+    uint8_t  hold_rate_cfg;   /* 0: the rate given to hold_start */
+    uint8_t  hold_bottom_q;   /* quarter steps per half cycle at the min */
+    uint16_t hold_ease_span;  /* 0: no slow-down */
+    uint16_t hold_acc;        /* quarter steps not yet moved */
 } dim_fader_t;
+
+#define DIM_HOLD_TUNING_DEFAULT ((uint32_t)0 | (uint32_t)(DIM_HOLD_EASE_SPAN / 4) << 8 | \
+                                 (uint32_t)DIM_HOLD_BOTTOM_Q << 16)
 
 #define DIM_TUNING_DEFAULT ((uint32_t)DIM_STEP_ON | (uint32_t)DIM_STEP_OFF << 8 | \
                             (uint32_t)(DIM_EASE_SPAN / 4) << 16 | (uint32_t)DIM_OFF_HOLD << 24)
@@ -65,6 +76,10 @@ void     dim_fader_set_floor(dim_fader_t *f, uint16_t floor);
  * span / 4 (0 = no easing), 3 half cycles at the floor before dark; 0 = the
  * defaults (DIM_TUNING_DEFAULT). Steps of 0 count as 1. */
 void     dim_fader_set_tuning(dim_fader_t *f, uint32_t packed);
+/** Hold profile, packed: byte 0 rate per half cycle (0 = the caller's), 1 slow-down
+ * span above the min / 4 (0 = none), 2 quarter steps per half cycle at the min;
+ * 0 = the defaults (DIM_HOLD_TUNING_DEFAULT). */
+void     dim_fader_set_hold_tuning(dim_fader_t *f, uint32_t packed);
 /** One half cycle: move current towards target by step, return current. */
 uint16_t dim_fader_tick(dim_fader_t *f);
 

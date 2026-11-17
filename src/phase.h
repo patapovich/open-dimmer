@@ -58,6 +58,8 @@ uint16_t phase_hold_stop(uint8_t ch);
 void     phase_hold_cancel(uint8_t ch);
 /** Fade profile of both channels (dim_fader_set_tuning; 0 = defaults). */
 void     phase_set_tuning(uint32_t packed);
+/** Hold profile of both channels (dim_fader_set_hold_tuning; 0 = defaults). */
+void     phase_set_hold_tuning(uint32_t packed);
 /** Value the channel is at now (0..1000). */
 uint16_t phase_current(uint8_t ch);
 /** Gates to plain GPIO low, for good (before a reset into the bootloader). */
