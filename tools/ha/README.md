@@ -9,3 +9,6 @@
 - `ha_ws.py '<json command>' ...`: minimal Home Assistant websocket client (stdlib only, reads
   `~/ha-claude/.env`), e.g. `{"type":"config/entity_registry/update","entity_id":"light.a","new_entity_id":"light.b"}`
   or `{"type":"switch_manager/config/save","config":{...}}`.
+- `configure_check.js <converter.js> [empty reads]`: runs the ZDMS16-2 configure of a generated
+  converter with the real zhc against a fake device whose MCU answers late (`mcu_version` "" for
+  the first reads) and prints the order and time of the reads.
