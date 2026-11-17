@@ -193,6 +193,7 @@ static void measure_poll(uint32_t now) {
 }
 #endif
 
+#if !(MEASURE || DIAG_REPORT)   /* the measurement builds report more, every 10 s */
 /* Health counters for long runs, in every build: a minute after start and then
  * every 10 min as reports of DPs 130..134 (logged by the module's MCU link
  * diagnostics like the measurement DPs, read with zdms16_measure_read.py):
@@ -222,6 +223,7 @@ static void health_poll(uint32_t now) {
     tuya_report_value(134, store_save_count());
     tuya_report_send();
 }
+#endif
 
 /* Independent watchdog, ~1 s (LSI 32 kHz / 32, reload 1000). Once started it
  * runs through software resets too: the bootloader keeps refreshing it. */
@@ -242,7 +244,9 @@ static void watchdog_start(void) {
 }
 
 int main(void) {
+#if !(MEASURE || DIAG_REPORT)
     g_reset_cause = RCC->CSR >> 24;             /* why we (re)started: kept for the health report */
+#endif
     RCC->CSR |= RCC_CSR_RMVF;
     clock_init();
     gpio_init();
@@ -281,7 +285,9 @@ int main(void) {
 #if !DIAG_REPORT
         led_update(now);                         /* diagnostics build: the LED mirrors PA4 */
 #endif
+#if !(MEASURE || DIAG_REPORT)
         health_poll(now);
+#endif
 #if MEASURE || DIAG_REPORT
         measure_poll(now);
 #endif

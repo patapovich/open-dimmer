@@ -34,6 +34,7 @@ static uint32_t  g_now;   /* time of the events being handled (controls_poll) */
 
 static uint8_t closed(uint8_t idx);
 
+#if !(MEASURE || DIAG_REPORT)   /* the measurement builds have their own input statistics */
 /* Raw (undebounced) wall switch timing, to learn what the board's input stage
  * does: the last 8 level runs per switch, byte = closed << 7 | ms / 4 (max
  * 127 = 508 ms), oldest first. Reported after each gesture as DPs 140/141
@@ -74,6 +75,16 @@ static void report_raw_timing(uint8_t ch) {
                       ((uint32_t)r[4] << 24) | ((uint32_t)r[5] << 16) | ((uint32_t)r[6] << 8) | r[7]);
     tuya_report_send();
 }
+#else
+static void raw_sample(uint8_t ch, uint8_t level) {
+    (void)ch;
+    (void)level;
+}
+
+static void report_raw_timing(uint8_t ch) {
+    (void)ch;
+}
+#endif
 
 void controls_init(void) {
     /* Pull-ups and the input filters settle before the resting state is read
@@ -90,9 +101,11 @@ void controls_init(void) {
             g_in[i].pressed = 1;
             g_in[i].held    = 1;
         }
+#if !(MEASURE || DIAG_REPORT)
         if (i < DIMMER_CHANNELS) {
             g_raw_level[i] = closed(i);
         }
+#endif
     }
     __enable_irq();
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
