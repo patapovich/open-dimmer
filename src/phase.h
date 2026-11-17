@@ -46,6 +46,8 @@ extern volatile zc_measure_t g_zc_measure;
 void phase_init(void);
 /** New target for a channel (0 = channel 1). Fades there at 5 per half cycle. */
 void phase_set(uint8_t ch, uint8_t on, uint16_t level);
+/** Physical output limits of a channel (levels 10..1000, see dim_output). */
+void     phase_set_range(uint8_t ch, uint16_t min, uint16_t max);
 /** Dimming curve of a channel (curves.h, 0 = linear like the stock firmware). */
 void     phase_set_curve(uint8_t ch, uint8_t curve);
 /** Hold dimming on a channel: the light follows directly between lo and hi. */

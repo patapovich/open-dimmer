@@ -47,6 +47,7 @@ static void measure_edge(uint16_t now) {
 
 static dim_fader_t       g_fader[2];
 static volatile uint8_t  g_curve[2];
+static volatile uint16_t g_min[2] = { 10, 10 }, g_max[2] = { 1000, 1000 };
 static zc_tracker_t      g_zc;
 static volatile uint16_t g_last_zc;
 
@@ -87,8 +88,8 @@ static void zero_cross(uint16_t now) {
     if (zc_locked(&g_zc)) {
         /* Fade only while the output runs, so the first half cycles after
          * power-up fade in instead of jumping to the target. */
-        c0 = dim_compare(hp, dim_curve(g_curve[0], dim_fader_tick(&g_fader[0])));
-        c1 = dim_compare(hp, dim_curve(g_curve[1], dim_fader_tick(&g_fader[1])));
+        c0 = dim_compare(hp, dim_output(g_curve[0], dim_fader_tick(&g_fader[0]), g_min[0], g_max[0]));
+        c1 = dim_compare(hp, dim_output(g_curve[1], dim_fader_tick(&g_fader[1]), g_min[1], g_max[1]));
     }
 
     TIM1->ARR  = dim_reload(hp);
@@ -199,6 +200,16 @@ void phase_init(void) {
 void phase_set(uint8_t ch, uint8_t on, uint16_t level) {
     if (ch < 2) {
         dim_fader_set(&g_fader[ch], on, level);   /* 16-bit store: atomic */
+    }
+}
+
+void phase_set_range(uint8_t ch, uint16_t min, uint16_t max) {
+    if (ch < 2) {
+        __disable_irq();
+        g_min[ch] = min;
+        g_max[ch] = max;
+        dim_fader_set_floor(&g_fader[ch], min);
+        __enable_irq();
     }
 }
 

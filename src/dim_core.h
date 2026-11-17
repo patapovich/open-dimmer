@@ -35,11 +35,16 @@ typedef struct {
     uint8_t  hold_rate;
     uint16_t hold_lo;
     uint16_t hold_hi;
+    uint16_t floor;     /* lowest lit value (the channel min): fades jump 0 <-> floor */
 } dim_fader_t;
 
 void     dim_fader_init(dim_fader_t *f);
 /** Target for this channel: 0 when off, else the level (10..1000). */
 void     dim_fader_set(dim_fader_t *f, uint8_t on, uint16_t level);
+/** Lowest lit value of the channel (its min). Turning on starts there and
+ * turning off leaves from there: below it the lamp is dark anyway, so a fade
+ * through 0..floor would only show as a delay. */
+void     dim_fader_set_floor(dim_fader_t *f, uint16_t floor);
 /** One half cycle: move current towards target by step, return current. */
 uint16_t dim_fader_tick(dim_fader_t *f);
 
@@ -56,6 +61,14 @@ uint16_t dim_fader_hold_stop(dim_fader_t *f);
 /** Curve: value 0..1000 -> conduction time 0..DIM_DUTY_MAX. Unknown curve =
  * linear. Value 0 is always 0 (dark). */
 uint16_t dim_curve(uint8_t curve, uint16_t value);
+/** Output duty for a channel: min and max are physical limits of the lamp
+ * (conduction time = level/1000 of the half cycle, as the stock firmware and
+ * the linear curve mean them); the curve spreads the range between them.
+ *   duty = min + curve((value - min) / (max - min)) * (max - min)
+ * So min/max keep their meaning whatever the curve, and the linear curve
+ * gives exactly value/1000 as before. 0 = dark; below min = min. */
+uint16_t dim_output(uint8_t curve, uint16_t value, uint16_t min, uint16_t max);
+
 /** TIM1 compare (2 us ticks) for a duty, half_period in 20 us ticks. */
 uint16_t dim_compare(uint16_t half_period, uint16_t duty);
 /** TIM1 auto-reload (2 us ticks): a little past the expected next zero cross,

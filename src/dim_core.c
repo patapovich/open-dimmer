@@ -9,6 +9,11 @@ void dim_fader_init(dim_fader_t *f) {
     f->hold_rate = DIM_HOLD_RATE;
     f->hold_lo   = 0;
     f->hold_hi   = DIM_VALUE_MAX;
+    f->floor     = 0;
+}
+
+void dim_fader_set_floor(dim_fader_t *f, uint16_t floor) {
+    f->floor = floor > DIM_VALUE_MAX ? DIM_VALUE_MAX : floor;
 }
 
 void dim_fader_set(dim_fader_t *f, uint8_t on, uint16_t level) {
@@ -73,9 +78,16 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
     uint16_t cur = f->current, tgt = f->target, step = f->step ? f->step : 1;
 
     if (cur < tgt) {
+        if (cur < f->floor) {
+            cur = f->floor;                 /* light comes on at the lowest lit level */
+        }
         cur = (uint16_t)(tgt - cur > step ? cur + step : tgt);
     } else if (cur > tgt) {
-        cur = (uint16_t)(cur - tgt > step ? cur - step : tgt);
+        if (tgt < f->floor && cur - step < f->floor) {
+            cur = tgt;                      /* below the floor the lamp is dark: done */
+        } else {
+            cur = (uint16_t)(cur - tgt > step ? cur - step : tgt);
+        }
     }
     f->current = cur;
     return cur;
@@ -99,6 +111,36 @@ uint16_t dim_curve(uint8_t curve, uint16_t value) {
     int32_t         v = a + ((b - a) * (int32_t)frac + DIM_VALUE_MAX / 2) / DIM_VALUE_MAX;
 
     return (uint16_t)(v < 1 ? 1 : v);       /* on is never fully dark */
+}
+
+uint16_t dim_output(uint8_t curve, uint16_t value, uint16_t min, uint16_t max) {
+    if (value == 0) {
+        return 0;
+    }
+    if (max > DIM_VALUE_MAX) {
+        max = DIM_VALUE_MAX;
+    }
+    if (min > max) {
+        min = max;
+    }
+    if (value < min) {
+        value = min;
+    }
+    if (value > max) {
+        value = max;
+    }
+    if (curve == CURVE_LINEAR || curve >= CURVE_COUNT) {
+        return (uint16_t)(value * (DIM_DUTY_MAX / DIM_VALUE_MAX));   /* min + (v - min): exact */
+    }
+    uint32_t span = (uint32_t)(max - min);
+    if (span == 0) {
+        return (uint16_t)(min * (DIM_DUTY_MAX / DIM_VALUE_MAX));
+    }
+    uint32_t pos   = ((uint32_t)(value - min) * DIM_VALUE_MAX + span / 2) / span;   /* 0..1000 */
+    uint32_t shape = pos ? dim_curve(curve, (uint16_t)pos) : 0;                      /* 0..10000 */
+    uint32_t duty  = (uint32_t)min * (DIM_DUTY_MAX / DIM_VALUE_MAX) +
+                     (shape * span + DIM_VALUE_MAX / 2) / DIM_VALUE_MAX;
+    return (uint16_t)(duty < 1 ? 1 : duty);
 }
 
 uint16_t dim_compare(uint16_t half_period, uint16_t duty) {

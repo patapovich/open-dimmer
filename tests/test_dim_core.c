@@ -298,6 +298,63 @@ static void test_off_during_hold_then_release_stays_off(void) {
     CHECK(f.current == 0);
 }
 
+static void test_output_linear_is_unchanged(void) {
+    for (uint16_t v = 10; v <= 1000; v += 7) {
+        CHECK(dim_output(0, v, 10, 1000) == v * 10);          /* level/1000, like the stock fw */
+        CHECK(dim_output(0, v, 200, 1000) == (v < 200 ? 2000 : v * 10));
+        CHECK(dim_output(9, v, 200, 900) == dim_output(0, v, 200, 900));   /* unknown = linear */
+    }
+    CHECK(dim_output(0, 0, 200, 1000) == 0);
+}
+
+static void test_output_min_max_are_physical_for_every_curve(void) {
+    for (uint8_t c = 0; c < 4; c++) {
+        CHECK(dim_output(c, 287, 287, 900) == 2870);    /* min: the same duty whatever the curve */
+        CHECK(dim_output(c, 900, 287, 900) == 9000);    /* max: likewise */
+        CHECK(dim_output(c, 100, 287, 900) == 2870);    /* below min (fading in): min */
+        CHECK(dim_output(c, 0, 287, 900) == 0);
+        uint16_t prev = 0;
+        for (uint16_t v = 287; v <= 900; v++) {
+            uint16_t d = dim_output(c, v, 287, 900);
+            CHECK(d >= prev);
+            prev = d;
+        }
+    }
+    /* led: the middle of the range sits low, as the curve shapes it */
+    CHECK(dim_output(1, 593, 287, 900) < dim_output(0, 593, 287, 900));
+    CHECK(dim_output(1, 593, 50, 1000) > 2700 && dim_output(1, 593, 50, 1000) < 3100);   /* ~2890 */
+}
+
+static void test_fader_floor(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set_floor(&f, 287);
+    dim_fader_set(&f, 1, 500);
+    CHECK(dim_fader_tick(&f) == 292);       /* on: starts at the floor, then fades */
+    for (int i = 0; i < 100; i++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current == 500);
+    dim_fader_set(&f, 0, 500);
+    int n = 0;
+    while (f.current && n < 1000) {
+        uint16_t prev = f.current;
+        uint16_t now  = dim_fader_tick(&f);
+        CHECK(now == 0 || now >= 287);      /* never lingers below the floor */
+        CHECK(now < prev);
+        n++;
+    }
+    CHECK(n <= (500 - 287) / 5 + 2);        /* off ends at the floor, no 0.6 s tail */
+    /* hold from dark still starts at the hold lo */
+    dim_fader_set(&f, 1, 287);
+    dim_fader_tick(&f);
+    CHECK(f.current == 287);
+    /* floor 0 (the default) = the old behaviour */
+    dim_fader_init(&f);
+    dim_fader_set(&f, 1, 20);
+    CHECK(dim_fader_tick(&f) == 5);
+}
+
 int main(void) {
     test_fade_up_takes_two_seconds();
     test_fade_lands_exactly_on_target();
@@ -305,6 +362,9 @@ int main(void) {
     test_level_clamped();
     test_compare();
     test_curves();
+    test_output_linear_is_unchanged();
+    test_output_min_max_are_physical_for_every_curve();
+    test_fader_floor();
     test_zc_locks_after_regular_edges();
     test_zc_ignores_bounce();
     test_zc_gap_drops_lock();

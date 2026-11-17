@@ -72,6 +72,7 @@ static void snapshot(saved_t *s) {
 }
 
 static void apply(uint8_t ch) {
+    phase_set_range(ch, g_ch[ch].min, g_ch[ch].max);
     phase_set_curve(ch, g_ch[ch].curve);
     phase_set(ch, g_ch[ch].on, g_ch[ch].level);
 }
@@ -285,6 +286,7 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         if (c->min > c->max) {
             c->max = c->min;
         }
+        apply(ch);
         mark_dirty();
         return 1;
 
@@ -293,6 +295,7 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         if (c->max < c->min) {
             c->min = c->max;
         }
+        apply(ch);
         mark_dirty();
         return 1;
 
