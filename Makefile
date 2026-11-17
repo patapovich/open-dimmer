@@ -26,7 +26,7 @@ INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Inc
 DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM)
 ARCH     := -mcpu=cortex-m0plus -mthumb
 CFLAGS   := $(ARCH) $(DEFS) $(INCLUDES) -Os -g -Wall -Wextra -Wno-unused-parameter \
-            -ffunction-sections -fdata-sections -std=c11
+            -ffunction-sections -fdata-sections -std=c11 -MMD -MP
 LDFLAGS  := $(ARCH) -T$(LDSCRIPT) -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(PROJECT).map \
             --specs=nano.specs --specs=nosys.specs
 
@@ -58,7 +58,10 @@ flash: $(BUILD)/$(PROJECT).bin
 	$(PYOCD) reset -t py32f002ax5 --pack $(PACK) -f 400000
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf build build-sim
+
+# Header dependencies (an object is rebuilt when a header it includes changes)
+-include $(OBJS:.o=.d)
 
 .PHONY: all flash clean
 
