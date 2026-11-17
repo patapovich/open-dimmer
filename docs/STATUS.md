@@ -101,6 +101,13 @@ of all five modules for 7 minutes. Before deploying any converter change:
    (shared converter): ~45 entities get new unique_ids (history restarts), clean up the deleted
    ones, give the new ones the `_l1`/`_l2` ids, update the 6 automation refs
    `number.light_*_on_level_dimmer_left`. Dry run first (expose dump + predicted ids).
+   In the same migration: the device-level entities `device_config`, `device_config_ext`,
+   `mcu_version`, `multi_press_reset_count` move off `dimmer_left` (upstream template puts them
+   on the first endpoint) to the device (no endpoint).
+1b. Converter configure reads the own-MCU settings too early after a module restart (the ZTU
+   answers 0 until the MCU has sent its values; HA then shows 0 for fade/hold and `linear`):
+   wait until `mcu_version` (0xff12) reads a real version, then read. Until then: re-read with
+   a Z2M `read` of genBasic 0xff30..0xff3b.
 2. Long trial of the spare: `zdms16_health.py` now and then (lock losses, resets).
 3. Fade / hold defaults: the user set channel 1 to `led_soft`; settle the defaults after use.
 4. House-unit migration (not yet wanted): `IMAGE=release tools/swd/install.sh` (one contact;
