@@ -82,12 +82,10 @@ $(BUILD)/$(PROJECT)_full.bin: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin
 	python3 tools/mkimage.py $< --full $(BOOT_BUILD)/boot.bin $@
 
 # The module must be powered from the probe, never from mains, while wired.
-# flash: the app only (the bootloader stays); flash-all: bootloader + app.
-flash: $(BUILD)/$(PROJECT).img
-	$(PYOCD) load -t py32f002ax5 --pack $(PACK) -f 400000 --format bin --base-address 0x08000800 $<
-	$(PYOCD) reset -t py32f002ax5 --pack $(PACK) -f 400000
-
-flash-all: $(BUILD)/$(PROJECT)_full.bin
+# Always the whole image (bootloader + app): pyocd erases 4 KB sectors and the
+# app shares the first one with the bootloader, so an app-only load wipes the
+# bootloader (seen 2026-11-17). The settings sector (0x08004000) is not touched.
+flash flash-all: $(BUILD)/$(PROJECT)_full.bin
 	$(PYOCD) load -t py32f002ax5 --pack $(PACK) -f 400000 --format bin --base-address 0x08000000 $<
 	$(PYOCD) reset -t py32f002ax5 --pack $(PACK) -f 400000
 
