@@ -101,12 +101,43 @@ static void led_update(uint32_t now) {
 static uint32_t g_measure_next = MEASURE_EVERY_MS;
 static uint16_t g_s_low_ms[2];
 static uint16_t g_s_changes[2];
+/* Pin scan: which input pins of GPIOA/GPIOB/GPIOF changed or were low in the
+ * window (bit n = pin n). Unused pins are inputs with pull-ups in this build. */
+static uint16_t g_scan_last[3], g_scan_changed[3], g_scan_low[3];
+
+static void scan_pins_init(void) {
+    GPIO_TypeDef *ports[3] = { GPIOA, GPIOB, GPIOF };
+    RCC->IOPENR |= RCC_IOPENR_GPIOAEN | RCC_IOPENR_GPIOBEN | RCC_IOPENR_GPIOFEN;
+    for (uint8_t p = 0; p < 3; p++) {
+        uint32_t moder = ports[p]->MODER, pupdr = ports[p]->PUPDR;
+        for (uint8_t pin = 0; pin < 16; pin++) {
+            /* only pins left in analog mode (unused); PA13/PA14 (SWD) untouched */
+            if (((moder >> (2 * pin)) & 3u) == 3u && !(p == 0 && (pin == 13 || pin == 14))) {
+                moder &= ~(3u << (2 * pin));
+                pupdr = (pupdr & ~(3u << (2 * pin))) | (1u << (2 * pin));
+            }
+        }
+        ports[p]->PUPDR = pupdr;
+        ports[p]->MODER = moder;
+        g_scan_last[p]  = (uint16_t)ports[p]->IDR;
+    }
+}
+
+static void scan_pins_sample(void) {
+    uint16_t now[3] = { (uint16_t)GPIOA->IDR, (uint16_t)GPIOB->IDR, (uint16_t)GPIOF->IDR };
+    for (uint8_t p = 0; p < 3; p++) {
+        g_scan_changed[p] |= (uint16_t)(now[p] ^ g_scan_last[p]);
+        g_scan_low[p]     |= (uint16_t)~now[p];
+        g_scan_last[p]     = now[p];
+    }
+}
 
 static void measure_poll(uint32_t now) {
     static uint32_t last_ms;
     static uint8_t  last_level[2] = { 1, 1 };
     if (now != last_ms) {                      /* switch inputs, sampled once a ms */
         last_ms = now;
+        scan_pins_sample();
         uint8_t lv[2] = { LL_GPIO_IsInputPinSet(S1_PORT, S1_PIN) ? 1u : 0u,
                           LL_GPIO_IsInputPinSet(S2_PORT, S2_PIN) ? 1u : 0u };
         for (uint8_t i = 0; i < 2; i++) {
@@ -143,7 +174,15 @@ static void measure_poll(uint32_t now) {
     tuya_report_value(121, g_s_changes[1]);
     tuya_report_value(122, losses);
     tuya_report_value(123, ignored);
+    /* 124/125/126: GPIOA/B/F, high half = pins that changed, low half = pins seen low */
+    tuya_report_value(124, ((uint32_t)g_scan_changed[0] << 16) | g_scan_low[0]);
+    tuya_report_value(125, ((uint32_t)g_scan_changed[1] << 16) | g_scan_low[1]);
+    tuya_report_value(126, ((uint32_t)g_scan_changed[2] << 16) | g_scan_low[2]);
     tuya_report_send();
+    for (uint8_t p = 0; p < 3; p++) {
+        g_scan_changed[p] = 0;
+        g_scan_low[p]     = 0;
+    }
     g_s_low_ms[0]  = 0;
     g_s_low_ms[1]  = 0;
     g_s_changes[0] = 0;
@@ -175,6 +214,9 @@ int main(void) {
     phase_init();
     dimmer_init();
     controls_init();
+#if MEASURE || DIAG_REPORT
+    scan_pins_init();
+#endif
     SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
     uart_init(UART_BAUD);
     tuya_init();
