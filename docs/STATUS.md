@@ -10,7 +10,7 @@ checkout `~/projects/tzs-diag`).
 |---|---|
 | Spare module (<spare IEEE>, test lamp on L1, push button L–S1) | ZTU 1.1.3-74eb831f (0x11033018), MCU **2.1.9 own** |
 | House modules (4) | stock PY32 MCU, own ZTU; **not migrated** |
-| PY32 source | this repo (`~/projects/zdms16-py32/fw`, local git only, no remote) |
+| PY32 source | this repo (github.com/patapovich/zdms16-py32, local checkout `~/projects/zdms16-py32/fw`) |
 | ZTU + converter | `~/projects/tzs-diag`, branch `home-dimmer` (HEAD b123d6fb, pushed) |
 | Z2M converter deployed | `/config/zigbee2mqtt/external_converters/switch_custom.js` (generated from home-dimmer) |
 | SWD tools | `tools/swd/` (run from anywhere; `.venv` and `pack/` live in `~/projects/zdms16-py32`) |
@@ -59,12 +59,12 @@ Min and max are physical conduction limits for every curve (same meaning as the 
   measurement builds; size report; artifacts.
 - **Release:** bump `FW_VERSION` in `src/tuya.h`, commit, `tools/release/release.sh`: checks,
   tags `vX.Y.Z` (must match the image), CI publishes the release (image, full image,
-  bootloader, `secondary_mcu_image.c`, `SHA256SUMS`), then `py32-bump` in
-  `patapovich/tuya-zigbee-switch` takes `secondary_mcu_image.c` from the release (checksum),
-  runs lint + tests, commits to `home-dimmer`, rebuilds `home-dimmer_build` (+ `fork-ci`) and
-  starts `build.yml`, whose "Update firmware files" commit has the OTA image. With a secret
-  `ZTU_DISPATCH_TOKEN` (fine-grained PAT, Actions write on the fork) the release job starts
-  `py32-bump` itself (then run `NO_BUMP=1 tools/release/release.sh` to only wait).
+  bootloader, `secondary_mcu_image.c`, `SHA256SUMS`); then, locally in `~/projects/tzs-diag`,
+  it puts the release's `secondary_mcu_image.c` (checksum) into `home-dimmer`, runs lint +
+  stub tests, commits, rebuilds `home-dimmer_build` (= home-dimmer + branch `fork-ci`) and
+  runs the fork's `build.yml`, whose "Update firmware files" commit has the OTA image.
+  Rerunning after a failure carries on (an existing release is not tagged again). A cloud
+  hand-over would need a workflow on the fork's default branch + a token (not done).
 - **Deploy (local, home network):** `tools/ha/deploy_ota.sh <ieee> [...]`: newest OTA image
   from `home-dimmer_build`, shows the PY32 version it carries, asks, then fast OTA one module at
   a time with the guard. The ZTU updates the MCU only if it is our firmware and older. Then

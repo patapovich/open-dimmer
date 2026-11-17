@@ -34,21 +34,50 @@ wait_new_run() { # repo, previous id, args...: wait until a newer run exists, th
     gh run watch "$id" --repo "$repo" --exit-status > /dev/null
 }
 
-echo "== $TAG: push and tag"
-git push -q origin HEAD
-prev=$(latest_run "$PY32" --branch "$TAG")
-git tag -a "$TAG" -m "PY32 firmware $TAG"
-git push -q origin "$TAG"
-wait_new_run "$PY32" "$prev" --branch "$TAG"
+TMP=$(mktemp -d)
+ZTU_DIR=~/projects/tzs-diag
+VENV_PY=~/projects/tuya-zigbee-switch/.venv/bin/python
+
+if gh release view "$TAG" --repo "$PY32" > /dev/null 2>&1; then
+    echo "== $TAG already released: carrying it on"
+else
+    echo "== $TAG: push and tag"
+    git push -q origin HEAD
+    prev=$(latest_run "$PY32" --branch "$TAG")
+    git tag -a "$TAG" -m "PY32 firmware $TAG"
+    git push -q origin "$TAG"
+    wait_new_run "$PY32" "$prev" --branch "$TAG"
+fi
 gh release view "$TAG" --repo "$PY32" --json assets --jq '.assets[].name' | sed 's/^/  asset /'
 
-echo "== carry into the Zigbee firmware"
-prev_bump=$(latest_run "$ZTU" --workflow py32-bump.yml)
-prev_build=$(latest_run "$ZTU" --workflow build.yml --branch home-dimmer_build)
-if [ -z "${NO_BUMP:-}" ]; then
-    gh workflow run py32-bump.yml --repo "$ZTU" --ref home-dimmer -f py32_tag="$TAG"
-fi
-wait_new_run "$ZTU" "$prev_bump" --workflow py32-bump.yml
+echo "== carry into the Zigbee firmware (home-dimmer in $ZTU_DIR)"
+[ "$(git -C "$ZTU_DIR" branch --show-current)" = "home-dimmer" ] || { echo "$ZTU_DIR is not on home-dimmer"; exit 1; }
+[ -z "$(git -C "$ZTU_DIR" status --porcelain --untracked-files=no)" ] || { echo "$ZTU_DIR has uncommitted changes"; exit 1; }
+gh release download "$TAG" --repo "$PY32" --pattern secondary_mcu_image.c --pattern SHA256SUMS --dir "$TMP"
+(cd "$TMP" && grep secondary_mcu_image.c SHA256SUMS | sha256sum -c --quiet -)
+cp "$TMP/secondary_mcu_image.c" "$ZTU_DIR/src/zigbee/secondary_mcu_image.c"
+(
+    cd "$ZTU_DIR"
+    find src -name '*.c' -o -name '*.h' | xargs uncrustify -c uncrustify.cfg --check -q
+    make -C src/stub build -s > /dev/null
+    "$VENV_PY" -m pytest tests/ -q -p no:cacheprovider 2>&1 | tail -1
+    if git diff --quiet; then
+        echo "  home-dimmer already carries $TAG"
+    else
+        git commit -qam "Carry PY32 $TAG"
+        git push -q patapovich home-dimmer
+        echo "  committed: $(git log --oneline -1)"
+    fi
+    git fetch -q patapovich fork-ci
+    git branch -f home-dimmer_build home-dimmer
+    git switch -q home-dimmer_build
+    git cherry-pick patapovich/fork-ci > /dev/null
+    git push -q -f patapovich home-dimmer_build
+    git switch -q home-dimmer
+)
+
 echo "== module firmware build"
+prev_build=$(latest_run "$ZTU" --workflow build.yml --branch home-dimmer_build)
+gh workflow run build.yml --repo "$ZTU" --ref home-dimmer_build
 wait_new_run "$ZTU" "$prev_build" --workflow build.yml --branch home-dimmer_build
 echo "== done: $TAG is in the OTA image on home-dimmer_build. Deploy: tools/ha/deploy_ota.sh <ieee>..."
