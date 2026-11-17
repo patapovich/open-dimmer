@@ -13,6 +13,9 @@ assert magic == 0x5A445041 and size == len(img), "not an app image made by tools
 if flags & 1 or version == 0xBF:
     sys.exit("refusing a SIM bench build: the module would push it to dimmers on the mains")
 assert size <= 12 * 1024, "app larger than the 12 KB app area"
+sp, reset = struct.unpack_from("<II", img, 0)
+assert 0x08001000 <= reset < 0x08004000 and (sp >> 20) == 0x200, \
+    "not linked for the 4 KB bootloader layout (app at 0x08001000)"
 check = bytearray(img); struct.pack_into("<I", check, 0xC8, 0)
 assert zlib.crc32(bytes(check)) & 0xFFFFFFFF == crc, "CRC mismatch"
 v = f"{version >> 6}.{(version >> 4) & 3}.{version & 15}"

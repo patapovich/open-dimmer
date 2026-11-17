@@ -33,7 +33,7 @@ _Min_Stack_Size = 0x200;  /* required amount of stack: 512 bytes */
 /* Specify the memory areas */
 MEMORY
 {
-  RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 3K - 16   /* last 16 bytes: OTA mailbox */
+  RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 3K - 32   /* last 32 bytes: OTA mailbox */
   FLASH (rx)     : ORIGIN = 0x08000000, LENGTH = 4K
   /* Last 4 KB sector: settings ring (src/store.c), never code. */
   SETTINGS (r)   : ORIGIN = 0x08004000, LENGTH = 4K

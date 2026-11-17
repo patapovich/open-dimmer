@@ -50,6 +50,7 @@ volatile struct {
 } g_boot;
 
 static uint32_t g_ms;
+static uint32_t g_expect_crc;   /* image the app accepted, 0 = any (no app) */
 static uint8_t  g_rx[RX_MAX];
 static uint16_t g_rx_len;
 static uint32_t g_page[FLASH_PAGE_BYTES / 4u];
@@ -123,10 +124,21 @@ static void send(uint8_t cmd, const uint8_t *d, uint16_t n) {
     }
 }
 
-/* Collect bytes; returns 1 with a complete, checked frame in g_rx. */
+static void rx_drop(uint16_t n) {
+    g_rx_len = (uint16_t)(g_rx_len > n ? g_rx_len - n : 0);
+    copy(g_rx, g_rx + n, g_rx_len);
+}
+
+/* Collect bytes; returns 1 with a complete, checked frame in g_rx. Half a
+ * frame that stops coming is dropped after 50 ms. */
 static uint8_t rx_frame(void) {
-    int b;
+    static uint32_t last;
+    int             b;
+    if (g_rx_len && g_ms - last > 50u) {
+        g_rx_len = 0;
+    }
     while ((b = rx_byte()) >= 0) {
+        last = g_ms;
         if (g_rx_len < RX_MAX) {
             g_rx[g_rx_len++] = (uint8_t)b;
         } else {
@@ -154,7 +166,7 @@ static uint8_t rx_frame(void) {
         if (ok) {
             return 1;                                         /* caller resets g_rx_len */
         }
-        g_rx_len = 0;
+        rx_drop(2);                                           /* a real frame may start inside */
     }
     return 0;
 }
@@ -229,6 +241,9 @@ static uint8_t on_block(const uint8_t *d, uint16_t n) {
 
     if (size < APP_HEADER_OFFSET + sizeof(app_header_t) || size > APP_MAX_SIZE || len == 0) {
         return 0;
+    }
+    if (g_expect_crc && crc != g_expect_crc) {
+        return 0;                                             /* not the image that was accepted */
     }
     if (g_boot.size && (size != g_boot.size || crc != g_boot.crc)) {
         restart_transfer();                                   /* the module has another image now */
@@ -320,6 +335,7 @@ int main(void) {
 
     uint8_t asked = OTA_MAILBOX->magic == OTA_MAILBOX_MAGIC &&
                     OTA_MAILBOX->magic_inv == ~OTA_MAILBOX_MAGIC;
+    g_expect_crc           = asked ? OTA_MAILBOX->expect_crc : 0;
     OTA_MAILBOX->magic     = 0;
     OTA_MAILBOX->magic_inv = 0;
 

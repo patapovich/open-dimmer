@@ -265,8 +265,15 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
     switch (idx) {
     case DP_LEVEL:
         /* Unlike the stock firmware, a level written while off is kept for
-         * the next "on". */
+         * the next "on", and it stays within min..max (the ack reports the
+         * level taken, so the module learns it). */
         c->level = clamp_level(v);
+        if (c->level < c->min) {
+            c->level = c->min;
+        }
+        if (c->level > c->max) {
+            c->level = c->max;
+        }
         apply(ch);
         if (!c->on) {
             mark_dirty();

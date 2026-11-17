@@ -176,6 +176,8 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
         }
         phase_shutdown();
         dimmer_prepare_restart();
+        OTA_MAILBOX->expect_crc = ((uint32_t)data[5] << 24) | ((uint32_t)data[6] << 16) |
+                                  ((uint32_t)data[7] << 8) | data[8];
         OTA_MAILBOX->magic     = OTA_MAILBOX_MAGIC;
         OTA_MAILBOX->magic_inv = ~OTA_MAILBOX_MAGIC;
         NVIC_SystemReset();

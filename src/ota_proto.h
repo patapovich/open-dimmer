@@ -53,9 +53,9 @@ typedef struct {
 
 #define APP_FLAG_SIM          0x01     /* bench build (virtual zero cross): never on mains */
 
-/* Mailbox in the last 16 bytes of RAM (outside .data/.bss/stack in both
+/* Mailbox in the last 32 bytes of RAM (outside .data/.bss/stack in both
  * linker scripts): survives a software reset, random after power-up. */
-#define OTA_MAILBOX_ADDR      0x20000BF0u
+#define OTA_MAILBOX_ADDR      0x20000BE0u
 #define OTA_MAILBOX_MAGIC     0x55504454u   /* "UPDT" */
 
 typedef struct {
@@ -63,6 +63,8 @@ typedef struct {
     uint32_t magic_inv;
     uint32_t restore_check;  /* OTA_RESTORE_MAGIC ^ restore: the light state ... */
     uint32_t restore;        /* ... to come back to after the update (dimmer.c) */
+    uint32_t expect_crc;     /* the image the app accepted: the bootloader takes no other */
+    uint32_t reserved[3];
 } ota_mailbox_t;
 
 #define OTA_RESTORE_MAGIC     0x52535452u   /* "RSTR" */
