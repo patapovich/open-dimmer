@@ -26,6 +26,9 @@
 #define ZC_WINDOW_DIV          12     /* once locked, edges only within +-1/12 (8 %) */
 
 #define DIM_HOLD_RATE          3      /* per half cycle while held: 1000 in 3.3 s */
+#define DIM_EASE_SPAN          120    /* just above the floor the fade steps shrink to 1: */
+                                      /* the dim end fades in and out softly (~0.5 s)    */
+#define DIM_OFF_HOLD           8      /* half cycles at the floor before going dark      */
 
 typedef struct {
     uint16_t current;   /* value applied now, 0..1000 */
@@ -36,6 +39,7 @@ typedef struct {
     uint16_t hold_lo;
     uint16_t hold_hi;
     uint16_t floor;     /* lowest lit value (the channel min): fades jump 0 <-> floor */
+    uint8_t  floor_hold; /* half cycles spent at the floor on the way to dark */
 } dim_fader_t;
 
 void     dim_fader_init(dim_fader_t *f);

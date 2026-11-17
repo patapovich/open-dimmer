@@ -10,6 +10,7 @@ void dim_fader_init(dim_fader_t *f) {
     f->hold_lo   = 0;
     f->hold_hi   = DIM_VALUE_MAX;
     f->floor     = 0;
+    f->floor_hold = 0;
 }
 
 void dim_fader_set_floor(dim_fader_t *f, uint16_t floor) {
@@ -71,6 +72,16 @@ static uint16_t hold_tick(dim_fader_t *f) {
     return cur;
 }
 
+/* Fade step at value cur: full above the ease span, down to 1 at the floor
+ * (no easing without a floor: floor 0 is the plain stock-like fade). */
+static uint16_t eased_step(const dim_fader_t *f, uint16_t cur, uint16_t step) {
+    if (f->floor == 0 || cur >= f->floor + DIM_EASE_SPAN) {
+        return step;
+    }
+    uint16_t d = cur > f->floor ? (uint16_t)(cur - f->floor) : 0;
+    return (uint16_t)(1 + (uint32_t)(step - 1) * d / DIM_EASE_SPAN);
+}
+
 uint16_t dim_fader_tick(dim_fader_t *f) {
     if (f->hold_dir) {
         return hold_tick(f);
@@ -78,15 +89,27 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
     uint16_t cur = f->current, tgt = f->target, step = f->step ? f->step : 1;
 
     if (cur < tgt) {
+        f->floor_hold = 0;
         if (cur < f->floor) {
             cur = f->floor;                 /* light comes on at the lowest lit level */
         }
-        cur = (uint16_t)(tgt - cur > step ? cur + step : tgt);
+        step = eased_step(f, cur, step);
+        cur  = (uint16_t)(tgt - cur > step ? cur + step : tgt);
     } else if (cur > tgt) {
-        if (tgt < f->floor && cur - step < f->floor) {
-            cur = tgt;                      /* below the floor the lamp is dark: done */
+        if (tgt < f->floor && cur <= f->floor) {
+            /* At the floor on the way to dark: stay a moment, then out
+             * (below the floor the lamp is dark anyway). */
+            if (++f->floor_hold >= DIM_OFF_HOLD) {
+                f->floor_hold = 0;
+                cur           = tgt;
+            }
         } else {
-            cur = (uint16_t)(cur - tgt > step ? cur - step : tgt);
+            step = eased_step(f, cur, step);
+            if (tgt < f->floor) {
+                cur = (uint16_t)(cur - f->floor > step ? cur - step : f->floor);
+            } else {
+                cur = (uint16_t)(cur - tgt > step ? cur - step : tgt);
+            }
         }
     }
     f->current = cur;

@@ -329,25 +329,56 @@ static void test_fader_floor(void) {
     dim_fader_t f;
     dim_fader_init(&f);
     dim_fader_set_floor(&f, 287);
-    dim_fader_set(&f, 1, 500);
-    CHECK(dim_fader_tick(&f) == 292);       /* on: starts at the floor, then fades */
-    for (int i = 0; i < 100; i++) {
+    dim_fader_set(&f, 1, 600);
+    CHECK(dim_fader_tick(&f) == 288);       /* on: starts at the floor, slowly */
+    int n_on = 1;
+    uint16_t prev = 288, max_step_low = 0;
+    while (f.current != 600 && n_on < 1000) {
+        uint16_t now = dim_fader_tick(&f);
+        CHECK(now > prev);
+        if (prev < 287 + DIM_EASE_SPAN && now - prev > max_step_low) {
+            max_step_low = (uint16_t)(now - prev);
+        }
+        prev = now;
+        n_on++;
+    }
+    CHECK(f.current == 600);
+    CHECK(max_step_low < DIM_STEP_DEFAULT || max_step_low == DIM_STEP_DEFAULT);
+    CHECK(n_on > (600 - 287) / DIM_STEP_DEFAULT + 20);   /* the soft start takes longer */
+
+    dim_fader_set(&f, 0, 600);              /* off */
+    int at_floor = 0, n_off = 0, last_steps = 0;
+    prev = 600;
+    while (f.current && n_off < 1000) {
+        uint16_t now = dim_fader_tick(&f);
+        CHECK(now == 0 || now >= 287);      /* never lingers below the floor */
+        CHECK(now <= prev);
+        if (now == 287) {
+            at_floor++;
+        }
+        if (now > 0 && now < 287 + DIM_EASE_SPAN / 4 && now != 287) {
+            last_steps++;                   /* the dim end is not rushed */
+        }
+        prev = now;
+        n_off++;
+    }
+    CHECK(f.current == 0);
+    CHECK(at_floor == DIM_OFF_HOLD);        /* a moment at the floor, then dark */
+    CHECK(last_steps >= 15);
+    CHECK(n_off < 200);                     /* still under 2 s from 600 */
+
+    /* a level change between lit levels above the ease span is the plain fade */
+    dim_fader_set(&f, 1, 800);
+    for (int k = 0; k < 400; k++) {
         dim_fader_tick(&f);
     }
-    CHECK(f.current == 500);
-    dim_fader_set(&f, 0, 500);
-    int n = 0;
-    while (f.current && n < 1000) {
-        uint16_t prev = f.current;
-        uint16_t now  = dim_fader_tick(&f);
-        CHECK(now == 0 || now >= 287);      /* never lingers below the floor */
-        CHECK(now < prev);
-        n++;
-    }
-    CHECK(n <= (500 - 287) / 5 + 2);        /* off ends at the floor, no 0.6 s tail */
+    dim_fader_set(&f, 1, 600);
+    CHECK(dim_fader_tick(&f) == 795);
     /* hold from dark still starts at the hold lo */
     dim_fader_set(&f, 1, 287);
-    dim_fader_tick(&f);
+    for (int k = 0; k < 400; k++) {
+        dim_fader_tick(&f);
+    }
     CHECK(f.current == 287);
     /* floor 0 (the default) = the old behaviour */
     dim_fader_init(&f);
