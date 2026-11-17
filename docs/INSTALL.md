@@ -41,11 +41,26 @@ After that, every update goes over Zigbee.
 
 ## 0. Zigbee side first
 
-The module must run the Zigbee firmware that carries this MCU firmware: the `home-dimmer` build
-of [patapovich/tuya-zigbee-switch](https://github.com/patapovich/tuya-zigbee-switch) (a fork of
-[romasku/tuya-zigbee-switch](https://github.com/romasku/tuya-zigbee-switch); converting a stock
-module over Zigbee is described there). Check in Zigbee2MQTT that the module works with the
-stock MCU (`mcu_version` shows the stock version, for example 1.0.7) before going on.
+The module must run the Zigbee firmware that carries this MCU firmware: the ZDMS16-2 build of
+the fork [patapovich/tuya-zigbee-switch](https://github.com/patapovich/tuya-zigbee-switch)
+(branch `home-dimmer`, built on `home-dimmer_build`), based on
+[romasku/tuya-zigbee-switch](https://github.com/romasku/tuya-zigbee-switch). It is installed
+over the air from the stock firmware, no opening needed:
+
+1. Follow the upstream guide for Zigbee2MQTT:
+   [conversion from the stock firmware](https://github.com/romasku/tuya-zigbee-switch/blob/main/docs/updating.md#conversion)
+   and [external converters](https://github.com/romasku/tuya-zigbee-switch/blob/main/docs/updating.md#quirks--converters--extensions),
+   but take the fork's files (only the fork has the ZDMS16-2 with the MCU firmware):
+   - OTA index (`ota.zigbee_ota_override_index_location`):
+     `https://raw.githubusercontent.com/patapovich/tuya-zigbee-switch/home-dimmer_build/zigbee2mqtt/ota/index_router.json`
+   - converters (`switch_custom.js`, and `tuya_with_ota.js` for the stock module):
+     [zigbee2mqtt/converters](https://github.com/patapovich/tuya-zigbee-switch/tree/home-dimmer_build/zigbee2mqtt/converters)
+   - images, if you install them by hand:
+     [bin/router/MODULE_AVATTO_ZDMS16_2](https://github.com/patapovich/tuya-zigbee-switch/tree/home-dimmer_build/bin/router/MODULE_AVATTO_ZDMS16_2)
+     (`*-from_tuya.zigbee` converts a stock module, the plain `.zigbee` updates a converted one)
+2. Reconfigure the device in Zigbee2MQTT after the conversion, and check that it works with the
+   stock MCU: `mcu_version` shows the stock version (for example 1.0.7). Only then open the
+   module for the MCU part below.
 
 ## 1. Quick install: one contact
 

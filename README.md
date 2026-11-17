@@ -25,7 +25,8 @@ The stock MCU firmware is never touched by the update.
 - Health report (uptime, reset cause, zero-cross lock losses) and measurement builds that report
   statistics over Zigbee with nothing wired to the board.
 
-**Installation:** [docs/INSTALL.md](docs/INSTALL.md): once per module over SWD, in one contact with
+**Installation:** [docs/INSTALL.md](docs/INSTALL.md): first the Zigbee firmware over the air
+([section 0](docs/INSTALL.md#0-zigbee-side-first)), then once per module over SWD, in one contact with
 `tools/swd/install.sh` (read protection off, brown-out reset, flash, check); then updates over Zigbee.
 
 See [docs/STATUS.md](docs/STATUS.md) for the datapoints, the flash layout, the build and deploy
