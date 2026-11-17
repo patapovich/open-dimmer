@@ -12,6 +12,8 @@ magic, size, crc, version, flags = struct.unpack_from("<IIIBB", img, 0xC0)
 assert magic == 0x5A445041 and size == len(img), "not an app image made by tools/mkimage.py"
 if flags & 1 or version == 0xBF:
     sys.exit("refusing a SIM bench build: the module would push it to dimmers on the mains")
+if flags & 2:
+    sys.exit("refusing a measurement build: its outputs are always off")
 assert size <= 12 * 1024, "app larger than the 12 KB app area"
 sp, reset = struct.unpack_from("<II", img, 0)
 assert 0x08001000 <= reset < 0x08004000 and (sp >> 20) == 0x200, \

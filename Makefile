@@ -8,7 +8,10 @@ PROJECT  := zdms16_py32
 # make VERSION_BYTE=0x81 BUILD=build-x: another version byte (tests of updates)
 # make SIM=1: virtual 50 Hz zero cross from TIM16 instead of PA4 (bench, no mains)
 SIM      ?= 0
-BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)
+# make MEASURE=1: measurement build, outputs always off, zero-cross / input statistics
+# reported every 10 s (version 2.0.15 so the module never replaces it)
+MEASURE  ?= 0
+BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)
 
 CC       := arm-none-eabi-gcc
 OBJCOPY  := arm-none-eabi-objcopy
@@ -24,7 +27,7 @@ LDSCRIPT := py32f002a_app.ld
 
 INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Include \
             -I$(SDK)/PY32F0xx_LL_Driver/Inc
-DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE))
+DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) -DMEASURE=$(MEASURE) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE),$(if $(filter 1,$(MEASURE)),-DFW_VERSION=0x8F))
 ARCH     := -mcpu=cortex-m0plus -mthumb
 CFLAGS   := $(ARCH) $(DEFS) $(INCLUDES) -Os -g -Wall -Wextra -Wno-unused-parameter \
             -ffunction-sections -fdata-sections -std=c11 -MMD -MP

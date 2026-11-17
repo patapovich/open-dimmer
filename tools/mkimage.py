@@ -25,7 +25,8 @@ def make_app(data: bytes) -> bytes:
     struct.pack_into("<I", data, HDR_OFF + 8, crc)
     v = version
     print(f"app image: {len(data)} bytes, crc {crc:08x}, version {v >> 6}.{(v >> 4) & 3}.{v & 15} (0x{v:02X})"
-          + (", SIM BENCH BUILD: never on mains" if flags & 1 else ""), file=sys.stderr)
+          + (", SIM BENCH BUILD: never on mains" if flags & 1 else "")
+          + (", MEASUREMENT BUILD: outputs off" if flags & 2 else ""), file=sys.stderr)
     return bytes(data)
 
 if __name__ == "__main__":

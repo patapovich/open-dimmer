@@ -24,6 +24,25 @@ typedef struct {
 
 extern volatile phase_debug_t g_phase_dbg;   /* read over SWD */
 
+#if MEASURE
+/* Measurement build: durations of the PA4 levels between edges (20 us ticks). */
+typedef struct {
+    uint32_t sum;
+    uint16_t count;
+    uint16_t min;
+    uint16_t max;
+} zc_level_stats_t;
+
+typedef struct {
+    zc_level_stats_t high;
+    zc_level_stats_t low;
+    uint16_t         edges;
+    uint16_t         glitches;   /* edges less than 2 ms after the previous one */
+} zc_measure_t;
+
+extern volatile zc_measure_t g_zc_measure;
+#endif
+
 void phase_init(void);
 /** New target for a channel (0 = channel 1). Fades there at 5 per half cycle. */
 void phase_set(uint8_t ch, uint8_t on, uint16_t level);

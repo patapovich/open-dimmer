@@ -13,6 +13,38 @@
 
 volatile phase_debug_t g_phase_dbg;
 
+#if MEASURE
+volatile zc_measure_t g_zc_measure;
+static uint16_t       g_meas_last;
+static uint8_t        g_meas_started;
+
+/* Every edge of PA4: how long the level before it lasted. */
+static void measure_edge(uint16_t now) {
+    uint8_t  high_now = LL_GPIO_IsInputPinSet(ZC_PORT, ZC_PIN) ? 1 : 0;
+    uint16_t dt       = (uint16_t)(now - g_meas_last);
+    g_meas_last = now;
+    if (!g_meas_started) {
+        g_meas_started = 1;
+        return;
+    }
+    g_zc_measure.edges++;
+    if (dt < 100u) {                         /* < 2 ms: a glitch, not a half cycle */
+        g_zc_measure.glitches++;
+        return;
+    }
+    zc_level_stats_t *s = high_now ? (zc_level_stats_t *)&g_zc_measure.low   /* it was low */
+                                   : (zc_level_stats_t *)&g_zc_measure.high;
+    s->sum += dt;
+    s->count++;
+    if (s->min == 0 || dt < s->min) {
+        s->min = dt;
+    }
+    if (dt > s->max) {
+        s->max = dt;
+    }
+}
+#endif
+
 static dim_fader_t       g_fader[2];
 static volatile uint8_t  g_curve[2];
 static zc_tracker_t      g_zc;
@@ -89,7 +121,11 @@ void TIM16_IRQHandler(void) {
 void EXTI4_15_IRQHandler(void) {
     if (EXTI->PR & ZC_PIN_MASK) {
         EXTI->PR = ZC_PIN_MASK;
-        zero_cross((uint16_t)TIM16->CNT);
+        uint16_t now = (uint16_t)TIM16->CNT;
+#if MEASURE
+        measure_edge(now);
+#endif
+        zero_cross(now);
     }
 }
 #endif
@@ -124,6 +160,7 @@ static void timers_init(void) {
     TIM1->CR1  |= TIM_CR1_CEN;
 }
 
+#if !MEASURE
 static void gate_pins_to_timer(void) {
     /* The pins are GPIO outputs driven low until here; the timer outputs
      * are low too (compare 0), so the switch over does not glitch. */
@@ -132,6 +169,7 @@ static void gate_pins_to_timer(void) {
     LL_GPIO_SetPinMode(GATE1_PORT, GATE1_PIN, LL_GPIO_MODE_ALTERNATE);
     LL_GPIO_SetPinMode(GATE2_PORT, GATE2_PIN, LL_GPIO_MODE_ALTERNATE);
 }
+#endif
 
 static void zero_cross_input_init(void) {
 #if !SIM_ZC
@@ -152,7 +190,9 @@ void phase_init(void) {
     dim_fader_init(&g_fader[1]);
     zc_tracker_init(&g_zc);
     timers_init();
-    gate_pins_to_timer();
+#if !MEASURE
+    gate_pins_to_timer();       /* measurement build: the gates stay GPIO low, always */
+#endif
     zero_cross_input_init();
 }
 
