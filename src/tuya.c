@@ -1,60 +1,201 @@
 #include "tuya.h"
-#include "board.h"
-#include "py32f0xx_ll_bus.h"
-#include "py32f0xx_ll_usart.h"
+#include "dimmer.h"
+#include "uart.h"
+#include <string.h>
 
+#define FRAME_HEADER       8      /* 55 AA ver seq:2 cmd len:2 */
+#define RX_MAX_DATA        96
+#define RX_STALE_MS        50     /* bytes of one frame arrive back to back */
+#define REPORT_MAX_DATA    64
+
+static uint8_t  g_rx[FRAME_HEADER + RX_MAX_DATA + 1];
+static uint16_t g_rx_len;
+static uint32_t g_rx_last_ms;
 static uint16_t g_seq;
+static uint8_t  g_network = 0xFF;   /* unknown until the module tells us */
+
+static uint8_t  g_report[REPORT_MAX_DATA];
+static uint16_t g_report_len;
+static uint8_t  g_report_cmd = TUYA_CMD_REPORT;
 
 void tuya_init(void) {
-    LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
-    LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_USART1);
-
-    LL_USART_SetBaudRate(USART1, SystemCoreClock, LL_USART_OVERSAMPLING_16, UART_BAUD);
-    LL_USART_SetDataWidth(USART1, LL_USART_DATAWIDTH_8B);
-    LL_USART_SetStopBitsLength(USART1, LL_USART_STOPBITS_1);
-    LL_USART_SetParity(USART1, LL_USART_PARITY_NONE);
-    LL_USART_SetHWFlowCtrl(USART1, LL_USART_HWCONTROL_NONE);
-    LL_USART_SetTransferDirection(USART1, LL_USART_DIRECTION_TX_RX);
-    LL_USART_Enable(USART1);
-    LL_USART_ClearFlag_TC(USART1);
-
-    LL_GPIO_SetPinMode(UART_TX_PORT, UART_TX_PIN, LL_GPIO_MODE_ALTERNATE);
-    LL_GPIO_SetPinSpeed(UART_TX_PORT, UART_TX_PIN, LL_GPIO_SPEED_FREQ_HIGH);
-    LL_GPIO_SetPinPull(UART_TX_PORT, UART_TX_PIN, LL_GPIO_PULL_UP);
-    LL_GPIO_SetAFPin_0_7(UART_TX_PORT, UART_TX_PIN, LL_GPIO_AF_1);
-
-    LL_GPIO_SetPinMode(UART_RX_PORT, UART_RX_PIN, LL_GPIO_MODE_ALTERNATE);
-    LL_GPIO_SetPinSpeed(UART_RX_PORT, UART_RX_PIN, LL_GPIO_SPEED_FREQ_HIGH);
-    LL_GPIO_SetPinPull(UART_RX_PORT, UART_RX_PIN, LL_GPIO_PULL_UP);
-    LL_GPIO_SetAFPin_0_7(UART_RX_PORT, UART_RX_PIN, LL_GPIO_AF_1);
+    g_rx_len = 0;
 }
 
-static void uart_put(uint8_t b) {
-    while (!LL_USART_IsActiveFlag_TXE(USART1)) {
-    }
-    LL_USART_TransmitData8(USART1, b);
+uint8_t tuya_network_status(void) {
+    return g_network;
 }
 
-void tuya_send_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_t len) {
-    uint8_t head[8] = { 0x55, 0xAA, 0x02, (uint8_t)(seq >> 8), (uint8_t)seq, cmd,
-                        (uint8_t)(len >> 8), (uint8_t)len };
+void tuya_send(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_t len) {
+    uint8_t head[FRAME_HEADER] = { 0x55, 0xAA, 0x02, (uint8_t)(seq >> 8), (uint8_t)seq, cmd,
+                                   (uint8_t)(len >> 8), (uint8_t)len };
     uint8_t sum = 0;
 
-    for (uint8_t i = 0; i < sizeof(head); i++) {
+    for (uint8_t i = 0; i < FRAME_HEADER; i++) {
         sum += head[i];
-        uart_put(head[i]);
+        uart_putc(head[i]);
     }
     for (uint16_t i = 0; i < len; i++) {
         sum += data[i];
-        uart_put(data[i]);
+        uart_putc(data[i]);
     }
-    uart_put(sum);
-    while (!LL_USART_IsActiveFlag_TC(USART1)) {
+    uart_putc(sum);
+    uart_flush();
+}
+
+/* ---- report builder ------------------------------------------------------ */
+
+void tuya_report_begin(uint8_t passive) {
+    g_report_len = 0;
+    g_report_cmd = passive ? TUYA_CMD_REPORT_PASSIVE : TUYA_CMD_REPORT;
+}
+
+static void report_unit(uint8_t dpid, uint8_t type, const uint8_t *value, uint8_t len) {
+    if (g_report_len + 4 + len > REPORT_MAX_DATA) {
+        tuya_report_send();   /* keeps the frame type */
     }
+    g_report[g_report_len++] = dpid;
+    g_report[g_report_len++] = type;
+    g_report[g_report_len++] = 0;
+    g_report[g_report_len++] = len;
+    memcpy(&g_report[g_report_len], value, len);
+    g_report_len = (uint16_t)(g_report_len + len);
 }
 
 void tuya_report_bool(uint8_t dpid, uint8_t value) {
-    uint8_t dp[5] = { dpid, TUYA_DP_TYPE_BOOL, 0x00, 0x01, value ? 1 : 0 };
+    uint8_t v = value ? 1 : 0;
+    report_unit(dpid, TUYA_DP_TYPE_BOOL, &v, 1);
+}
 
-    tuya_send_frame(TUYA_CMD_REPORT, g_seq++, dp, sizeof(dp));
+void tuya_report_enum(uint8_t dpid, uint8_t value) {
+    report_unit(dpid, TUYA_DP_TYPE_ENUM, &value, 1);
+}
+
+void tuya_report_value(uint8_t dpid, uint32_t value) {
+    uint8_t v[4] = { (uint8_t)(value >> 24), (uint8_t)(value >> 16), (uint8_t)(value >> 8),
+                     (uint8_t)value };
+    report_unit(dpid, TUYA_DP_TYPE_VALUE, v, 4);
+}
+
+void tuya_report_send(void) {
+    if (g_report_len) {
+        tuya_send(g_report_cmd, g_seq++, g_report, g_report_len);
+        g_report_len = 0;
+    }
+}
+
+/* ---- incoming frames ----------------------------------------------------- */
+
+static void handle_write(const uint8_t *data, uint16_t len) {
+    tuya_report_begin(1);
+    uint16_t i = 0;
+    while (i + 4 <= len) {
+        uint8_t  dpid = data[i];
+        uint8_t  type = data[i + 1];
+        uint16_t vlen = (uint16_t)((data[i + 2] << 8) | data[i + 3]);
+        if (i + 4 + vlen > len) {
+            break;
+        }
+        /* The module waits for a report of the DP it wrote: that is the ack. */
+        if (dimmer_write_dp(dpid, type, &data[i + 4], vlen)) {
+            dimmer_report_dp(dpid);
+        }
+        i = (uint16_t)(i + 4 + vlen);
+    }
+    tuya_report_send();
+}
+
+static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_t len) {
+    switch (cmd) {
+    case TUYA_CMD_WRITE:
+        handle_write(data, len);
+        break;
+
+    case TUYA_CMD_QUERY_ALL:
+        dimmer_report_all();
+        break;
+
+    case TUYA_CMD_VERSION: {
+        uint8_t v = FW_VERSION;
+        tuya_send(TUYA_CMD_VERSION, seq, &v, 1);
+        break;
+    }
+
+    case TUYA_CMD_NETWORK_STATUS:
+        if (len >= 1) {
+            g_network = data[0];
+        }
+        tuya_send(TUYA_CMD_NETWORK_STATUS, seq, NULL, 0);   /* ack */
+        break;
+
+    case TUYA_CMD_QUERY_NETWORK:     /* the module's answer to our query */
+        if (len >= 1) {
+            g_network = data[0];
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+static void rx_drop(uint16_t n) {
+    if (n >= g_rx_len) {
+        g_rx_len = 0;
+        return;
+    }
+    memmove(g_rx, &g_rx[n], g_rx_len - n);
+    g_rx_len = (uint16_t)(g_rx_len - n);
+}
+
+static void rx_process(void) {
+    while (g_rx_len >= 2) {
+        if (g_rx[0] != 0x55 || g_rx[1] != 0xAA) {
+            rx_drop(1);
+            continue;
+        }
+        if (g_rx_len < FRAME_HEADER) {
+            return;
+        }
+        uint16_t dlen = (uint16_t)((g_rx[6] << 8) | g_rx[7]);
+        if (dlen > RX_MAX_DATA) {
+            rx_drop(2);          /* not a frame we can take, resync */
+            continue;
+        }
+        uint16_t flen = (uint16_t)(FRAME_HEADER + dlen + 1);
+        if (g_rx_len < flen) {
+            return;
+        }
+        uint8_t sum = 0;
+        for (uint16_t i = 0; i < flen - 1; i++) {
+            sum += g_rx[i];
+        }
+        if (sum != g_rx[flen - 1]) {
+            rx_drop(2);          /* damaged: a real frame may start inside */
+            continue;
+        }
+        handle_frame(g_rx[5], (uint16_t)((g_rx[3] << 8) | g_rx[4]), &g_rx[FRAME_HEADER], dlen);
+        rx_drop(flen);
+    }
+}
+
+void tuya_poll(uint32_t now_ms) {
+    int b;
+    uint8_t got = 0;
+
+    while ((b = uart_getc()) >= 0) {
+        if (g_rx_len < sizeof(g_rx)) {
+            g_rx[g_rx_len++] = (uint8_t)b;
+        } else {
+            rx_drop(1);
+            g_rx[g_rx_len++] = (uint8_t)b;
+        }
+        got = 1;
+    }
+    if (got) {
+        g_rx_last_ms = now_ms;
+        rx_process();
+    } else if (g_rx_len && (now_ms - g_rx_last_ms) > RX_STALE_MS) {
+        g_rx_len = 0;            /* half a frame that will never complete */
+    }
 }

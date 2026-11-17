@@ -1,0 +1,35 @@
+/* Dimmer channels and their Tuya datapoints (standard Tuya dimmer layout, the
+ * one the Zigbee module's firmware expects):
+ *   channel 1: DP 1 on, 2 level, 3 min, 4 switch type, 5 max, 6 countdown
+ *   channel 2: DP 7 .. 12, same order
+ *   DP 14 power-on behaviour (0 off, 1 on, 2 last state), both channels
+ * Levels are 10..1000 like the stock firmware. */
+#ifndef DIMMER_H
+#define DIMMER_H
+
+#include <stdint.h>
+
+#define DIMMER_CHANNELS     2
+#define DIMMER_LEVEL_MIN    10
+#define DIMMER_LEVEL_MAX    1000
+
+typedef struct {
+    uint8_t  on;
+    uint16_t level;      /* target level while on */
+    uint16_t min;
+    uint16_t max;
+    uint8_t  switch_type;
+    uint32_t countdown;  /* seconds, stored and reported only for now */
+} dimmer_channel_t;
+
+void dimmer_init(void);
+const dimmer_channel_t *dimmer_channel(uint8_t ch);
+
+/** Apply a DP write. Returns 1 if the DP is ours (then it is reported back). */
+uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16_t len);
+/** Add one DP's current value to the report being built. */
+void dimmer_report_dp(uint8_t dpid);
+/** Report every DP (answer to query-all). */
+void dimmer_report_all(void);
+
+#endif

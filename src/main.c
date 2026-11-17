@@ -1,12 +1,18 @@
-/* Step 1: bring-up. Blink the LED, keep the output stage off, and report DP1
- * toggling every 2 s to the Zigbee module so the whole chain
- * PY32 -> UART -> ZTU -> Zigbee2MQTT can be checked without mains. */
+/* Own firmware for the PY32F002A of the AVATTO ZDMS16-2.
+ * Step 2: Tuya MCU protocol towards the Zigbee module. The output stage stays
+ * off; the LED shows channel 1 (on/off), or blinks while the module is not on a
+ * network. */
 #include "board.h"
+#include "dimmer.h"
 #include "tuya.h"
+#include "uart.h"
 #include "py32f0xx_ll_bus.h"
 #include "py32f0xx_ll_rcc.h"
 #include "py32f0xx_ll_system.h"
 #include "py32f0xx_ll_utils.h"
+
+#define NETWORK_QUERY_FIRST_MS   200
+#define NETWORK_QUERY_EVERY_MS   30000
 
 static volatile uint32_t g_ms;
 
@@ -53,26 +59,43 @@ static void gpio_init(void) {
     LL_GPIO_SetPinMode(ZC_PORT, ZC_PIN, LL_GPIO_MODE_INPUT);
 }
 
+static void led_update(uint32_t now) {
+    uint8_t on;
+
+    if (tuya_network_status() != TUYA_NETWORK_CONNECTED) {
+        on = (now / 250) & 1;              /* not on a network (or unknown): blink */
+    } else {
+        on = dimmer_channel(0)->on;
+    }
+    if (on) {
+        LL_GPIO_SetOutputPin(LED_PORT, LED_PIN);
+    } else {
+        LL_GPIO_ResetOutputPin(LED_PORT, LED_PIN);
+    }
+}
+
 int main(void) {
     clock_init();
     gpio_init();
+    dimmer_init();
+    uart_init(UART_BAUD);
     tuya_init();
 
-    uint32_t next_blink  = 0;
-    uint32_t next_report = 2000;
-    uint8_t  dp1         = 0;
+    uint32_t next_query = NETWORK_QUERY_FIRST_MS;
+    uint16_t query_seq  = 0;
 
     while (1) {
         uint32_t now = g_ms;
 
-        if ((int32_t)(now - next_blink) >= 0) {
-            next_blink += 500;
-            LL_GPIO_TogglePin(LED_PORT, LED_PIN);
+        tuya_poll(now);
+
+        /* Asking for the network state also tells the module we are up: it
+         * answers and starts its first contact (version, DP dump). */
+        if ((int32_t)(now - next_query) >= 0) {
+            next_query = now + NETWORK_QUERY_EVERY_MS;
+            tuya_send(TUYA_CMD_QUERY_NETWORK, query_seq++, 0, 0);
         }
-        if ((int32_t)(now - next_report) >= 0) {
-            next_report += 2000;
-            dp1 ^= 1;
-            tuya_report_bool(1, dp1);
-        }
+
+        led_update(now);
     }
 }
