@@ -13,6 +13,7 @@ static uint16_t g_rx_len;
 static uint32_t g_rx_last_ms;
 static uint16_t g_seq;
 static uint8_t  g_network = 0xFF;   /* unknown until the module tells us */
+static uint8_t  g_told_state;
 
 static uint8_t  g_report[REPORT_MAX_DATA];
 static uint16_t g_report_len;
@@ -134,6 +135,13 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
 
     case TUYA_CMD_QUERY_NETWORK:     /* the module's answer to our query */
         if (len >= 1) {
+            /* First answer after our boot: the module is listening. If only
+             * we restarted (watchdog, reflash), it still holds the state from
+             * before, so tell it ours, as answers (no switch actions). */
+            if (!g_told_state) {
+                g_told_state = 1;
+                dimmer_report_all();
+            }
             g_network = data[0];
         }
         break;
