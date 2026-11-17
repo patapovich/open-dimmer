@@ -132,9 +132,14 @@ static void handle_write(const uint8_t *data, uint16_t len) {
             break;
         }
         write_log_add(dpid, type, &data[i + 4], vlen);
-        /* The module waits for a report of the DP it wrote: that is the ack. */
-        if (dimmer_write_dp(dpid, type, &data[i + 4], vlen)) {
-            dimmer_report_dp(dpid);
+        /* The module waits for a report of the DP it wrote: that is the ack.
+         * A rejected value is answered with the value kept, so the module
+         * neither waits for nothing nor keeps a value we did not take. */
+        (void)dimmer_write_dp(dpid, type, &data[i + 4], vlen);
+        dimmer_report_dp(dpid);
+        uint8_t sibling = dimmer_sibling_dp(dpid);
+        if (sibling) {
+            dimmer_report_dp(sibling);   /* min may have moved max and back */
         }
         i = (uint16_t)(i + 4 + vlen);
     }
@@ -164,6 +169,7 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
         uint8_t ok = 0;
         tuya_send(OTA_CMD_NOTIFY, seq, &ok, 1);
         phase_shutdown();
+        dimmer_prepare_restart();
         OTA_MAILBOX->magic     = OTA_MAILBOX_MAGIC;
         OTA_MAILBOX->magic_inv = ~OTA_MAILBOX_MAGIC;
         NVIC_SystemReset();
@@ -248,12 +254,13 @@ void tuya_poll(uint32_t now_ms) {
     uint8_t got = 0;
 
     while ((b = uart_getc()) >= 0) {
-        if (g_rx_len < sizeof(g_rx)) {
-            g_rx[g_rx_len++] = (uint8_t)b;
-        } else {
-            rx_drop(1);
-            g_rx[g_rx_len++] = (uint8_t)b;
+        if (g_rx_len == sizeof(g_rx)) {
+            rx_process();                /* complete frames first */
         }
+        if (g_rx_len == sizeof(g_rx)) {
+            rx_drop(1);
+        }
+        g_rx[g_rx_len++] = (uint8_t)b;
         got = 1;
     }
     if (got) {

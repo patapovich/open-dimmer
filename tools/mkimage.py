@@ -15,7 +15,7 @@ def make_app(data: bytes) -> bytes:
     data = bytearray(data)
     while len(data) % 4:
         data.append(0xFF)
-    magic, size, crc, version = struct.unpack_from("<IIIB", data, HDR_OFF)
+    magic, size, crc, version, flags = struct.unpack_from("<IIIBB", data, HDR_OFF)
     if magic != APP_MAGIC:
         sys.exit(f"no app header at 0x{HDR_OFF:X} (magic {magic:#x})")
     if len(data) > APP_MAX:
@@ -24,8 +24,8 @@ def make_app(data: bytes) -> bytes:
     crc = zlib.crc32(bytes(data)) & 0xFFFFFFFF
     struct.pack_into("<I", data, HDR_OFF + 8, crc)
     v = version
-    print(f"app image: {len(data)} bytes, crc {crc:08x}, version {v >> 6}.{(v >> 4) & 3}.{v & 15} (0x{v:02X})",
-          file=sys.stderr)
+    print(f"app image: {len(data)} bytes, crc {crc:08x}, version {v >> 6}.{(v >> 4) & 3}.{v & 15} (0x{v:02X})"
+          + (", SIM BENCH BUILD: never on mains" if flags & 1 else ""), file=sys.stderr)
     return bytes(data)
 
 if __name__ == "__main__":

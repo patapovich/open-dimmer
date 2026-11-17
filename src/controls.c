@@ -3,6 +3,7 @@
 #include "dimmer.h"
 #include "input_core.h"
 #include "tuya.h"
+#include "py32f0xx_ll_utils.h"
 
 #define IN_S1             0
 #define IN_S2             1
@@ -29,7 +30,12 @@ static uint8_t g_turned_on_by_press[DIMMER_CHANNELS];
 static uint8_t closed(uint8_t idx);
 
 void controls_init(void) {
+    /* Pull-ups and the input filters settle before the resting state is read
+     * (the tick interrupt is not running yet, so nothing is sampled). */
+    LL_mDelay(30);
     __disable_irq();
+    g_head = 0;
+    g_tail = 0;
     for (uint8_t i = 0; i < IN_COUNT; i++) {
         input_init(&g_in[i]);
         /* A switch already closed at power-up is where it rests, not a

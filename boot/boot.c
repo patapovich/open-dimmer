@@ -275,6 +275,7 @@ static void update(uint8_t have_app) {
     restart_transfer();
     for (;;) {
         tick();
+        IWDG->KR = 0xAAAA;          /* the app's watchdog runs on after its reset */
         if (((g_ms >> 7) & 1u)) {                             /* LED blinks fast: updating */
             GPIOA->BRR = 1u << 5;
         } else {

@@ -18,9 +18,31 @@ static volatile uint8_t  g_curve[2];
 static zc_tracker_t      g_zc;
 static volatile uint16_t g_last_zc;
 
+#if SIM_ZC
+/* The bench build makes its own zero crosses. If the real detector moves, the
+ * module is on the mains: never drive the gates out of step with it. */
+static volatile uint8_t g_sim_blocked;
+static uint8_t          g_sim_zc_level;
+static uint8_t          g_sim_zc_changes;
+#endif
+
 /* Channel 1 is PA1 = TIM1_CH4, channel 2 is PA0 = TIM1_CH3 (stock wiring). */
 static void zero_cross(uint16_t now) {
-    if (!zc_tracker_edge(&g_zc, now)) {
+#if SIM_ZC
+    if (g_sim_blocked) {
+        return;
+    }
+#endif
+    uint8_t was_locked = zc_locked(&g_zc);
+    uint8_t accepted   = zc_tracker_edge(&g_zc, now);
+
+    if (was_locked && !zc_locked(&g_zc)) {
+        /* Lost the lock on a late edge: fade in again once relocked. */
+        g_fader[0].current = 0;
+        g_fader[1].current = 0;
+        g_phase_dbg.lock_losses++;
+    }
+    if (!accepted) {
         g_phase_dbg.zc_ignored++;
         return;
     }
@@ -180,6 +202,16 @@ void phase_shutdown(void) {
 }
 
 void phase_poll(void) {
+#if SIM_ZC
+    uint8_t level = LL_GPIO_IsInputPinSet(ZC_PORT, ZC_PIN) ? 1 : 0;
+    if (level != g_sim_zc_level) {
+        g_sim_zc_level = level;
+        if (++g_sim_zc_changes >= 4 && !g_sim_blocked) {
+            g_sim_blocked = 1;
+            phase_shutdown();
+        }
+    }
+#endif
     __disable_irq();
     uint8_t lost = zc_tracker_check(&g_zc, (uint16_t)TIM16->CNT);
     if (lost) {
@@ -194,7 +226,7 @@ void phase_poll(void) {
 
 uint8_t phase_save_window(void) {
     if (!zc_locked(&g_zc)) {
-        return 1;
+        return g_zc.good == 0;      /* no mains at all: any time; locking: not now */
     }
     return (uint16_t)((uint16_t)TIM16->CNT - g_last_zc) < SAVE_WINDOW_TICKS;
 }

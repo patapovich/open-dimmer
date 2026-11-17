@@ -3,6 +3,7 @@
 #include "store.h"
 #include "curves.h"
 #include "dim_core.h"
+#include "ota_proto.h"
 #include "tuya.h"
 #include <string.h>
 
@@ -19,6 +20,7 @@ enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
 #define SAVE_DELAY_MS    2000   /* coalesce bursts of writes into one save */
 #define SAVE_QUIET_MS    100    /* the CPU stalls ~5 ms while saving: not mid-frame */
 #define SAVED_FORMAT     1
+#define SAVE_RETRIES     3
 
 static dimmer_channel_t g_ch[DIMMER_CHANNELS];
 static uint8_t          g_power_on;   /* 0 off, 1 on, 2 last state */
@@ -49,6 +51,7 @@ static saved_t  g_saved;          /* what flash holds now */
 static uint8_t  g_dirty;          /* something changed that may need saving */
 static uint8_t  g_dirty_restart;  /* a new change: restart the delay */
 static uint32_t g_dirty_ms;
+static uint8_t  g_save_retries;
 
 static uint16_t clamp_level(uint32_t v);
 
@@ -116,10 +119,38 @@ void dimmer_init(void) {
                          (g_power_on == POWER_ON_LAST && (s.on_mask & (1u << i)));
         }
     }
+    /* Back from a firmware update (or the bootloader giving up on one): the
+     * light comes back as it was, not by the power-on behaviour. */
+    volatile ota_mailbox_t *mb = OTA_MAILBOX;
+    if ((mb->restore ^ OTA_RESTORE_MAGIC) == mb->restore_check) {
+        uint32_t r = mb->restore;
+        for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
+            g_ch[i].on    = (uint8_t)((r >> i) & 1u);
+            g_ch[i].level = clamp_level((r >> (2 + 10 * i)) & 0x3FFu);
+        }
+    }
+    mb->restore_check = 0;
+    mb->restore       = 0;
+
     snapshot(&g_saved);
     for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
         apply(i);
     }
+}
+
+void dimmer_prepare_restart(void) {
+    saved_t s;
+    snapshot(&s);
+    if (memcmp(&s, &g_saved, sizeof(s)) != 0 && store_save((const uint8_t *)&s)) {
+        g_saved = s;
+    }
+    uint32_t r = 0;
+    for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
+        r |= (uint32_t)(g_ch[i].on ? 1u : 0u) << i;
+        r |= (uint32_t)(g_ch[i].level & 0x3FFu) << (2 + 10 * i);
+    }
+    OTA_MAILBOX->restore       = r;
+    OTA_MAILBOX->restore_check = r ^ OTA_RESTORE_MAGIC;
 }
 
 void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok) {
@@ -134,8 +165,16 @@ void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok) {
 
     saved_t s;
     snapshot(&s);
-    if (memcmp(&s, &g_saved, sizeof(s)) != 0 && store_save((const uint8_t *)&s)) {
-        g_saved = s;
+    if (memcmp(&s, &g_saved, sizeof(s)) == 0) {
+        return;
+    }
+    if (store_save((const uint8_t *)&s)) {
+        g_saved        = s;
+        g_save_retries = 0;
+    } else if (++g_save_retries < SAVE_RETRIES) {
+        g_dirty = 1;                 /* again at the next window, on the next page */
+    } else {
+        g_save_retries = 0;          /* give up until the next change */
     }
 }
 
@@ -257,6 +296,20 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
     default:
         return 0;
     }
+}
+
+uint8_t dimmer_sibling_dp(uint8_t dpid) {
+    uint8_t ch, idx;
+    if (!channel_dp(dpid, &ch, &idx)) {
+        return 0;
+    }
+    if (idx == DP_MIN) {
+        return (uint8_t)(dpid + (DP_MAX - DP_MIN));
+    }
+    if (idx == DP_MAX) {
+        return (uint8_t)(dpid - (DP_MAX - DP_MIN));
+    }
+    return 0;
 }
 
 void dimmer_report_dp(uint8_t dpid) {

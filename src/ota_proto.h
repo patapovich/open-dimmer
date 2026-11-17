@@ -47,8 +47,11 @@ typedef struct {
     uint32_t size;      /* image bytes from APP_BASE, filled in by tools/mkimage.py */
     uint32_t crc;       /* CRC-32 of the image with this field read as 0 */
     uint8_t  version;   /* Tuya packed: 2 bits major, 2 minor, 4 patch */
-    uint8_t  reserved[3];
+    uint8_t  flags;     /* APP_FLAG_* */
+    uint8_t  reserved[2];
 } app_header_t;
+
+#define APP_FLAG_SIM          0x01     /* bench build (virtual zero cross): never on mains */
 
 /* Mailbox in the last 16 bytes of RAM (outside .data/.bss/stack in both
  * linker scripts): survives a software reset, random after power-up. */
@@ -56,10 +59,13 @@ typedef struct {
 #define OTA_MAILBOX_MAGIC     0x55504454u   /* "UPDT" */
 
 typedef struct {
-    uint32_t magic;
+    uint32_t magic;          /* update request: app -> bootloader */
     uint32_t magic_inv;
-    uint32_t reserved[2];
+    uint32_t restore_check;  /* OTA_RESTORE_MAGIC ^ restore: the light state ... */
+    uint32_t restore;        /* ... to come back to after the update (dimmer.c) */
 } ota_mailbox_t;
+
+#define OTA_RESTORE_MAGIC     0x52535452u   /* "RSTR" */
 
 #define OTA_MAILBOX           ((volatile ota_mailbox_t *)OTA_MAILBOX_ADDR)
 

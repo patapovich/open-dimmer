@@ -21,7 +21,7 @@
 /* Found by the bootloader right after the vector table; size and CRC are
  * filled in by tools/mkimage.py. */
 __attribute__((section(".app_header"), used))
-const app_header_t g_app_header = { APP_MAGIC, 0, 0, FW_VERSION, { 0, 0, 0 } };
+const app_header_t g_app_header = { APP_MAGIC, 0, 0, FW_VERSION, SIM_ZC ? APP_FLAG_SIM : 0, { 0, 0 } };
 
 static volatile uint32_t g_ms;
 
@@ -44,7 +44,7 @@ static void clock_init(void) {
     LL_SetSystemCoreClock(24000000);
     LL_Init1msTick(24000000);
     NVIC_SetPriority(SysTick_IRQn, 2);   /* zero cross 0, UART 1 */
-    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
+    /* The tick interrupt (input sampling) starts after controls_init. */
 }
 
 static void out_low(GPIO_TypeDef *port, uint32_t pin) {
@@ -87,20 +87,36 @@ static void led_update(uint32_t now) {
     }
 }
 
+/* Independent watchdog, ~1 s (LSI 32 kHz / 32, reload 1000). Once started it
+ * runs through software resets too: the bootloader keeps refreshing it. */
+static void watchdog_start(void) {
+    IWDG->KR  = 0xCCCC;
+    IWDG->KR  = 0x5555;
+    IWDG->PR  = 3;
+    IWDG->RLR = 1000;
+    while (IWDG->SR) {
+    }
+    IWDG->KR = 0xAAAA;
+}
+
 int main(void) {
     clock_init();
     gpio_init();
     phase_init();
     dimmer_init();
     controls_init();
+    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
     uart_init(UART_BAUD);
     tuya_init();
+    watchdog_start();
 
     uint32_t next_query = NETWORK_QUERY_FIRST_MS;
     uint16_t query_seq  = 0;
 
     while (1) {
         uint32_t now = g_ms;
+
+        IWDG->KR = 0xAAAA;
 
         tuya_poll(now);
         phase_poll();

@@ -48,6 +48,12 @@ void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark);
 /** End hold dimming: keep the level the light has and report it. */
 void dimmer_hold_end(uint8_t ch);
 
+/** Before a restart into the bootloader: save pending settings and leave the
+ *  light state in the mailbox, to be restored after the update. */
+void dimmer_prepare_restart(void);
+/** min <-> max of the same channel (a write of one may move the other), or 0. */
+uint8_t dimmer_sibling_dp(uint8_t dpid);
+
 /** Report every DP (answer to query-all). */
 void dimmer_report_all(void);
 

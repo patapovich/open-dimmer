@@ -63,7 +63,15 @@ static void program_page_ram(uint32_t addr, const uint32_t *src) {
 }
 
 uint8_t flash_write_page(uint32_t addr, const uint32_t *src) {
-    uint8_t ok;
+    uint8_t         ok;
+    const uint32_t *now = (const uint32_t *)addr;
+    uint32_t        i;
+
+    for (i = 0; i < FLASH_PAGE_BYTES / 4u && now[i] == src[i]; i++) {
+    }
+    if (i == FLASH_PAGE_BYTES / 4u) {
+        return 1;                   /* already there: no erase (wear) */
+    }
 
     flash_set_timing();
     if (FLASH->CR & FLASH_CR_LOCK) {
