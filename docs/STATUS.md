@@ -14,6 +14,7 @@ checkout `~/projects/tzs-diag`).
 | ZTU + converter | `~/projects/tzs-diag`, branch `home-dimmer` (HEAD b123d6fb, pushed) |
 | Z2M converter deployed | `/config/zigbee2mqtt/external_converters/switch_custom.js` (generated from home-dimmer) |
 | SWD tools | `tools/swd/` (run from anywhere; `.venv` and `pack/` live in `~/projects/zdms16-py32`) |
+| HA websocket / expose check | `tools/ha/ha_ws.py`, `tools/ha/expose_dump.js` |
 | HA-side tools | `~/ha-claude/zdms16_mcu_log.py` (raw MCU link log), `zdms16_health.py` (health report), `zdms16_measure_read.py` (diag build stats), `zdms16_ota_series.sh` + `zdms16_ota_guard.sh` (fast OTA) |
 | Docs | `docs/REVIEW-2026-11-17.md`, `docs/ZC-DELAY-MEASUREMENT.md`, `docs/stock-firmware-analysis.md` |
 
@@ -69,8 +70,8 @@ Min and max are physical conduction limits for every curve (same meaning as the 
 A template slip commented out the `dimmer_left` light; Home Assistant deleted the left light
 of all five modules for 7 minutes. Before deploying any converter change:
 
-1. Dump the exposes with the real zhc (`zhc-26.125.0` + `expose_dump.js` from the session
-   scratchpad, own MCU and stock MCU versions) and diff the expose set against the deployed one.
+1. Dump the exposes with the real zhc (`tools/ha/expose_dump.js`, see `tools/ha/README.md`;
+   own MCU and stock MCU versions) and diff the expose set against the deployed one.
 2. Check that the other models' definitions are unchanged.
 3. Snapshot `/config/.storage/core.entity_registry` before and after the Z2M restart and diff
    the ZDMS16 entities (none removed / added / renamed unless intended).
