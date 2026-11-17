@@ -84,11 +84,11 @@ $(BUILD)/$(PROJECT)_full.bin: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin
 # The module must be powered from the probe, never from mains, while wired.
 # flash: the app only (the bootloader stays); flash-all: bootloader + app.
 flash: $(BUILD)/$(PROJECT).img
-	$(PYOCD) load -t py32f002ax5 --pack $(PACK) -f 400000 --base-address 0x08000800 $<
+	$(PYOCD) load -t py32f002ax5 --pack $(PACK) -f 400000 --format bin --base-address 0x08000800 $<
 	$(PYOCD) reset -t py32f002ax5 --pack $(PACK) -f 400000
 
 flash-all: $(BUILD)/$(PROJECT)_full.bin
-	$(PYOCD) load -t py32f002ax5 --pack $(PACK) -f 400000 --base-address 0x08000000 $<
+	$(PYOCD) load -t py32f002ax5 --pack $(PACK) -f 400000 --format bin --base-address 0x08000000 $<
 	$(PYOCD) reset -t py32f002ax5 --pack $(PACK) -f 400000
 
 clean:
