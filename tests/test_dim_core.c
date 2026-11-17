@@ -66,12 +66,33 @@ static void test_level_clamped(void) {
 
 static void test_compare(void) {
     CHECK(dim_compare(500, 0) == 0);
-    CHECK(dim_compare(500, 1000) == 500);
-    CHECK(dim_compare(500, 10) == 5);     /* minimum level: 100 us */
-    CHECK(dim_compare(500, 500) == 250);
-    CHECK(dim_compare(417, 1000) == 417); /* 60 Hz */
-    CHECK(dim_compare(500, 2000) == 500); /* clamped */
-    CHECK(dim_reload(500) > 500 && dim_reload(500) < 550);
+    CHECK(dim_compare(500, DIM_DUTY_MAX) == 5000);     /* 2 us ticks: whole half cycle */
+    CHECK(dim_compare(500, 5000) == 2500);
+    CHECK(dim_compare(500, 100) == 50);                /* 1 %: 100 us */
+    CHECK(dim_compare(417, DIM_DUTY_MAX) == 4170);     /* 60 Hz */
+    CHECK(dim_compare(500, 20000) == 5000);            /* clamped */
+    CHECK(dim_reload(500) > 5000 && dim_reload(500) < 5500);
+    CHECK(dim_reload(625) > 6250);                     /* still fits 16 bits */
+}
+
+static void test_curves(void) {
+    for (uint8_t c = 0; c < 4; c++) {
+        CHECK(dim_curve(c, 0) == 0);
+        CHECK(dim_curve(c, 1000) == DIM_DUTY_MAX);
+        CHECK(dim_curve(c, 10) >= 1);                  /* minimum level is never dark */
+        uint16_t prev = 0;
+        for (uint16_t v = 1; v <= 1000; v++) {         /* monotonic, no jumps back */
+            uint16_t d = dim_curve(c, v);
+            CHECK(d >= prev);
+            prev = d;
+        }
+    }
+    CHECK(dim_curve(0, 500) == 5000);                  /* linear = stock */
+    CHECK(dim_curve(0, 10) == 100);
+    CHECK(dim_curve(1, 500) < 2000);                   /* led: half level ~18 % time */
+    CHECK(dim_curve(1, 100) < 150);
+    CHECK(dim_curve(3, 500) > 3000);                   /* incandescent: more time, sine power */
+    CHECK(dim_curve(99, 500) == dim_curve(0, 500));    /* unknown curve = linear */
 }
 
 static void test_zc_locks_after_regular_edges(void) {
@@ -221,6 +242,7 @@ int main(void) {
     test_off_fades_to_zero_and_keeps_nothing();
     test_level_clamped();
     test_compare();
+    test_curves();
     test_zc_locks_after_regular_edges();
     test_zc_ignores_bounce();
     test_zc_gap_drops_lock();

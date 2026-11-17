@@ -1,4 +1,5 @@
 #include "dim_core.h"
+#include "curves.h"
 
 void dim_fader_init(dim_fader_t *f) {
     f->current   = 0;
@@ -78,15 +79,36 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
     return cur;
 }
 
-uint16_t dim_compare(uint16_t half_period, uint16_t value) {
-    if (value > DIM_VALUE_MAX) {
-        value = DIM_VALUE_MAX;
+uint16_t dim_curve(uint8_t curve, uint16_t value) {
+    if (value == 0) {
+        return 0;
     }
-    return (uint16_t)(((uint32_t)half_period * value + DIM_VALUE_MAX / 2) / DIM_VALUE_MAX);
+    if (value >= DIM_VALUE_MAX) {
+        return DIM_DUTY_MAX;
+    }
+    if (curve >= CURVE_COUNT) {
+        curve = CURVE_LINEAR;
+    }
+    const uint16_t *k   = k_curves[curve];
+    uint32_t        pos = (uint32_t)value * (CURVE_POINTS - 1);   /* in 1/1000 of a segment */
+    uint32_t        seg = pos / DIM_VALUE_MAX;
+    uint32_t        frac = pos % DIM_VALUE_MAX;
+    int32_t         a = k[seg], b = k[seg + 1];
+    int32_t         v = a + ((b - a) * (int32_t)frac + DIM_VALUE_MAX / 2) / DIM_VALUE_MAX;
+
+    return (uint16_t)(v < 1 ? 1 : v);       /* on is never fully dark */
+}
+
+uint16_t dim_compare(uint16_t half_period, uint16_t duty) {
+    if (duty > DIM_DUTY_MAX) {
+        duty = DIM_DUTY_MAX;
+    }
+    /* half_period * 10 ticks of 2 us, times duty / 10000 */
+    return (uint16_t)(((uint32_t)half_period * duty + 500u) / 1000u);
 }
 
 uint16_t dim_reload(uint16_t half_period) {
-    return (uint16_t)(half_period + half_period / 16);
+    return (uint16_t)((half_period + half_period / 16u) * 10u);
 }
 
 /* ---- zero cross ---------------------------------------------------------- */

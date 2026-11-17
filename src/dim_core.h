@@ -4,8 +4,12 @@
  *
  * Model taken from the stock firmware of the twin WiFi board: on every zero
  * cross each channel's current value moves towards its target by a fixed
- * step, and the output conducts from the zero cross for value/1000 of the half
- * cycle (trailing edge), linear in time. */
+ * step, and the output conducts from the zero cross (trailing edge). How long
+ * it conducts for a value is the channel's curve (curves.h); curve 0 is the
+ * stock one, linear in time.
+ *
+ * TIM1 runs at 2 us (PSC 47), ten times finer than the 20 us time base, so the
+ * low end of the perceptual curves has steps to work with. */
 #ifndef DIM_CORE_H
 #define DIM_CORE_H
 
@@ -46,10 +50,16 @@ void     dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint8_t rate, uint16_t
  * Returns that value (the new level). */
 uint16_t dim_fader_hold_stop(dim_fader_t *f);
 
-/** Compare value for the conduction time of value/1000 of a half period. */
-uint16_t dim_compare(uint16_t half_period, uint16_t value);
-/** Auto-reload: a little past the expected next zero cross, so a late edge
- * does not start a new pulse mid cycle (the wrap loads compare 0 instead). */
+#define DIM_DUTY_MAX           10000  /* conduction time in 1/10000 of the half cycle */
+
+/** Curve: value 0..1000 -> conduction time 0..DIM_DUTY_MAX. Unknown curve =
+ * linear. Value 0 is always 0 (dark). */
+uint16_t dim_curve(uint8_t curve, uint16_t value);
+/** TIM1 compare (2 us ticks) for a duty, half_period in 20 us ticks. */
+uint16_t dim_compare(uint16_t half_period, uint16_t duty);
+/** TIM1 auto-reload (2 us ticks): a little past the expected next zero cross,
+ * so a late edge does not start a new pulse mid cycle (the wrap loads
+ * compare 0 instead). */
 uint16_t dim_reload(uint16_t half_period);
 
 typedef struct {

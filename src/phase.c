@@ -5,7 +5,8 @@
 #include "py32f0xx_ll_exti.h"
 #include "py32f0xx_ll_gpio.h"
 
-#define TICK_PSC          479u   /* 24 MHz / 480 = 50 kHz, 20 us */
+#define TICK_PSC          479u   /* TIM16: 24 MHz / 480 = 50 kHz, 20 us */
+#define OUT_PSC           47u    /* TIM1: 24 MHz / 48 = 500 kHz, 2 us */
 #define SIM_HALF_PERIOD   500u   /* 50 Hz */
 #define SAVE_WINDOW_TICKS 50u    /* 1 ms after a zero cross: 9 ms until the next */
 #define ZC_PIN_MASK       (1u << 4)
@@ -13,6 +14,7 @@
 volatile phase_debug_t g_phase_dbg;
 
 static dim_fader_t       g_fader[2];
+static volatile uint8_t  g_curve[2];
 static zc_tracker_t      g_zc;
 static volatile uint16_t g_last_zc;
 
@@ -31,8 +33,8 @@ static void zero_cross(uint16_t now) {
     if (zc_locked(&g_zc)) {
         /* Fade only while the output runs, so the first half cycles after
          * power-up fade in instead of jumping to the target. */
-        c0 = dim_compare(hp, dim_fader_tick(&g_fader[0]));
-        c1 = dim_compare(hp, dim_fader_tick(&g_fader[1]));
+        c0 = dim_compare(hp, dim_curve(g_curve[0], dim_fader_tick(&g_fader[0])));
+        c1 = dim_compare(hp, dim_curve(g_curve[1], dim_fader_tick(&g_fader[1])));
     }
 
     TIM1->ARR  = dim_reload(hp);
@@ -87,7 +89,7 @@ static void timers_init(void) {
     TIM16->CR1 = TIM_CR1_CEN;
 
     /* TIM1: PWM mode 1 on CH3/CH4, high from the zero cross until compare. */
-    TIM1->PSC   = TICK_PSC;
+    TIM1->PSC   = OUT_PSC;
     TIM1->ARR   = 0xFFFF;
     TIM1->CCR3  = 0;
     TIM1->CCR4  = 0;
@@ -135,6 +137,12 @@ void phase_init(void) {
 void phase_set(uint8_t ch, uint8_t on, uint16_t level) {
     if (ch < 2) {
         dim_fader_set(&g_fader[ch], on, level);   /* 16-bit store: atomic */
+    }
+}
+
+void phase_set_curve(uint8_t ch, uint8_t curve) {
+    if (ch < 2) {
+        g_curve[ch] = curve;
     }
 }
 

@@ -1,12 +1,14 @@
 #include "dimmer.h"
 #include "phase.h"
 #include "store.h"
+#include "curves.h"
 #include "dim_core.h"
 #include "tuya.h"
 #include <string.h>
 
 #define DP_PER_CHANNEL   6
 #define DP_POWER_ON      14
+#define DP_CURVE_BASE    101   /* + channel */
 
 enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
 
@@ -35,7 +37,7 @@ typedef struct {
         uint16_t min;
         uint16_t max;
         uint8_t  switch_type;
-        uint8_t  reserved;
+        uint8_t  curve;      /* was reserved (0) in early records: 0 = linear */
     } ch[DIMMER_CHANNELS];
 } saved_t;
 
@@ -59,6 +61,7 @@ static void snapshot(saved_t *s) {
         s->ch[i].min         = g_ch[i].min;
         s->ch[i].max         = g_ch[i].max;
         s->ch[i].switch_type = g_ch[i].switch_type;
+        s->ch[i].curve       = g_ch[i].curve;
         if (g_power_on == POWER_ON_LAST && g_ch[i].on) {
             s->on_mask |= (uint8_t)(1u << i);
         }
@@ -66,6 +69,7 @@ static void snapshot(saved_t *s) {
 }
 
 static void apply(uint8_t ch) {
+    phase_set_curve(ch, g_ch[ch].curve);
     phase_set(ch, g_ch[ch].on, g_ch[ch].level);
 }
 
@@ -82,6 +86,7 @@ void dimmer_init(void) {
         g_ch[i].min         = 200;
         g_ch[i].max         = DIMMER_LEVEL_MAX;
         g_ch[i].switch_type = 0;
+        g_ch[i].curve       = 0;
         g_ch[i].countdown   = 0;
     }
     g_power_on = POWER_ON_OFF;
@@ -94,6 +99,7 @@ void dimmer_init(void) {
             g_ch[i].min         = clamp_level(s.ch[i].min);
             g_ch[i].max         = clamp_level(s.ch[i].max);
             g_ch[i].switch_type = s.ch[i].switch_type;
+            g_ch[i].curve       = s.ch[i].curve < CURVE_COUNT ? s.ch[i].curve : 0;
             if (g_ch[i].min > g_ch[i].max) {
                 g_ch[i].min = g_ch[i].max;
             }
@@ -160,6 +166,16 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
             return 0;
         }
         g_power_on = value[0];
+        mark_dirty();
+        return 1;
+    }
+    if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
+        if (type != TUYA_DP_TYPE_ENUM || len != 1 || value[0] >= CURVE_COUNT) {
+            return 0;
+        }
+        ch               = (uint8_t)(dpid - DP_CURVE_BASE);
+        g_ch[ch].curve   = value[0];
+        apply(ch);
         mark_dirty();
         return 1;
     }
@@ -236,6 +252,10 @@ void dimmer_report_dp(uint8_t dpid) {
 
     if (dpid == DP_POWER_ON) {
         tuya_report_enum(dpid, g_power_on);
+        return;
+    }
+    if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
+        tuya_report_enum(dpid, g_ch[dpid - DP_CURVE_BASE].curve);
         return;
     }
     if (!channel_dp(dpid, &ch, &idx)) {
@@ -329,6 +349,7 @@ void dimmer_report_all(void) {
         for (uint8_t i = 0; i < DP_PER_CHANNEL; i++) {
             dimmer_report_dp((uint8_t)(ch * DP_PER_CHANNEL + i + 1));
         }
+        dimmer_report_dp((uint8_t)(DP_CURVE_BASE + ch));
         tuya_report_send();
     }
     tuya_report_begin(1);

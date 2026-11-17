@@ -19,7 +19,7 @@ typedef struct {
     uint8_t  locked;
     uint8_t  lock_losses;
     uint16_t current[2];    /* value applied, 0..1000 */
-    uint16_t compare[2];    /* TIM1 compare loaded at the last zero cross */
+    uint16_t compare[2];    /* TIM1 compare (2 us ticks) loaded at the last zero cross */
 } phase_debug_t;
 
 extern volatile phase_debug_t g_phase_dbg;   /* read over SWD */
@@ -27,6 +27,8 @@ extern volatile phase_debug_t g_phase_dbg;   /* read over SWD */
 void phase_init(void);
 /** New target for a channel (0 = channel 1). Fades there at 5 per half cycle. */
 void phase_set(uint8_t ch, uint8_t on, uint16_t level);
+/** Dimming curve of a channel (curves.h, 0 = linear like the stock firmware). */
+void     phase_set_curve(uint8_t ch, uint8_t curve);
 /** Hold dimming on a channel: the light follows directly between lo and hi. */
 void     phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi);
 /** End of hold: frozen at the value the light has now, which is returned. */

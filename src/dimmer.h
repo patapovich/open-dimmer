@@ -3,6 +3,8 @@
  *   channel 1: DP 1 on, 2 level, 3 min, 4 switch type, 5 max, 6 countdown
  *   channel 2: DP 7 .. 12, same order
  *   DP 14 power-on behaviour (0 off, 1 on, 2 last state), both channels
+ *   DP 101 / 102 dimming curve of channel 1 / 2 (enum, curves.h; ours, the
+ *   stock MCU has no such DP): 0 linear, 1 led, 2 led_soft, 3 incandescent
  * Levels are 10..1000 like the stock firmware. */
 #ifndef DIMMER_H
 #define DIMMER_H
@@ -19,6 +21,7 @@ typedef struct {
     uint16_t min;
     uint16_t max;
     uint8_t  switch_type;
+    uint8_t  curve;
     uint32_t countdown;  /* seconds, stored and reported only for now */
 } dimmer_channel_t;
 
