@@ -23,6 +23,7 @@
 #define ZC_HALF_MIN_TICKS      357    /* 70 Hz */
 #define ZC_HALF_MAX_TICKS      625    /* 40 Hz */
 #define ZC_LOCK_EDGES          4      /* good half cycles in a row before output */
+#define ZC_WINDOW_DIV          12     /* once locked, edges only within +-1/12 (8 %) */
 
 #define DIM_HOLD_RATE          3      /* per half cycle while held: 1000 in 3.3 s */
 

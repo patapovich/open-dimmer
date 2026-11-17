@@ -1,19 +1,21 @@
 /* Hardware-free input logic, unit tested on the PC (tests/test_input_core.c).
  * Sampled every 1 ms.
  *
- * Fast on purpose (the stock firmware needs 100 ms of steady low before it
- * sees a press, and its hold dimming runs on after release):
- * - press: INPUT_PRESS_MS low samples in a row (rejects spikes, ~3 ms latency)
- * - release: INPUT_RELEASE_MS high samples in a row. Long enough to bridge
- *   the gaps if the input turns out to be a 50 Hz pulse train from an
- *   optocoupler, short enough not to be felt.
- * - hold: pressed for INPUT_HOLD_MS, reported once per press. */
+ * The board gives steady levels (the stock firmware ends a press on a single
+ * high sample, so its inputs cannot be pulse trains):
+ * - press: INPUT_PRESS_MS low samples in a row. 20 ms rejects ghost pulses
+ *   (leakage on long switch wires) and is still not felt.
+ * - release: INPUT_RELEASE_MS high samples in a row (contact bounce).
+ * - hold: pressed for INPUT_HOLD_MS, reported once per press, and not while a
+ *   release is already being counted.
+ * Hold dimming stops the moment the release is seen; the stock firmware runs
+ * on for up to 2 s after letting go. */
 #ifndef INPUT_CORE_H
 #define INPUT_CORE_H
 
 #include <stdint.h>
 
-#define INPUT_PRESS_MS     3
+#define INPUT_PRESS_MS     20
 #define INPUT_RELEASE_MS   25
 #define INPUT_HOLD_MS      400
 

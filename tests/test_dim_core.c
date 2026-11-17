@@ -236,6 +236,68 @@ static void test_remote_write_during_hold(void) {
     CHECK(f.hold_dir == 0 && f.target == 0);
 }
 
+static zc_tracker_t locked_at_500(uint16_t *t) {
+    zc_tracker_t z;
+    zc_tracker_init(&z);
+    *t = 0;
+    zc_tracker_edge(&z, *t);
+    for (int i = 0; i < 10; i++) {
+        *t = (uint16_t)(*t + 500);
+        zc_tracker_edge(&z, *t);
+    }
+    return z;
+}
+
+static void test_zc_glitch_mid_cycle_is_ignored_when_locked(void) {
+    uint16_t     t;
+    zc_tracker_t z = locked_at_500(&t);
+    CHECK(zc_locked(&z));
+    CHECK(zc_tracker_edge(&z, (uint16_t)(t + 400)) == 0);   /* glitch at 8 ms */
+    CHECK(zc_tracker_edge(&z, (uint16_t)(t + 500)) == 1);   /* the real one */
+    CHECK(zc_locked(&z));
+    CHECK(z.half_period == 500);
+}
+
+static void test_zc_edge_within_window_is_followed(void) {
+    uint16_t     t;
+    zc_tracker_t z = locked_at_500(&t);
+    CHECK(zc_tracker_edge(&z, (uint16_t)(t + 520)) == 1);   /* 4 % late: fine */
+    CHECK(zc_locked(&z));
+}
+
+static void test_zc_late_edge_relocks_without_output(void) {
+    uint16_t     t;
+    zc_tracker_t z = locked_at_500(&t);
+    t = (uint16_t)(t + 1000);                                /* one edge missed */
+    CHECK(zc_tracker_edge(&z, t) == 0);
+    CHECK(!zc_locked(&z));
+    for (int i = 0; i < ZC_LOCK_EDGES; i++) {
+        t = (uint16_t)(t + 500);
+        zc_tracker_edge(&z, t);
+    }
+    CHECK(zc_locked(&z));
+    CHECK(z.half_period == 500);
+}
+
+static void test_off_during_hold_then_release_stays_off(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set(&f, 1, 800);
+    for (int i = 0; i < 200; i++) {
+        dim_fader_tick(&f);
+    }
+    dim_fader_hold_start(&f, -1, DIM_HOLD_RATE, 100, 1000);
+    dim_fader_tick(&f);
+    dim_fader_set(&f, 0, 800);               /* off from the network */
+    dim_fader_tick(&f);                      /* fading out */
+    dim_fader_hold_stop(&f);                 /* finger released mid fade */
+    CHECK(f.target == 0);
+    for (int i = 0; i < 300; i++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current == 0);
+}
+
 int main(void) {
     test_fade_up_takes_two_seconds();
     test_fade_lands_exactly_on_target();
@@ -247,10 +309,14 @@ int main(void) {
     test_zc_ignores_bounce();
     test_zc_gap_drops_lock();
     test_zc_follows_frequency_drift();
+    test_zc_glitch_mid_cycle_is_ignored_when_locked();
+    test_zc_edge_within_window_is_followed();
+    test_zc_late_edge_relocks_without_output();
     test_hold_follows_without_lag_and_freezes_on_release();
     test_hold_stops_at_bounds();
     test_hold_up_from_dark_starts_at_min();
     test_remote_write_during_hold();
+    test_off_during_hold_then_release_stays_off();
     if (g_failed) {
         printf("%d check(s) failed\n", g_failed);
         return EXIT_FAILURE;

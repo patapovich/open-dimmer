@@ -40,8 +40,10 @@ void dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint8_t rate, uint16_t lo,
 }
 
 uint16_t dim_fader_hold_stop(dim_fader_t *f) {
-    f->hold_dir = 0;
-    f->target   = f->current;
+    if (f->hold_dir) {              /* an off may have ended the hold already: */
+        f->hold_dir = 0;            /* then it keeps fading to its target      */
+        f->target   = f->current;
+    }
     return f->current;
 }
 
@@ -128,7 +130,22 @@ uint8_t zc_tracker_edge(zc_tracker_t *z, uint16_t now) {
     }
     uint16_t dt = (uint16_t)(now - z->last);
 
-    if (dt < ZC_HALF_MIN_TICKS) {
+    if (zc_locked(z)) {
+        /* Locked: a real zero cross comes within a few percent of where it
+         * is expected. Anything earlier is noise (a glitch taken as a zero
+         * cross would turn the load on mid cycle, at high voltage). Later
+         * means edges were missed: count again from this one, no output
+         * until locked again. */
+        uint16_t win = (uint16_t)(z->half_period / ZC_WINDOW_DIV);
+        if (dt + win < z->half_period) {
+            return 0;
+        }
+        if (dt > z->half_period + win) {
+            z->last = now;
+            z->good = 0;
+            return 0;
+        }
+    } else if (dt < ZC_HALF_MIN_TICKS) {
         return 0;                       /* bounce or noise: wait for the real edge */
     }
     z->last = now;
@@ -137,7 +154,7 @@ uint8_t zc_tracker_edge(zc_tracker_t *z, uint16_t now) {
         z->half_period = 0;
         return 0;
     }
-    if (z->half_period == 0) {
+    if (z->good == 0 || z->half_period == 0) {
         z->half_period = dt;
     } else {
         /* Mains frequency drifts slowly; one late edge must not shift the

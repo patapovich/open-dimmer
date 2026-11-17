@@ -73,6 +73,15 @@ static void apply(uint8_t ch) {
     phase_set(ch, g_ch[ch].on, g_ch[ch].level);
 }
 
+/* A hold in progress ends without taking its level (the network or a setting
+ * changed the channel under the finger). */
+static void end_hold(uint8_t ch) {
+    if (g_holding[ch]) {
+        g_holding[ch] = 0;
+        (void)phase_hold_stop(ch);
+    }
+}
+
 static void mark_dirty(void) {
     g_dirty         = 1;
     g_dirty_restart = 1;
@@ -190,15 +199,18 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
             return 0;
         }
         c->on = value[0] ? 1 : 0;
+        end_hold(ch);
         apply(ch);
         mark_dirty();   /* switching off fixes the level to keep */
         return 1;
 
     case DP_SWITCH_TYPE:
-        if (type != TUYA_DP_TYPE_ENUM || len != 1) {
+        if (type != TUYA_DP_TYPE_ENUM || len != 1 || value[0] > 2) {
             return 0;
         }
         c->switch_type = value[0];
+        end_hold(ch);
+        apply(ch);
         mark_dirty();
         return 1;
 
@@ -336,6 +348,7 @@ void dimmer_hold_end(uint8_t ch) {
     g_holding[ch] = 0;
     uint16_t v    = phase_hold_stop(ch);
     if (!g_ch[ch].on) {
+        apply(ch);                  /* switched off during the hold: stay off */
         return;
     }
     g_ch[ch].level = clamp_level(v);

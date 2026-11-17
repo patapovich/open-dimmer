@@ -34,7 +34,7 @@ uint8_t input_sample(input_t *in, uint8_t active) {
         }
     }
 
-    if (in->pressed && !in->held && in->press_ms >= INPUT_HOLD_MS) {
+    if (in->pressed && !in->held && in->run == 0 && in->press_ms >= INPUT_HOLD_MS) {
         in->held = 1;
         return INPUT_EV_HOLD;
     }
