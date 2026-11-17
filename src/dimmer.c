@@ -42,6 +42,7 @@ typedef struct {
 _Static_assert(sizeof(saved_t) == STORE_DATA_SIZE, "saved_t must match the store record");
 
 static int8_t   g_last_hold_dir[DIMMER_CHANNELS];
+static uint8_t  g_holding[DIMMER_CHANNELS];
 static saved_t  g_saved;          /* what flash holds now */
 static uint8_t  g_dirty;          /* something changed that may need saving */
 static uint8_t  g_dirty_restart;  /* a new change: restart the delay */
@@ -304,14 +305,16 @@ void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark) {
         }
     }
     g_last_hold_dir[ch] = dir;
+    g_holding[ch]       = 1;
     phase_hold_start(ch, dir, c->min, c->max);
 }
 
 void dimmer_hold_end(uint8_t ch) {
-    if (ch >= DIMMER_CHANNELS) {
+    if (ch >= DIMMER_CHANNELS || !g_holding[ch]) {
         return;
     }
-    uint16_t v = phase_hold_stop(ch);
+    g_holding[ch] = 0;
+    uint16_t v    = phase_hold_stop(ch);
     if (!g_ch[ch].on) {
         return;
     }
