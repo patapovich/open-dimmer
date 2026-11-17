@@ -295,12 +295,7 @@ static void update(uint8_t have_app) {
         const uint8_t *d   = g_rx + FRAME_HEADER;
         g_rx_len           = 0;
 
-        if (cmd == 0x0B) {                                    /* version: "bootloader" */
-            uint8_t v = OTA_BOOT_VERSION;
-            send(0x0B, &v, 1);
-        } else if (cmd == 0x02) {                             /* network status: ack */
-            send(0x02, 0, 0);
-        } else if (cmd == OTA_CMD_NOTIFY) {
+        if (cmd == OTA_CMD_NOTIFY) {
             uint8_t ok = 0;
             send(OTA_CMD_NOTIFY, &ok, 1);
             restart_transfer();

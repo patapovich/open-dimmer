@@ -12,8 +12,13 @@
  *        module -> MCU  block: offset(4) size(4) crc(4) version(1) data(n);
  *                       n = 0 past the end. Stateless on the module side.
  *   0xA2 MCU -> module  result: status(1) version(1), 0 = written and verified
- * Numbers big-endian as everywhere in the Tuya protocol. The bootloader answers
- * the version query 0x0B with OTA_BOOT_VERSION. */
+ *   0xA3 module -> MCU  "who are you"; only our app answers:
+ *        MCU -> module  "ZDMS"(4) kind(1) version(1) protocol(1)
+ *                       kind 1 = app. The stock MCU does not answer, whatever
+ *                       version number it has: that is how the module tells
+ *                       our firmware from the stock one.
+ * Numbers big-endian as everywhere in the Tuya protocol. The bootloader only
+ * asks for blocks (that is how the module knows it); it answers nothing. */
 #ifndef OTA_PROTO_H
 #define OTA_PROTO_H
 
@@ -22,8 +27,12 @@
 #define OTA_CMD_NOTIFY        0xA0
 #define OTA_CMD_BLOCK         0xA1
 #define OTA_CMD_RESULT        0xA2
+#define OTA_CMD_IDENT         0xA3
 
-#define OTA_BOOT_VERSION      0x00     /* "bootloader, no app running" */
+#define OTA_IDENT_MAGIC       "ZDMS"
+#define OTA_IDENT_KIND_APP    1
+#define OTA_PROTOCOL          1
+
 #define OTA_RESULT_OK         0
 #define OTA_RESULT_BAD_IMAGE  1        /* CRC / header check failed after writing */
 #define OTA_RESULT_FLASH      2        /* a page did not verify */

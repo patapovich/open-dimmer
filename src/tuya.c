@@ -151,6 +151,12 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
         dimmer_report_all();
         break;
 
+    case OTA_CMD_IDENT: {
+        uint8_t id[7] = { 'Z', 'D', 'M', 'S', OTA_IDENT_KIND_APP, FW_VERSION, OTA_PROTOCOL };
+        tuya_send(OTA_CMD_IDENT, seq, id, sizeof(id));
+        break;
+    }
+
     case OTA_CMD_NOTIFY: {
         /* The module has another firmware for us: say yes, then restart into
          * the bootloader, which fetches it. The module decides whether an
