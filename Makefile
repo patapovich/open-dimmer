@@ -5,9 +5,10 @@ SDK      ?= $(HOME)/projects/py32f0-template/Libraries
 PACK     ?= $(HOME)/projects/zdms16-py32/pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack
 PYOCD    ?= $(HOME)/projects/zdms16-py32/.venv/bin/pyocd
 PROJECT  := zdms16_py32
+# make VERSION_BYTE=0x81 BUILD=build-x: another version byte (tests of updates)
 # make SIM=1: virtual 50 Hz zero cross from TIM16 instead of PA4 (bench, no mains)
 SIM      ?= 0
-BUILD    := build$(if $(filter 1,$(SIM)),-sim)
+BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)
 
 CC       := arm-none-eabi-gcc
 OBJCOPY  := arm-none-eabi-objcopy
@@ -23,7 +24,7 @@ LDSCRIPT := py32f002a_app.ld
 
 INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Include \
             -I$(SDK)/PY32F0xx_LL_Driver/Inc
-DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM)
+DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE))
 ARCH     := -mcpu=cortex-m0plus -mthumb
 CFLAGS   := $(ARCH) $(DEFS) $(INCLUDES) -Os -g -Wall -Wextra -Wno-unused-parameter \
             -ffunction-sections -fdata-sections -std=c11 -MMD -MP
@@ -86,6 +87,8 @@ $(BUILD)/$(PROJECT)_full.bin: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin
 # app shares the first one with the bootloader, so an app-only load wipes the
 # bootloader (seen 2026-11-17). The settings sector (0x08004000) is not touched.
 flash flash-all: $(BUILD)/$(PROJECT)_full.bin
+	@# freeze the app's watchdog while the core is halted (DBGMCU APBFZ1 DBG_IWDG_STOP)
+	-$(PYOCD) commander -t py32f002ax5 --pack $(PACK) -f 400000 -O connect_mode=attach -c "write32 0x40015808 0x1000" >/dev/null 2>&1
 	$(PYOCD) load -t py32f002ax5 --pack $(PACK) -f 400000 --format bin --base-address 0x08000000 $<
 	$(PYOCD) reset -t py32f002ax5 --pack $(PACK) -f 400000
 

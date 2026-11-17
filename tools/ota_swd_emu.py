@@ -48,4 +48,4 @@ with ConnectHelper.session_with_chosen_probe(options=opts) as s:
         print("before reset:", bstate()); t.reset(); time.sleep(0.6)
         print("after reset: VTOR", hex(t.read32(0xE000ED08)), bstate())
     print(f"blocks sent {sent} in {time.time()-t0:.1f} s; bootloader after:", bstate())
-    print("flash header:", t.read_memory_block32(0x080008C0, 4), " VTOR", hex(t.read32(0xE000ED08)))
+    print("flash header:", t.read_memory_block32(0x080010C0, 4), " VTOR", hex(t.read32(0xE000ED08)))

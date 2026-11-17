@@ -1,4 +1,4 @@
-/* Bootloader of the ZDMS16-2 PY32 firmware (2 KB at 0x08000000).
+/* Bootloader of the ZDMS16-2 PY32 firmware (4 KB at 0x08000000).
  *
  * At reset: gates low first. If the app image is valid and nobody asked for an
  * update, start it. Otherwise ask the Zigbee module for the image block by
@@ -13,7 +13,7 @@
 #include "py32f0xx.h"
 #include <stddef.h>
 
-/* No C library (2 KB): small byte loops instead of its string functions. */
+/* No C library: small byte loops instead of its string functions. */
 static void copy(uint8_t *d, const uint8_t *s, uint32_t n) {
     while (n--) {
         *d++ = *s++;

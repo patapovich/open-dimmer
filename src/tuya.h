@@ -30,7 +30,9 @@
  * with the mains: NEVER run it on a module connected to the mains. */
 #define FW_VERSION               0xBF
 #else
-#define FW_VERSION               0x81
+#ifndef FW_VERSION
+#define FW_VERSION               0x82   /* 2.0.2 (make VERSION_BYTE=0x.. overrides) */
+#endif
 #endif
 
 void    tuya_init(void);

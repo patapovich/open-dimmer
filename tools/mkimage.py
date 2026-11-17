@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Fill size and CRC into the app header (ota_proto.h app_header_t at +0xC0).
 
-    mkimage.py app.bin app.img            app image, as written at 0x08000800
+    mkimage.py app.bin app.img            app image, as written at 0x08001000
     mkimage.py app.img --full boot.bin out.bin
-                                          boot padded to 2 KB + app: whole flash
+                                          boot padded to 4 KB + app: whole flash
                                           image for the first SWD flashing
 The CRC is CRC-32 (zlib) of the whole image with the crc field read as 0.
 """
 import struct, sys, zlib
 
-HDR_OFF, APP_MAGIC, APP_MAX, BOOT_SIZE = 0xC0, 0x5A445041, 14 * 1024, 2048
+HDR_OFF, APP_MAGIC, APP_MAX, BOOT_SIZE = 0xC0, 0x5A445041, 12 * 1024, 4096
 
 def make_app(data: bytes) -> bytes:
     data = bytearray(data)

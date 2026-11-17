@@ -1,8 +1,8 @@
 /* PY32 firmware update over the Tuya UART, from the Zigbee module (ZTU), which
  * carries the app image inside its own OTA image. Shared by app and bootloader.
  *
- * Flash: bootloader 0x08000000 (2 KB), app 0x08000800 (14 KB), settings
- * 0x08004000 (4 KB). The app image starts with its vector table; the header
+ * Flash: bootloader 0x08000000 (4 KB = the first erase sector), app 0x08001000
+ * (12 KB), settings 0x08004000 (4 KB). The app image starts with its vector table; the header
  * below follows it at APP_HEADER_OFFSET.
  *
  * Commands (ours, not Tuya's own MCU OTA 0x0C..0x0E):
@@ -37,8 +37,8 @@
 #define OTA_RESULT_BAD_IMAGE  1        /* CRC / header check failed after writing */
 #define OTA_RESULT_FLASH      2        /* a page did not verify */
 
-#define APP_BASE              0x08000800u
-#define APP_MAX_SIZE          (14u * 1024u)
+#define APP_BASE              0x08001000u
+#define APP_MAX_SIZE          (12u * 1024u)
 #define APP_HEADER_OFFSET     0xC0u    /* after the 48-entry vector table */
 #define APP_MAGIC             0x5A445041u   /* "APDZ" */
 

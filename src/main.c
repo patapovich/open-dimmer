@@ -90,6 +90,12 @@ static void led_update(uint32_t now) {
 /* Independent watchdog, ~1 s (LSI 32 kHz / 32, reload 1000). Once started it
  * runs through software resets too: the bootloader keeps refreshing it. */
 static void watchdog_start(void) {
+    /* The PY32 does not start its LSI for the watchdog by itself. (Frozen
+     * under a debugger only if the debugger sets DBGMCU APBFZ1 bit 12: the
+     * app cannot reach DBGMCU; `make flash` does it.) */
+    RCC->CSR |= RCC_CSR_LSION;
+    while (!(RCC->CSR & RCC_CSR_LSIRDY)) {
+    }
     IWDG->KR  = 0xCCCC;
     IWDG->KR  = 0x5555;
     IWDG->PR  = 3;

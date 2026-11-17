@@ -12,7 +12,7 @@ magic, size, crc, version, flags = struct.unpack_from("<IIIBB", img, 0xC0)
 assert magic == 0x5A445041 and size == len(img), "not an app image made by tools/mkimage.py"
 if flags & 1 or version == 0xBF:
     sys.exit("refusing a SIM bench build: the module would push it to dimmers on the mains")
-assert size <= 14 * 1024, "app larger than the 14 KB app area"
+assert size <= 12 * 1024, "app larger than the 12 KB app area"
 check = bytearray(img); struct.pack_into("<I", check, 0xC8, 0)
 assert zlib.crc32(bytes(check)) & 0xFFFFFFFF == crc, "CRC mismatch"
 v = f"{version >> 6}.{(version >> 4) & 3}.{version & 15}"
