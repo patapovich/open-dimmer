@@ -32,6 +32,22 @@ The stock MCU firmware is never touched by the update.
 See [docs/STATUS.md](docs/STATUS.md) for the datapoints, the flash layout, the build and deploy
 recipe and the open items.
 
+## Tested hardware
+
+So far tested on one module:
+
+| | |
+|---|---|
+| Device | **AVATTO ZDMS16-2**, 2-gang Zigbee dimmer module (Tuya `TS0601`, manufacturer `_TZE284_jtbgusdc`) |
+| Radio | Tuya ZTU module (Telink TLSR8258), running the fork's Zigbee firmware 1.1.3 |
+| Dimming MCU | Puya **PY32F002AF15P** (TSSOP20), stock firmware 1.0.7 (read-protected, replaced) |
+| Mains | 230 V / 50 Hz |
+| Load and switch | channel 1 (L1): a dimmable LED lamp; a momentary push button between L and S1 |
+
+Not tested yet: a load on channel 2 and a switch on S2, 60 Hz mains (unit tests only), the
+`_TZE204_jtbgusdc` variant (listed as the same board, not verified), other DMS16 versions (the WiFi
+DMS16-W1, board MK-WC1H16A-A, was only read for the analysis). Reports of other modules are welcome.
+
 ## Build
 
 Needs `arm-none-eabi-gcc` and the PY32F0 SDK from
