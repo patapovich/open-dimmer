@@ -24,8 +24,8 @@ typedef struct {
 
 extern volatile phase_debug_t g_phase_dbg;   /* read over SWD */
 
-#if MEASURE
-/* Measurement build: durations of the PA4 levels between edges (20 us ticks). */
+#if MEASURE || DIAG_REPORT
+/* Measurement / diagnostics builds: durations of the PA4 levels between edges (20 us ticks). */
 typedef struct {
     uint32_t sum;
     uint16_t count;

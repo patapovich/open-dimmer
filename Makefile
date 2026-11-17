@@ -11,7 +11,9 @@ SIM      ?= 0
 # make MEASURE=1: measurement build, outputs always off, zero-cross / input statistics
 # reported every 10 s (version 2.0.15 so the module never replaces it)
 MEASURE  ?= 0
-BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)
+# make DIAG=1: normal outputs, the same statistics reported every 10 s (2.0.14)
+DIAG     ?= 0
+BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)
 
 CC       := arm-none-eabi-gcc
 OBJCOPY  := arm-none-eabi-objcopy
@@ -27,7 +29,7 @@ LDSCRIPT := py32f002a_app.ld
 
 INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Include \
             -I$(SDK)/PY32F0xx_LL_Driver/Inc
-DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) -DMEASURE=$(MEASURE) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE),$(if $(filter 1,$(MEASURE)),-DFW_VERSION=0x8F))
+DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) -DMEASURE=$(MEASURE) -DDIAG_REPORT=$(DIAG) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE),$(if $(filter 1,$(MEASURE)),-DFW_VERSION=0x8F,$(if $(filter 1,$(DIAG)),-DFW_VERSION=0x8E)))
 ARCH     := -mcpu=cortex-m0plus -mthumb
 CFLAGS   := $(ARCH) $(DEFS) $(INCLUDES) -Os -g -Wall -Wextra -Wno-unused-parameter \
             -ffunction-sections -fdata-sections -std=c11 -MMD -MP

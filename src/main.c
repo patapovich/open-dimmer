@@ -90,22 +90,32 @@ static void led_update(uint32_t now) {
     }
 }
 
-#if MEASURE
-/* Measurement build: every 10 s the statistics go to the module as reports of
- * DPs 110..119, which its MCU link diagnostics log (Basic 0xff41..0xff45):
- * readable from Zigbee2MQTT with nothing wired to the board.
+#if MEASURE || DIAG_REPORT
+/* Measurement / diagnostics builds: every 10 s the statistics go to the module
+ * as reports of DPs 110..123, which its MCU link diagnostics log (Basic
+ * 0xff41..0xff45): readable from Zigbee2MQTT with nothing wired to the board.
  *   110/111/112 PA4 high: average / min / max us    113/114/115 low: same
- *   116 edges, 117 glitches (< 2 ms) in the window   118/119 S1/S2 low time ms */
+ *   116 edges, 117 glitches (< 2 ms) in the window   118/119 S1/S2 low time ms
+ *   120/121 S1/S2 level changes                      122 lock losses, 123 edges ignored */
 #define MEASURE_EVERY_MS   10000
 static uint32_t g_measure_next = MEASURE_EVERY_MS;
 static uint16_t g_s_low_ms[2];
+static uint16_t g_s_changes[2];
 
 static void measure_poll(uint32_t now) {
     static uint32_t last_ms;
+    static uint8_t  last_level[2] = { 1, 1 };
     if (now != last_ms) {                      /* switch inputs, sampled once a ms */
         last_ms = now;
-        g_s_low_ms[0] += !LL_GPIO_IsInputPinSet(S1_PORT, S1_PIN);
-        g_s_low_ms[1] += !LL_GPIO_IsInputPinSet(S2_PORT, S2_PIN);
+        uint8_t lv[2] = { LL_GPIO_IsInputPinSet(S1_PORT, S1_PIN) ? 1u : 0u,
+                          LL_GPIO_IsInputPinSet(S2_PORT, S2_PIN) ? 1u : 0u };
+        for (uint8_t i = 0; i < 2; i++) {
+            g_s_low_ms[i] += (uint16_t)!lv[i];
+            if (lv[i] != last_level[i]) {
+                g_s_changes[i]++;
+                last_level[i] = lv[i];
+            }
+        }
     }
     if ((int32_t)(now - g_measure_next) < 0) {
         return;
@@ -115,6 +125,8 @@ static void measure_poll(uint32_t now) {
     __disable_irq();
     m = *(zc_measure_t *)&g_zc_measure;
     memset((void *)&g_zc_measure, 0, sizeof(g_zc_measure));
+    uint32_t losses  = g_phase_dbg.lock_losses;
+    uint32_t ignored = g_phase_dbg.zc_ignored;
     __enable_irq();
     tuya_report_begin(1);
     tuya_report_value(110, m.high.count ? m.high.sum * 20u / m.high.count : 0);
@@ -127,9 +139,15 @@ static void measure_poll(uint32_t now) {
     tuya_report_value(117, m.glitches);
     tuya_report_value(118, g_s_low_ms[0]);
     tuya_report_value(119, g_s_low_ms[1]);
+    tuya_report_value(120, g_s_changes[0]);
+    tuya_report_value(121, g_s_changes[1]);
+    tuya_report_value(122, losses);
+    tuya_report_value(123, ignored);
     tuya_report_send();
-    g_s_low_ms[0] = 0;
-    g_s_low_ms[1] = 0;
+    g_s_low_ms[0]  = 0;
+    g_s_low_ms[1]  = 0;
+    g_s_changes[0] = 0;
+    g_s_changes[1] = 0;
 }
 #endif
 
@@ -184,7 +202,7 @@ int main(void) {
         }
 
         led_update(now);
-#if MEASURE
+#if MEASURE || DIAG_REPORT
         measure_poll(now);
 #endif
     }

@@ -13,7 +13,7 @@
 
 volatile phase_debug_t g_phase_dbg;
 
-#if MEASURE
+#if MEASURE || DIAG_REPORT
 volatile zc_measure_t g_zc_measure;
 static uint16_t       g_meas_last;
 static uint8_t        g_meas_started;
@@ -122,7 +122,7 @@ void EXTI4_15_IRQHandler(void) {
     if (EXTI->PR & ZC_PIN_MASK) {
         EXTI->PR = ZC_PIN_MASK;
         uint16_t now = (uint16_t)TIM16->CNT;
-#if MEASURE
+#if MEASURE || DIAG_REPORT
         measure_edge(now);
 #endif
         zero_cross(now);
