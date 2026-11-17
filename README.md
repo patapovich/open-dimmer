@@ -38,7 +38,8 @@ So far tested on one module:
 
 | | |
 |---|---|
-| Device | **AVATTO ZDMS16-2**, 2-gang Zigbee dimmer module (Tuya `TS0601`, manufacturer `_TZE284_jtbgusdc`) |
+| Device | **AVATTO ZDMS16-2**, 2-gang Zigbee dimmer module |
+| Zigbee model | stock: `TS0601`, manufacturer `_TZE284_jtbgusdc`; with the fork's Zigbee firmware: **`TS0601-ZDMS16-2`**, manufacturer `jtbgusdc` (as Zigbee2MQTT shows it) |
 | Radio | Tuya ZTU module (Telink TLSR8258), running the fork's Zigbee firmware 1.1.3 |
 | Dimming MCU | Puya **PY32F002AF15P** (TSSOP20), stock firmware 1.0.7 (read-protected, replaced) |
 | Mains | 230 V / 50 Hz |
