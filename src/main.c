@@ -17,6 +17,7 @@
 
 #define NETWORK_QUERY_FIRST_MS   200
 #define NETWORK_QUERY_EVERY_MS   30000
+#define NETWORK_QUERY_JOINING_MS 2000    /* until on a network: the LED follows soon */
 
 /* Found by the bootloader right after the vector table; size and CRC are
  * filled in by tools/mkimage.py. */
@@ -132,7 +133,8 @@ int main(void) {
         /* Asking for the network state also tells the module we are up: it
          * answers and starts its first contact (version, DP dump). */
         if ((int32_t)(now - next_query) >= 0) {
-            next_query = now + NETWORK_QUERY_EVERY_MS;
+            next_query = now + (tuya_network_status() == TUYA_NETWORK_CONNECTED
+                                ? NETWORK_QUERY_EVERY_MS : NETWORK_QUERY_JOINING_MS);
             tuya_send(TUYA_CMD_QUERY_NETWORK, query_seq++, 0, 0);
         }
 
