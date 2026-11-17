@@ -5,7 +5,9 @@ SDK      ?= $(HOME)/projects/py32f0-template/Libraries
 PACK     ?= $(HOME)/projects/zdms16-py32/pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack
 PYOCD    ?= $(HOME)/projects/zdms16-py32/.venv/bin/pyocd
 PROJECT  := zdms16_py32
-BUILD    := build
+# make SIM=1: virtual 50 Hz zero cross from TIM16 instead of PA4 (bench, no mains)
+SIM      ?= 0
+BUILD    := build$(if $(filter 1,$(SIM)),-sim)
 
 CC       := arm-none-eabi-gcc
 OBJCOPY  := arm-none-eabi-objcopy
@@ -21,7 +23,7 @@ LDSCRIPT := py32f002a_app.ld
 
 INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Include \
             -I$(SDK)/PY32F0xx_LL_Driver/Inc
-DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER
+DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM)
 ARCH     := -mcpu=cortex-m0plus -mthumb
 CFLAGS   := $(ARCH) $(DEFS) $(INCLUDES) -Os -g -Wall -Wextra -Wno-unused-parameter \
             -ffunction-sections -fdata-sections -std=c11
@@ -59,3 +61,11 @@ clean:
 	rm -rf $(BUILD)
 
 .PHONY: all flash clean
+
+# Hardware-free logic on the PC
+test:
+	mkdir -p $(BUILD)/host
+	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_dim_core.c src/dim_core.c -o $(BUILD)/host/test_dim_core
+	$(BUILD)/host/test_dim_core
+
+.PHONY: test

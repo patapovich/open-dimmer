@@ -1,9 +1,11 @@
 /* Own firmware for the PY32F002A of the AVATTO ZDMS16-2.
- * Step 3: Tuya MCU protocol towards the Zigbee module, settings kept in flash.
- * The output stage stays off; the LED shows channel 1 (on/off), or blinks while the module is not on a
+ * Step 4: phase-angle output (TIM1) on zero crosses; with SIM_ZC=1 a virtual
+ * 50 Hz zero cross drives it without mains. Tuya MCU protocol towards the Zigbee
+ * module, settings kept in flash; the LED shows channel 1 (on/off), or blinks while the module is not on a
  * network. */
 #include "board.h"
 #include "dimmer.h"
+#include "phase.h"
 #include "tuya.h"
 #include "uart.h"
 #include "py32f0xx_ll_bus.h"
@@ -33,6 +35,7 @@ static void clock_init(void) {
     LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_1);
     LL_SetSystemCoreClock(24000000);
     LL_Init1msTick(24000000);
+    NVIC_SetPriority(SysTick_IRQn, 2);   /* zero cross 0, UART 1 */
     SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
 }
 
@@ -79,6 +82,7 @@ static void led_update(uint32_t now) {
 int main(void) {
     clock_init();
     gpio_init();
+    phase_init();
     dimmer_init();
     uart_init(UART_BAUD);
     tuya_init();
@@ -90,7 +94,8 @@ int main(void) {
         uint32_t now = g_ms;
 
         tuya_poll(now);
-        dimmer_poll(now, tuya_rx_quiet_ms(now));
+        phase_poll();
+        dimmer_poll(now, tuya_rx_quiet_ms(now), phase_save_window());
 
         /* Asking for the network state also tells the module we are up: it
          * answers and starts its first contact (version, DP dump). */

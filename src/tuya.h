@@ -24,7 +24,13 @@
 
 /* Our firmware version, Tuya packing: 2 bits major, 2 bits minor, 4 bits patch.
  * 0x81 = 2.0.1 (major 2 tells it apart from the stock 1.0.x). */
+#if SIM_ZC
+/* 2.3.15: bench build with a virtual zero cross. Its output is not in step
+ * with the mains: NEVER run it on a module connected to the mains. */
+#define FW_VERSION               0xBF
+#else
 #define FW_VERSION               0x81
+#endif
 
 void    tuya_init(void);
 /** Parse what the UART received and handle complete frames. */

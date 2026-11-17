@@ -1,4 +1,5 @@
 #include "dimmer.h"
+#include "phase.h"
 #include "store.h"
 #include "tuya.h"
 #include <string.h>
@@ -61,6 +62,10 @@ static void snapshot(saved_t *s) {
     }
 }
 
+static void apply(uint8_t ch) {
+    phase_set(ch, g_ch[ch].on, g_ch[ch].level);
+}
+
 static void mark_dirty(void) {
     g_dirty         = 1;
     g_dirty_restart = 1;
@@ -94,14 +99,17 @@ void dimmer_init(void) {
         }
     }
     snapshot(&g_saved);
+    for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
+        apply(i);
+    }
 }
 
-void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms) {
+void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok) {
     if (g_dirty_restart) {
         g_dirty_restart = 0;
         g_dirty_ms      = now;
     }
-    if (!g_dirty || now - g_dirty_ms < SAVE_DELAY_MS || rx_quiet_ms < SAVE_QUIET_MS) {
+    if (!g_dirty || now - g_dirty_ms < SAVE_DELAY_MS || rx_quiet_ms < SAVE_QUIET_MS || !stall_ok) {
         return;
     }
     g_dirty = 0;
@@ -163,6 +171,7 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
             return 0;
         }
         c->on = value[0] ? 1 : 0;
+        apply(ch);
         mark_dirty();   /* switching off fixes the level to keep */
         return 1;
 
@@ -188,6 +197,7 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         /* Unlike the stock firmware, a level written while off is kept for
          * the next "on". */
         c->level = clamp_level(v);
+        apply(ch);
         if (!c->on) {
             mark_dirty();
         }

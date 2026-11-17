@@ -1,0 +1,159 @@
+#include "phase.h"
+#include "board.h"
+#include "dim_core.h"
+#include "py32f0xx_ll_bus.h"
+#include "py32f0xx_ll_exti.h"
+#include "py32f0xx_ll_gpio.h"
+
+#define TICK_PSC          479u   /* 24 MHz / 480 = 50 kHz, 20 us */
+#define SIM_HALF_PERIOD   500u   /* 50 Hz */
+#define SAVE_WINDOW_TICKS 50u    /* 1 ms after a zero cross: 9 ms until the next */
+#define ZC_PIN_MASK       (1u << 4)
+
+volatile phase_debug_t g_phase_dbg;
+
+static dim_fader_t       g_fader[2];
+static zc_tracker_t      g_zc;
+static volatile uint16_t g_last_zc;
+
+/* Channel 1 is PA1 = TIM1_CH4, channel 2 is PA0 = TIM1_CH3 (stock wiring). */
+static void zero_cross(uint16_t now) {
+    if (!zc_tracker_edge(&g_zc, now)) {
+        g_phase_dbg.zc_ignored++;
+        return;
+    }
+    g_last_zc = now;
+    g_phase_dbg.zc_edges++;
+
+    uint16_t hp = g_zc.half_period;
+    uint16_t c0 = 0, c1 = 0;
+
+    if (zc_locked(&g_zc)) {
+        /* Fade only while the output runs, so the first half cycles after
+         * power-up fade in instead of jumping to the target. */
+        c0 = dim_compare(hp, dim_fader_tick(&g_fader[0]));
+        c1 = dim_compare(hp, dim_fader_tick(&g_fader[1]));
+    }
+
+    TIM1->ARR  = dim_reload(hp);
+    TIM1->CCR4 = c0;
+    TIM1->CCR3 = c1;
+    TIM1->EGR  = TIM_EGR_UG;      /* counter to 0, ARR/CCR preloads to active */
+    /* Arm the safe default: if the next edge does not come before the wrap,
+     * the wrap's update event loads compare 0 and the gates stay low. */
+    TIM1->CCR4 = 0;
+    TIM1->CCR3 = 0;
+
+    g_phase_dbg.half_period = hp;
+    g_phase_dbg.locked      = zc_locked(&g_zc);
+    g_phase_dbg.current[0]  = g_fader[0].current;
+    g_phase_dbg.current[1]  = g_fader[1].current;
+    g_phase_dbg.compare[0]  = c0;
+    g_phase_dbg.compare[1]  = c1;
+}
+
+#if SIM_ZC
+void TIM16_IRQHandler(void) {
+    if (TIM16->SR & TIM_SR_CC1IF) {
+        TIM16->SR = ~TIM_SR_CC1IF;
+        uint16_t t   = (uint16_t)TIM16->CCR1;
+        TIM16->CCR1 = (uint16_t)(t + SIM_HALF_PERIOD);
+        zero_cross(t);
+    }
+}
+#else
+void EXTI4_15_IRQHandler(void) {
+    if (EXTI->PR & ZC_PIN_MASK) {
+        EXTI->PR = ZC_PIN_MASK;
+        zero_cross((uint16_t)TIM16->CNT);
+    }
+}
+#endif
+
+static void timers_init(void) {
+    LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_TIM1 | LL_APB1_GRP2_PERIPH_TIM16);
+
+    /* TIM16: free-running 20 us time base. */
+    TIM16->PSC = TICK_PSC;
+    TIM16->ARR = 0xFFFF;
+    TIM16->EGR = TIM_EGR_UG;
+    TIM16->SR  = 0;
+#if SIM_ZC
+    TIM16->CCR1  = SIM_HALF_PERIOD;
+    TIM16->DIER |= TIM_DIER_CC1IE;
+    NVIC_SetPriority(TIM16_IRQn, 0);
+    NVIC_EnableIRQ(TIM16_IRQn);
+#endif
+    TIM16->CR1 = TIM_CR1_CEN;
+
+    /* TIM1: PWM mode 1 on CH3/CH4, high from the zero cross until compare. */
+    TIM1->PSC   = TICK_PSC;
+    TIM1->ARR   = 0xFFFF;
+    TIM1->CCR3  = 0;
+    TIM1->CCR4  = 0;
+    TIM1->CCMR2 = (6u << TIM_CCMR2_OC3M_Pos) | TIM_CCMR2_OC3PE |
+                  (6u << TIM_CCMR2_OC4M_Pos) | TIM_CCMR2_OC4PE;
+    TIM1->CCER  = TIM_CCER_CC3E | TIM_CCER_CC4E;   /* active high */
+    TIM1->BDTR  = TIM_BDTR_MOE;
+    TIM1->CR1   = TIM_CR1_ARPE;
+    TIM1->EGR   = TIM_EGR_UG;
+    TIM1->CR1  |= TIM_CR1_CEN;
+}
+
+static void gate_pins_to_timer(void) {
+    /* The pins are GPIO outputs driven low until here; the timer outputs
+     * are low too (compare 0), so the switch over does not glitch. */
+    LL_GPIO_SetAFPin_0_7(GATE1_PORT, GATE1_PIN, LL_GPIO_AF_13);
+    LL_GPIO_SetAFPin_0_7(GATE2_PORT, GATE2_PIN, LL_GPIO_AF_13);
+    LL_GPIO_SetPinMode(GATE1_PORT, GATE1_PIN, LL_GPIO_MODE_ALTERNATE);
+    LL_GPIO_SetPinMode(GATE2_PORT, GATE2_PIN, LL_GPIO_MODE_ALTERNATE);
+}
+
+static void zero_cross_input_init(void) {
+#if !SIM_ZC
+    LL_GPIO_SetPinMode(ZC_PORT, ZC_PIN, LL_GPIO_MODE_INPUT);
+    LL_GPIO_SetPinPull(ZC_PORT, ZC_PIN, LL_GPIO_PULL_UP);
+    LL_EXTI_SetEXTISource(LL_EXTI_CONFIG_PORTA, LL_EXTI_CONFIG_LINE4);
+    EXTI->RTSR |= ZC_PIN_MASK;
+    EXTI->FTSR |= ZC_PIN_MASK;
+    EXTI->PR    = ZC_PIN_MASK;
+    EXTI->IMR  |= ZC_PIN_MASK;
+    NVIC_SetPriority(EXTI4_15_IRQn, 0);
+    NVIC_EnableIRQ(EXTI4_15_IRQn);
+#endif
+}
+
+void phase_init(void) {
+    dim_fader_init(&g_fader[0]);
+    dim_fader_init(&g_fader[1]);
+    zc_tracker_init(&g_zc);
+    timers_init();
+    gate_pins_to_timer();
+    zero_cross_input_init();
+}
+
+void phase_set(uint8_t ch, uint8_t on, uint16_t level) {
+    if (ch < 2) {
+        dim_fader_set(&g_fader[ch], on, level);   /* 16-bit store: atomic */
+    }
+}
+
+void phase_poll(void) {
+    __disable_irq();
+    uint8_t lost = zc_tracker_check(&g_zc, (uint16_t)TIM16->CNT);
+    if (lost) {
+        /* Mains gone or the detector stopped: start from dark next time. */
+        g_fader[0].current = 0;
+        g_fader[1].current = 0;
+        g_phase_dbg.locked = 0;
+        g_phase_dbg.lock_losses++;
+    }
+    __enable_irq();
+}
+
+uint8_t phase_save_window(void) {
+    if (!zc_locked(&g_zc)) {
+        return 1;
+    }
+    return (uint16_t)((uint16_t)TIM16->CNT - g_last_zc) < SAVE_WINDOW_TICKS;
+}

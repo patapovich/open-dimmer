@@ -24,8 +24,9 @@ typedef struct {
 
 /** Defaults, then saved settings and the power-on behaviour. */
 void dimmer_init(void);
-/** Save changed settings once writes have settled and the UART is quiet. */
-void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms);
+/** Save changed settings once writes have settled, the UART is quiet and a
+ * ~5 ms CPU stall would not miss a zero cross (stall_ok). */
+void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok);
 const dimmer_channel_t *dimmer_channel(uint8_t ch);
 
 /** Apply a DP write. Returns 1 if the DP is ours (then it is reported back). */
