@@ -1,5 +1,6 @@
 /* PC tests for the hardware-free dimming logic: make test */
 #include "dim_core.h"
+#include "curves.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -76,7 +77,7 @@ static void test_compare(void) {
 }
 
 static void test_curves(void) {
-    for (uint8_t c = 0; c < 4; c++) {
+    for (uint8_t c = 0; c < CURVE_COUNT; c++) {
         CHECK(dim_curve(c, 0) == 0);
         CHECK(dim_curve(c, 1000) == DIM_DUTY_MAX);
         CHECK(dim_curve(c, 10) >= 1);                  /* minimum level is never dark */
@@ -308,7 +309,7 @@ static void test_output_linear_is_unchanged(void) {
 }
 
 static void test_output_min_max_are_physical_for_every_curve(void) {
-    for (uint8_t c = 0; c < 4; c++) {
+    for (uint8_t c = 0; c < CURVE_COUNT; c++) {
         CHECK(dim_output(c, 287, 287, 900) == 2870);    /* min: the same duty whatever the curve */
         CHECK(dim_output(c, 900, 287, 900) == 9000);    /* max: likewise */
         CHECK(dim_output(c, 100, 287, 900) == 2870);    /* below min (fading in): min */

@@ -6,12 +6,14 @@
 
 #define CURVE_POINTS   33
 #define CURVE_OUT_MAX  10000
-#define CURVE_COUNT    4
+#define CURVE_COUNT    6
 
 #define CURVE_LINEAR        0
 #define CURVE_LED           1
 #define CURVE_LED_SOFT      2
 #define CURVE_INCANDESCENT  3
+#define CURVE_LED_DEEP      4
+#define CURVE_LED_DEEPER    5
 
 static const uint16_t k_curves[CURVE_COUNT][CURVE_POINTS] = {
     /* linear */
@@ -30,6 +32,14 @@ static const uint16_t k_curves[CURVE_COUNT][CURVE_POINTS] = {
     {     0,   811,  1024,  1178,  1326,  1476,  1627,  1779,  1933,  2089,  2247,
        2408,  2571,  2737,  2907,  3080,  3257,  3439,  3626,  3819,  4019,  4227,
        4444,  4673,  4914,  5171,  5449,  5753,  6094,  6486,  6966,  7627, 10000 },
+    /* led_deep */
+    {     0,     2,     6,    11,    18,    29,    44,    65,    93,   129,   176,
+        234,   307,   397,   505,   635,   790,   973,  1188,  1437,  1725,  2057,
+       2435,  2866,  3354,  3905,  4523,  5215,  5986,  6844,  7794,  8844, 10000 },
+    /* led_deeper */
+    {     0,     0,     0,     1,     2,     4,     7,    12,    19,    30,    46,
+         67,    96,   135,   187,   254,   339,   448,   584,   753,   960,  1214,
+       1521,  1890,  2331,  2854,  3472,  4198,  5045,  6031,  7173,  8489, 10000 },
 };
 
 #endif

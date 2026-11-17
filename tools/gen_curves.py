@@ -11,6 +11,10 @@ conduction time of the half cycle in 1/10000 (trailing edge, from the zero cross
     3 incandescent  CIE lightness on lamp power: the power of a sine conducted
                     from 0 to angle t is (t - sin t cos t) / pi of the full
                     power; invert that.
+    4 led_deep      CIE lightness ^ 1.5: for LED lamps whose light rises steeply
+                    just above their threshold (the dim end passes too fast
+                    with led): more of the range at low conduction
+    5 led_deeper    CIE lightness ^ 2, the same, stronger
 
 Run: python3 tools/gen_curves.py > src/curves.h
 """
@@ -42,6 +46,8 @@ CURVES = [
     ("led", cie),
     ("led_soft", lambda lv: (lv / 1000.0) ** 1.6),
     ("incandescent", lambda lv: conduction_for_power(cie(lv))),
+    ("led_deep", lambda lv: cie(lv) ** 1.5),
+    ("led_deeper", lambda lv: cie(lv) ** 2),
 ]
 
 def table(fn):
