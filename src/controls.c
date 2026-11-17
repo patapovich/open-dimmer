@@ -34,57 +34,6 @@ static uint32_t  g_now;   /* time of the events being handled (controls_poll) */
 
 static uint8_t closed(uint8_t idx);
 
-#if !(MEASURE || DIAG_REPORT)   /* the measurement builds have their own input statistics */
-/* Raw (undebounced) wall switch timing, to learn what the board's input stage
- * does: the last 8 level runs per switch, byte = closed << 7 | ms / 4 (max
- * 127 = 508 ms), oldest first. Reported after each gesture as DPs 140/141
- * (S1) and 142/143 (S2), 4 runs each, the run still going not included. */
-#define RAW_RUNS          8
-static uint8_t           g_raw_level[DIMMER_CHANNELS];
-static uint16_t          g_raw_run_ms[DIMMER_CHANNELS];
-static volatile uint8_t  g_raw_runs[DIMMER_CHANNELS][RAW_RUNS];
-static volatile uint8_t  g_raw_head[DIMMER_CHANNELS];
-
-static void raw_sample(uint8_t ch, uint8_t level) {
-    if (level == g_raw_level[ch]) {
-        if (g_raw_run_ms[ch] < 0xFFFF) {
-            g_raw_run_ms[ch]++;
-        }
-        return;
-    }
-    uint16_t d = (uint16_t)(g_raw_run_ms[ch] / 4u);
-    g_raw_runs[ch][g_raw_head[ch] & (RAW_RUNS - 1)] =
-        (uint8_t)((d > 127u ? 127u : d) | (uint8_t)(g_raw_level[ch] << 7));
-    g_raw_head[ch]++;
-    g_raw_level[ch]  = level;
-    g_raw_run_ms[ch] = 1;
-}
-
-static void report_raw_timing(uint8_t ch) {
-    uint8_t r[RAW_RUNS];
-    __disable_irq();
-    uint8_t head = g_raw_head[ch];
-    for (uint8_t k = 0; k < RAW_RUNS; k++) {
-        r[k] = g_raw_runs[ch][(uint8_t)(head + k) & (RAW_RUNS - 1)];   /* oldest first */
-    }
-    __enable_irq();
-    tuya_report_begin(0);
-    tuya_report_value((uint8_t)(140 + 2 * ch),
-                      ((uint32_t)r[0] << 24) | ((uint32_t)r[1] << 16) | ((uint32_t)r[2] << 8) | r[3]);
-    tuya_report_value((uint8_t)(141 + 2 * ch),
-                      ((uint32_t)r[4] << 24) | ((uint32_t)r[5] << 16) | ((uint32_t)r[6] << 8) | r[7]);
-    tuya_report_send();
-}
-#else
-static void raw_sample(uint8_t ch, uint8_t level) {
-    (void)ch;
-    (void)level;
-}
-
-static void report_raw_timing(uint8_t ch) {
-    (void)ch;
-}
-#endif
 
 void controls_init(void) {
     /* Pull-ups and the input filters settle before the resting state is read
@@ -101,11 +50,6 @@ void controls_init(void) {
             g_in[i].pressed = 1;
             g_in[i].held    = 1;
         }
-#if !(MEASURE || DIAG_REPORT)
-        if (i < DIMMER_CHANNELS) {
-            g_raw_level[i] = closed(i);
-        }
-#endif
     }
     __enable_irq();
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
@@ -133,11 +77,7 @@ static uint8_t closed(uint8_t idx) {
 
 void controls_tick_1ms(void) {
     for (uint8_t i = 0; i < IN_COUNT; i++) {
-        uint8_t level = closed(i);
-        if (i < DIMMER_CHANNELS) {
-            raw_sample(i, level);
-        }
-        uint8_t ev = input_sample(&g_in[i], level);
+        uint8_t ev = input_sample(&g_in[i], closed(i));
         if (ev == INPUT_EV_NONE) {
             continue;
         }
@@ -168,12 +108,7 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
         /* The light acts first, the gesture is reported on top of it. */
         {
             uint8_t g = gesture_event(&g_gesture[ch], ev, g_now);
-            if (g) {
-                dimmer_report_action(ch, g);
-                if (g == GESTURE_RELEASE) {
-                    report_raw_timing(ch);
-                }
-            }
+            dimmer_report_action(ch, g);
         }
         switch (ev) {
         case INPUT_EV_PRESS:
@@ -247,9 +182,6 @@ void controls_poll(uint32_t now) {
     }
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
         uint8_t g = gesture_poll(&g_gesture[ch], now);
-        if (g) {
-            dimmer_report_action(ch, g);
-            report_raw_timing(ch);
-        }
+        dimmer_report_action(ch, g);
     }
 }
