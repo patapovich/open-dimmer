@@ -195,14 +195,14 @@ static void measure_poll(uint32_t now) {
 
 #if !(MEASURE || DIAG_REPORT)   /* the measurement builds report more, every 10 s */
 /* Health counters for long runs, in every build: a minute after start and then
- * every 10 min as reports of DPs 130..134 (logged by the module's MCU link
+ * every 2 min (the module's log keeps ~7 min) as reports of DPs 130..134 (logged by the module's MCU link
  * diagnostics like the measurement DPs, read with zdms16_measure_read.py):
  *   130 uptime minutes   131 reset cause (RCC_CSR flags at start >> 24:
  *   bit 7 LPWR, 6 WWDG, 5 IWDG, 4 software (update), 3 power/BOR, 2 pin, 1 option bytes)
  *   132 zero-cross lock losses   133 edges ignored as noise   134 settings saves
  * (all since start). */
 #define HEALTH_FIRST_MS    60000u
-#define HEALTH_EVERY_MS    600000u
+#define HEALTH_EVERY_MS    120000u
 static uint32_t g_reset_cause;
 static uint32_t g_health_next = HEALTH_FIRST_MS;
 
