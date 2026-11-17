@@ -8,8 +8,10 @@
 #include <string.h>
 
 #define DP_PER_CHANNEL   6
-#define DP_POWER_ON      14
+#define DP_POWER_ON      14    /* both channels (stock); reported: channel 1's */
 #define DP_CURVE_BASE    101   /* + channel */
+#define DP_POWER_ON_BASE 103   /* + channel: power-on behaviour of one channel (ours) */
+#define DP_ACTION_BASE   105   /* + channel: wall switch gesture, event only (ours) */
 
 enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
 
@@ -19,11 +21,11 @@ enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
 
 #define SAVE_DELAY_MS    2000   /* coalesce bursts of writes into one save */
 #define SAVE_QUIET_MS    100    /* the CPU stalls ~5 ms while saving: not mid-frame */
-#define SAVED_FORMAT     1
+#define SAVED_FORMAT     2     /* 1: one power-on for both channels */
 #define SAVE_RETRIES     3
 
 static dimmer_channel_t g_ch[DIMMER_CHANNELS];
-static uint8_t          g_power_on;   /* 0 off, 1 on, 2 last state */
+static uint8_t          g_power_on[DIMMER_CHANNELS];   /* 0 off, 1 on, 2 last state */
 
 /* What survives a power cut. The level is the one set while off, or the one the
  * light had when it was switched off: a level change while on (adaptive
@@ -31,9 +33,9 @@ static uint8_t          g_power_on;   /* 0 off, 1 on, 2 last state */
  * on state is kept only for "last state" power-on. */
 typedef struct {
     uint8_t format;
-    uint8_t power_on;
+    uint8_t power_on;     /* channel 1 (format 1: both) */
     uint8_t on_mask;
-    uint8_t reserved;
+    uint8_t power_on_2;   /* channel 2 (format 2; was reserved = 0) */
     struct {
         uint16_t level;
         uint16_t min;
@@ -57,15 +59,16 @@ static uint16_t clamp_level(uint32_t v);
 
 static void snapshot(saved_t *s) {
     memset(s, 0, sizeof(*s));
-    s->format   = SAVED_FORMAT;
-    s->power_on = g_power_on;
+    s->format     = SAVED_FORMAT;
+    s->power_on   = g_power_on[0];
+    s->power_on_2 = g_power_on[1];
     for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
         s->ch[i].level       = g_ch[i].level;
         s->ch[i].min         = g_ch[i].min;
         s->ch[i].max         = g_ch[i].max;
         s->ch[i].switch_type = g_ch[i].switch_type;
         s->ch[i].curve       = g_ch[i].curve;
-        if (g_power_on == POWER_ON_LAST && g_ch[i].on) {
+        if (g_power_on[i] == POWER_ON_LAST && g_ch[i].on) {
             s->on_mask |= (uint8_t)(1u << i);
         }
     }
@@ -102,11 +105,14 @@ void dimmer_init(void) {
         g_ch[i].curve       = 0;
         g_ch[i].countdown   = 0;
     }
-    g_power_on = POWER_ON_OFF;
+    g_power_on[0] = POWER_ON_OFF;
+    g_power_on[1] = POWER_ON_OFF;
 
     saved_t s;
-    if (store_load((uint8_t *)&s) && s.format == SAVED_FORMAT) {
-        g_power_on = s.power_on <= POWER_ON_LAST ? s.power_on : POWER_ON_OFF;
+    if (store_load((uint8_t *)&s) && (s.format == SAVED_FORMAT || s.format == 1)) {
+        g_power_on[0] = s.power_on <= POWER_ON_LAST ? s.power_on : POWER_ON_OFF;
+        g_power_on[1] = s.format == 1 ? g_power_on[0]
+                      : s.power_on_2 <= POWER_ON_LAST ? s.power_on_2 : POWER_ON_OFF;
         for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
             g_ch[i].level       = clamp_level(s.ch[i].level);
             g_ch[i].min         = clamp_level(s.ch[i].min);
@@ -116,8 +122,8 @@ void dimmer_init(void) {
             if (g_ch[i].min > g_ch[i].max) {
                 g_ch[i].min = g_ch[i].max;
             }
-            g_ch[i].on = g_power_on == POWER_ON_ON ||
-                         (g_power_on == POWER_ON_LAST && (s.on_mask & (1u << i)));
+            g_ch[i].on = g_power_on[i] == POWER_ON_ON ||
+                         (g_power_on[i] == POWER_ON_LAST && (s.on_mask & (1u << i)));
         }
     }
     /* Back from a firmware update (or the bootloader giving up on one): the
@@ -210,11 +216,16 @@ static uint8_t channel_dp(uint8_t dpid, uint8_t *ch, uint8_t *idx) {
 uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16_t len) {
     uint8_t ch, idx;
 
-    if (dpid == DP_POWER_ON) {
-        if (type != TUYA_DP_TYPE_ENUM || len != 1 || value[0] > 2) {
+    if (dpid == DP_POWER_ON ||
+        (dpid >= DP_POWER_ON_BASE && dpid < DP_POWER_ON_BASE + DIMMER_CHANNELS)) {
+        if (type != TUYA_DP_TYPE_ENUM || len != 1 || value[0] > POWER_ON_LAST) {
             return 0;
         }
-        g_power_on = value[0];
+        for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
+            if (dpid == DP_POWER_ON || dpid == DP_POWER_ON_BASE + i) {
+                g_power_on[i] = value[0];     /* DP 14 (stock): both channels */
+            }
+        }
         mark_dirty();
         return 1;
     }
@@ -308,9 +319,12 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
     }
 }
 
-uint8_t dimmer_sibling_dp(uint8_t dpid) {
+uint8_t dimmer_sibling_dp(uint8_t dpid, uint8_t n) {
     uint8_t ch, idx;
-    if (!channel_dp(dpid, &ch, &idx)) {
+    if (dpid == DP_POWER_ON) {                /* DP 14 set both channels */
+        return n < DIMMER_CHANNELS ? (uint8_t)(DP_POWER_ON_BASE + n) : 0;
+    }
+    if (n != 0 || !channel_dp(dpid, &ch, &idx)) {
         return 0;
     }
     if (idx == DP_MIN) {
@@ -326,7 +340,11 @@ void dimmer_report_dp(uint8_t dpid) {
     uint8_t ch, idx;
 
     if (dpid == DP_POWER_ON) {
-        tuya_report_enum(dpid, g_power_on);
+        tuya_report_enum(dpid, g_power_on[0]);
+        return;
+    }
+    if (dpid >= DP_POWER_ON_BASE && dpid < DP_POWER_ON_BASE + DIMMER_CHANNELS) {
+        tuya_report_enum(dpid, g_power_on[dpid - DP_POWER_ON_BASE]);
         return;
     }
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
@@ -368,6 +386,24 @@ void dimmer_local_set(uint8_t ch, uint8_t on) {
     apply(ch);
     mark_dirty();
     report_local(ch, 0);
+}
+
+void dimmer_local_toggle_all(void) {
+    uint8_t any_on = 0;
+    for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
+        any_on |= g_ch[ch].on;
+    }
+    for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
+        dimmer_local_set(ch, !any_on);        /* any on: all off, else all on */
+    }
+}
+
+void dimmer_report_action(uint8_t ch, uint8_t gesture) {
+    if (ch < DIMMER_CHANNELS && gesture) {
+        tuya_report_begin(0);
+        tuya_report_enum((uint8_t)(DP_ACTION_BASE + ch), gesture);
+        tuya_report_send();
+    }
 }
 
 void dimmer_boot_set(uint8_t ch, uint8_t on) {
@@ -426,6 +462,7 @@ void dimmer_report_all(void) {
             dimmer_report_dp((uint8_t)(ch * DP_PER_CHANNEL + i + 1));
         }
         dimmer_report_dp((uint8_t)(DP_CURVE_BASE + ch));
+        dimmer_report_dp((uint8_t)(DP_POWER_ON_BASE + ch));
         tuya_report_send();
     }
     tuya_report_begin(1);

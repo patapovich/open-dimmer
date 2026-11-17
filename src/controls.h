@@ -23,6 +23,6 @@ void controls_init(void);
 /** From the 1 ms tick interrupt. */
 void controls_tick_1ms(void);
 /** From the main loop. */
-void controls_poll(void);
+void controls_poll(uint32_t now);
 
 #endif

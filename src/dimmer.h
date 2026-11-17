@@ -3,6 +3,11 @@
  *   channel 1: DP 1 on, 2 level, 3 min, 4 switch type, 5 max, 6 countdown
  *   channel 2: DP 7 .. 12, same order
  *   DP 14 power-on behaviour (0 off, 1 on, 2 last state), both channels
+ *     (written: both; reported: channel 1's, for the stock protocol)
+ *   DP 103 / 104 power-on behaviour of channel 1 / 2 (ours)
+ *   DP 105 / 106 wall switch gesture of channel 1 / 2, reported only, never
+ *     in the DP dump (ours, gesture_core.h): 1 single, 2 double, 3 triple,
+ *     4 hold, 5 release
  *   DP 101 / 102 dimming curve of channel 1 / 2 (enum, curves.h; ours, the
  *   stock MCU has no such DP): 0 linear, 1 led, 2 led_soft, 3 incandescent
  * Levels are 10..1000 like the stock firmware. */
@@ -42,6 +47,10 @@ void dimmer_local_set(uint8_t ch, uint8_t on);
 /** At boot, before the module is told our state: no report. */
 void dimmer_boot_set(uint8_t ch, uint8_t on);
 void dimmer_local_toggle(uint8_t ch);
+/** Module button: any channel on -> all off, else all on. */
+void dimmer_local_toggle_all(void);
+/** Report a wall switch gesture (GESTURE_*) of a channel to the module. */
+void dimmer_report_action(uint8_t ch, uint8_t gesture);
 /** Start hold dimming; dir 0 = pick (up from dark or at min, down at max,
  * else the opposite of the last hold). */
 void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark);
@@ -51,8 +60,9 @@ void dimmer_hold_end(uint8_t ch);
 /** Before a restart into the bootloader: save pending settings and leave the
  *  light state in the mailbox, to be restored after the update. */
 void dimmer_prepare_restart(void);
-/** min <-> max of the same channel (a write of one may move the other), or 0. */
-uint8_t dimmer_sibling_dp(uint8_t dpid);
+/** DPs to report with a written one (n = 0, 1, ...; 0 = no more): min <-> max of
+ * the same channel (a write of one may move the other); DP 14 -> 103, 104. */
+uint8_t dimmer_sibling_dp(uint8_t dpid, uint8_t n);
 
 /** Report every DP (answer to query-all). */
 void dimmer_report_all(void);

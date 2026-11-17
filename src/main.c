@@ -7,6 +7,7 @@
 #include <string.h>
 #include "controls.h"
 #include "dimmer.h"
+#include "store.h"
 #include "ota_proto.h"
 #include "phase.h"
 #include "tuya.h"
@@ -75,13 +76,14 @@ static void gpio_init(void) {
     LL_GPIO_SetPinMode(ZC_PORT, ZC_PIN, LL_GPIO_MODE_INPUT);
 }
 
+#if !DIAG_REPORT
 static void led_update(uint32_t now) {
     uint8_t on;
 
     if (tuya_network_status() != TUYA_NETWORK_CONNECTED) {
         on = (now / 250) & 1;              /* not on a network (or unknown): blink */
     } else {
-        on = dimmer_channel(0)->on;
+        on = dimmer_channel(0)->on || dimmer_channel(1)->on;
     }
     if (on) {
         LL_GPIO_ResetOutputPin(LED_PORT, LED_PIN);   /* active low */
@@ -89,6 +91,7 @@ static void led_update(uint32_t now) {
         LL_GPIO_SetOutputPin(LED_PORT, LED_PIN);
     }
 }
+#endif
 
 #if MEASURE || DIAG_REPORT
 /* Measurement / diagnostics builds: every 10 s the statistics go to the module
@@ -190,6 +193,36 @@ static void measure_poll(uint32_t now) {
 }
 #endif
 
+/* Health counters for long runs, in every build: a minute after start and then
+ * every 10 min as reports of DPs 130..134 (logged by the module's MCU link
+ * diagnostics like the measurement DPs, read with zdms16_measure_read.py):
+ *   130 uptime minutes   131 reset cause (RCC_CSR flags at start >> 24:
+ *   bit 7 LPWR, 6 WWDG, 5 IWDG, 4 software (update), 3 power/BOR, 2 pin, 1 option bytes)
+ *   132 zero-cross lock losses   133 edges ignored as noise   134 settings saves
+ * (all since start). */
+#define HEALTH_FIRST_MS    60000u
+#define HEALTH_EVERY_MS    600000u
+static uint32_t g_reset_cause;
+static uint32_t g_health_next = HEALTH_FIRST_MS;
+
+static void health_poll(uint32_t now) {
+    if ((int32_t)(now - g_health_next) < 0) {
+        return;
+    }
+    g_health_next = now + HEALTH_EVERY_MS;
+    __disable_irq();
+    uint32_t losses  = g_phase_dbg.lock_losses;
+    uint32_t ignored = g_phase_dbg.zc_ignored;
+    __enable_irq();
+    tuya_report_begin(1);
+    tuya_report_value(130, now / 60000u);
+    tuya_report_value(131, g_reset_cause);
+    tuya_report_value(132, losses);
+    tuya_report_value(133, ignored);
+    tuya_report_value(134, store_save_count());
+    tuya_report_send();
+}
+
 /* Independent watchdog, ~1 s (LSI 32 kHz / 32, reload 1000). Once started it
  * runs through software resets too: the bootloader keeps refreshing it. */
 static void watchdog_start(void) {
@@ -209,6 +242,8 @@ static void watchdog_start(void) {
 }
 
 int main(void) {
+    g_reset_cause = RCC->CSR >> 24;             /* why we (re)started: kept for the health report */
+    RCC->CSR |= RCC_CSR_RMVF;
     clock_init();
     gpio_init();
     phase_init();
@@ -232,7 +267,7 @@ int main(void) {
 
         tuya_poll(now);
         phase_poll();
-        controls_poll();
+        controls_poll(now);
         dimmer_poll(now, tuya_rx_quiet_ms(now), phase_save_window());
 
         /* Asking for the network state also tells the module we are up: it
@@ -243,7 +278,10 @@ int main(void) {
             tuya_send(TUYA_CMD_QUERY_NETWORK, query_seq++, 0, 0);
         }
 
-        led_update(now);
+#if !DIAG_REPORT
+        led_update(now);                         /* diagnostics build: the LED mirrors PA4 */
+#endif
+        health_poll(now);
 #if MEASURE || DIAG_REPORT
         measure_poll(now);
 #endif

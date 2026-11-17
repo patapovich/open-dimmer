@@ -2,6 +2,7 @@
 #include "board.h"
 #include "dimmer.h"
 #include "input_core.h"
+#include "gesture_core.h"
 #include "tuya.h"
 #include "py32f0xx_ll_utils.h"
 
@@ -26,6 +27,10 @@ static volatile uint16_t g_button_press_ms;   /* duration of the last button pre
 
 /* Momentary switches: did this press switch the light on? */
 static uint8_t g_turned_on_by_press[DIMMER_CHANNELS];
+/* Gestures of the wall switches (momentary type), reported for automations. */
+static gesture_t g_gesture[DIMMER_CHANNELS];
+
+static uint32_t  g_now;   /* time of the events being handled (controls_poll) */
 
 static uint8_t closed(uint8_t idx);
 
@@ -46,6 +51,9 @@ void controls_init(void) {
         }
     }
     __enable_irq();
+    for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
+        gesture_init(&g_gesture[ch]);
+    }
     /* A state type switch says what the light is. */
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
         if (dimmer_channel(ch)->switch_type == SWITCH_STATE) {
@@ -96,6 +104,8 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
         break;
 
     case SWITCH_MOMENTARY:
+        /* The light acts first, the gesture is reported on top of it. */
+        dimmer_report_action(ch, gesture_event(&g_gesture[ch], ev, g_now));
         switch (ev) {
         case INPUT_EV_PRESS:
             /* From dark: on at once, no waiting to see if it becomes a hold. */
@@ -130,20 +140,23 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
     }
 }
 
+/* Module button: both channels together (any on -> all off, else all on);
+ * held 3 s: rejoin. */
 static void button(uint8_t ev) {
     if (ev == INPUT_EV_RELEASE) {
-        dimmer_local_toggle(0);
+        dimmer_local_toggle_all();
     } else if (ev == INPUT_EV_RELEASE_AFTER_HOLD) {
         if (g_button_press_ms >= BUTTON_RESET_MS) {
             uint8_t rejoin = TUYA_RESET_NETWORK_REJOIN;
             tuya_send(TUYA_CMD_RESET_NETWORK, 0, &rejoin, 1);
         } else {
-            dimmer_local_toggle(0);
+            dimmer_local_toggle_all();
         }
     }
 }
 
-void controls_poll(void) {
+void controls_poll(uint32_t now) {
+    g_now = now;
     while (g_tail != g_head) {
         uint8_t e = g_ring[g_tail];
         g_tail    = (uint8_t)((g_tail + 1) & (EV_RING - 1));
@@ -154,5 +167,8 @@ void controls_poll(void) {
         } else {
             wall_switch(idx, ev);   /* S1 -> channel 1, S2 -> channel 2 */
         }
+    }
+    for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
+        dimmer_report_action(ch, gesture_poll(&g_gesture[ch], now));
     }
 }

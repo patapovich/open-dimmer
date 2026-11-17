@@ -123,6 +123,15 @@ void EXTI4_15_IRQHandler(void) {
     if (EXTI->PR & ZC_PIN_MASK) {
         EXTI->PR = ZC_PIN_MASK;
         uint16_t now = (uint16_t)TIM16->CNT;
+#if DIAG_REPORT
+        /* The LED (active low) follows PA4 at once: a phototransistor on it and
+         * a mains transformer on an isolated scope give the detector's delay. */
+        if (LL_GPIO_IsInputPinSet(ZC_PORT, ZC_PIN)) {
+            LL_GPIO_ResetOutputPin(LED_PORT, LED_PIN);
+        } else {
+            LL_GPIO_SetOutputPin(LED_PORT, LED_PIN);
+        }
+#endif
 #if MEASURE || DIAG_REPORT
         measure_edge(now);
 #endif

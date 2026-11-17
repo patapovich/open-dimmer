@@ -137,9 +137,9 @@ static void handle_write(const uint8_t *data, uint16_t len) {
          * neither waits for nothing nor keeps a value we did not take. */
         (void)dimmer_write_dp(dpid, type, &data[i + 4], vlen);
         dimmer_report_dp(dpid);
-        uint8_t sibling = dimmer_sibling_dp(dpid);
-        if (sibling) {
-            dimmer_report_dp(sibling);   /* min may have moved max and back */
+        uint8_t sibling;
+        for (uint8_t n = 0; (sibling = dimmer_sibling_dp(dpid, n)) != 0; n++) {
+            dimmer_report_dp(sibling);   /* min may have moved max and back; DP 14 both channels */
         }
         i = (uint16_t)(i + 4 + vlen);
     }

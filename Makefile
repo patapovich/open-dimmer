@@ -112,5 +112,7 @@ test:
 	$(BUILD)/host/test_dim_core
 	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_input_core.c src/input_core.c -o $(BUILD)/host/test_input_core
 	$(BUILD)/host/test_input_core
+	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_gesture_core.c src/gesture_core.c -o $(BUILD)/host/test_gesture_core
+	$(BUILD)/host/test_gesture_core
 
 .PHONY: test
