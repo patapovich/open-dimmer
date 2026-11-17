@@ -1,4 +1,4 @@
-# ZDMS16-2 own PY32 firmware: status (2026-11-18, end of day)
+# ZDMS16-2 own PY32 firmware: status (2026-11-17, end of day)
 
 Own firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2, updated over Zigbee by
 the own ZTU firmware (fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer`, local
