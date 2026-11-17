@@ -32,12 +32,14 @@
                                       /* slow down to 1 per half cycle (an even end)   */
 #define DIM_HOLD_MS            3300   /* hold dimming over the whole range             */
 #define DIM_HOLD_END_PCT       20     /* hold: the lowest 20 % above the min slow down */
-#define DIM_HOLD_BOTTOM_Q      2      /* ... to 2/4 per half cycle at the min          */
-#define DIM_OFF_HOLD           8      /* half cycles at the min before going dark      */
+#define DIM_Q_PER_STEP         64     /* rates are in 1/64 steps per 10 ms             */
+#define DIM_HOLD_BOTTOM_Q      32     /* ... to 1/2 step per 10 ms at the min          */
+#define DIM_OFF_HOLD_MS        80     /* at the min before going dark                  */
+#define DIM_HALF_PERIOD_50HZ   500    /* 20 us ticks: the rates are per 10 ms half cycle */
 #define DIM_HOLD_RATE          3      /* full hold rate per half cycle at 3300 ms      */
 #define DIM_PROFILE_MS_MAX     10000  /* longest fade / hold time a user can set       */
 
-/* How a channel fades and holds. Rates in quarter steps per half cycle. */
+/* How a channel fades and holds. Rates in 1/64 steps per 10 ms (DIM_Q_PER_STEP). */
 typedef struct {
     uint16_t on_q;          /* coming on from dark */
     uint16_t off_q;         /* going dark, above the soft end */
@@ -45,7 +47,7 @@ typedef struct {
     uint16_t hold_q;        /* hold, full rate */
     uint16_t hold_span;     /* hold: values above the min that slow down (0 = none) */
     uint8_t  hold_bottom_q; /* hold rate at the min */
-    uint8_t  off_hold;      /* half cycles at the floor before dark */
+    uint8_t  off_hold_ms;   /* at the floor before dark */
 } dim_profile_t;
 
 /** Profile from the user settings: times in ms for the whole range (0 = at
@@ -62,10 +64,11 @@ typedef struct {
     uint16_t      hold_lo;
     uint16_t      hold_hi;
     uint16_t      floor;     /* lowest lit value (the channel min): fades jump 0 <-> floor */
-    uint8_t       floor_hold; /* half cycles spent at the floor on the way to dark */
+    uint16_t      floor_hold; /* 20 us ticks spent at the floor on the way to dark */
     uint8_t       from_dark; /* this rise started dark: the on rate */
     uint8_t       hold_fine; /* the hold slows down near the min: going down, or up from dark */
-    uint16_t      acc;       /* quarter steps not yet moved */
+    uint16_t      half_period; /* measured, 20 us ticks (the mains: 500 at 50 Hz, 417 at 60 Hz) */
+    uint32_t      acc;       /* 1/64 steps x half period not yet moved (64 x 500 = one step) */
     dim_profile_t prof;
 } dim_fader_t;
 
@@ -77,6 +80,10 @@ void     dim_fader_set(dim_fader_t *f, uint8_t on, uint16_t level);
  * through 0..floor would only show as a delay. */
 void     dim_fader_set_floor(dim_fader_t *f, uint16_t floor);
 void     dim_fader_set_profile(dim_fader_t *f, const dim_profile_t *p);
+/** The measured half period (20 us ticks) of the half cycle about to be ticked: the
+ * rates are for 10 ms half cycles and scale with it, so the times in ms hold on 50 and
+ * 60 Hz. Outside 40..70 Hz it is taken as 50 Hz. */
+void     dim_fader_set_half_period(dim_fader_t *f, uint16_t half_period);
 /** One half cycle: move current towards target, return current. */
 uint16_t dim_fader_tick(dim_fader_t *f);
 

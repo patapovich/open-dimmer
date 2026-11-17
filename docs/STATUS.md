@@ -49,6 +49,8 @@ Min and max are physical conduction limits for every curve (same meaning as the 
   slowly from min (pick a very dim level); hold while lit → full rate up (no slow start),
   slow near min going down; release stops at once.
 - Module button: both channels (any on → all off). ≥ 3 s: rejoin.
+- 50 and 60 Hz: the zero-cross tracker takes 40..70 Hz; fade and hold rates scale with the
+  measured half period (1/64 steps per 10 ms), so the times in ms hold on both (tested).
 - The board's S1 input stays low ~0.1 s after release: a fast double tap merges in
   hardware; doubles need ~0.2 s gaps.
 
@@ -106,6 +108,9 @@ of all five modules for 7 minutes. Before deploying any converter change:
    → `make flash-all` → power cycle. Mains off, probe only on a dead board.
 5. Optional: zero-cross delay measurement (`docs/ZC-DELAY-MEASUREMENT.md`).
 6. Parked: per-channel gesture action modes / detached switch type; module button gestures.
+7. Later (user): the release starts the fork's py32-bump at once: a fine-grained PAT for
+   `patapovich/tuya-zigbee-switch` (Contents: read and write) as secret `ZTU_DISPATCH_TOKEN` in
+   this repo (the user creates and enters it). Until then the hourly run or release.sh does it.
 
 ## Safety rules
 

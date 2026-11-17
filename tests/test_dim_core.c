@@ -3,7 +3,7 @@
 #include "curves.h"
 
 /* the default profile in whole steps (quarter steps / 4) */
-#define ON_STEP   ((40000 + DIM_FADE_ON_MS / 2) / DIM_FADE_ON_MS / 4)
+#define ON_STEP   ((640000 + DIM_FADE_ON_MS / 2) / DIM_FADE_ON_MS / 64)
 #define SOFT_SPAN (DIM_SOFT_END_PCT * 10)
 #define HOLD_SPAN (DIM_HOLD_END_PCT * 10)
 #include <stdio.h>
@@ -188,7 +188,7 @@ static void test_hold_follows_without_lag_and_freezes_on_release(void) {
     for (int i = 0; i < 50; i++) {
         dim_fader_tick(&f);
     }
-    CHECK(f.current == 500 + 50 * DIM_HOLD_RATE);
+    CHECK(f.current >= 500 + 50 * DIM_HOLD_RATE && f.current <= 500 + 50 * DIM_HOLD_RATE + 2);   /* 3300 ms: 3.03 per 10 ms */
     CHECK(f.target == f.current);            /* nothing left to catch up */
     uint16_t at_release = f.current;
     CHECK(dim_fader_hold_stop(&f) == at_release);
@@ -239,7 +239,7 @@ static void test_hold_is_slow_just_above_the_min(void) {
     uint16_t prev = 60;
     while (f.current < 60 + HOLD_SPAN + 100 && n < 2000) {
         uint16_t now = dim_fader_tick(&f);
-        CHECK(now >= prev && now - prev <= DIM_HOLD_RATE);
+        CHECK(now >= prev && now - prev <= DIM_HOLD_RATE + 1);
         prev = now;
         n++;
         if (now < 60 + 50) {
@@ -261,7 +261,7 @@ static void test_hold_is_slow_just_above_the_min(void) {
     /* profile: no slow-down = the plain rate */
     dim_profile_t p;
     dim_profile_default(&p);
-    CHECK(p.hold_span == HOLD_SPAN && p.hold_bottom_q == DIM_HOLD_BOTTOM_Q && p.hold_q == 12);
+    CHECK(p.hold_span == HOLD_SPAN && p.hold_bottom_q == DIM_HOLD_BOTTOM_Q && p.hold_q == 194);
     p.hold_span = 0;
     dim_fader_set_profile(&f, &p);
     dim_fader_hold_start(&f, +1, 60, 1000);
@@ -406,8 +406,8 @@ static void test_fader_floor(void) {
         n_off++;
     }
     CHECK(f.current == 0);
-    CHECK(at_floor == DIM_OFF_HOLD);        /* a moment at the floor, then dark */
-    CHECK(last_steps >= 15);
+    CHECK(at_floor == DIM_OFF_HOLD_MS / 10); /* a moment at the floor (80 ms), then dark */
+    CHECK(last_steps >= 10);                 /* the plain off rate would take ~3 */
     CHECK(n_off < 200);                     /* still under 2 s from 600 */
 
     /* a level change between lit levels above the ease span is the plain fade */
@@ -482,8 +482,8 @@ static void test_fade_profile(void) {
     dim_fader_init(&f);
     dim_profile_t p;
     dim_profile_set(&p, 500, 2500, 0, 3300, 20);    /* on 20 per half cycle, off 4, no soft end */
-    CHECK(p.on_q == 80 && p.off_q == 16 && p.soft_span == 0 && p.hold_q == 12);
-    p.off_hold = 0;
+    CHECK(p.on_q == 1280 && p.off_q == 256 && p.soft_span == 0 && p.hold_q == 194);
+    p.off_hold_ms = 0;
     dim_fader_set_profile(&f, &p);
     dim_fader_set_floor(&f, 100);
     dim_fader_set(&f, 1, 500);
@@ -503,7 +503,7 @@ static void test_fade_profile(void) {
     CHECK(n == (500 - 100) / 4 + 1);                       /* at the floor once, then out */
     /* times: 0 = at once, slow times keep their fraction (quarter steps) */
     dim_profile_set(&p, 0, 10000, 12, 10000, 20);
-    CHECK(p.on_q == 4000 && p.off_q == 4 && p.hold_q == 4);
+    CHECK(p.on_q == 64000 && p.off_q == 64 && p.hold_q == 64);
     dim_fader_init(&f);
     dim_fader_set_profile(&f, &p);
     dim_fader_set_floor(&f, 50);
@@ -549,6 +549,104 @@ static void test_hold_up_from_a_lit_level_is_not_slowed(void) {
     CHECK(n > (130 + 21 * DIM_HOLD_RATE - 60) / DIM_HOLD_RATE * 2);
 }
 
+/* Half cycles until the fader reaches target, ticking at half period hp. */
+static int ticks_to(dim_fader_t *f, uint16_t target, uint16_t hp) {
+    int n = 0;
+    dim_fader_set_half_period(f, hp);
+    while (f->current != target && n < 5000) {
+        dim_fader_tick(f);
+        n++;
+    }
+    return n;
+}
+
+static int ms_of(int ticks, uint16_t hp) {
+    return (int)((long)ticks * hp * 20 / 1000);
+}
+
+static void test_times_in_ms_hold_on_50_and_60_hz(void) {
+    const uint16_t hps[] = { 500, 417 };          /* 50 Hz, 60 Hz */
+    int on_ms[2], off_ms[2], hold_ms[2], plain_ms[2], at_floor[2];
+    for (int k = 0; k < 2; k++) {
+        uint16_t hp = hps[k];
+        dim_fader_t f;
+        dim_fader_init(&f);
+        dim_fader_set_floor(&f, 59);
+        dim_fader_set(&f, 1, 1000);                     /* on: 941 of 1000 at 950 ms per range */
+        on_ms[k] = ms_of(ticks_to(&f, 1000, hp), hp);
+        dim_fader_set(&f, 1, 500);                      /* lit to lit: 500 at 5 per 10 ms = 1 s */
+        plain_ms[k] = ms_of(ticks_to(&f, 500, hp), hp);
+        dim_fader_hold_start(&f, +1, 59, 1000);         /* hold up from lit: 500 of 1000 at 3300 ms */
+        int n = 0;
+        while (f.current < 1000 && n < 5000) {
+            dim_fader_tick(&f);
+            n++;
+        }
+        hold_ms[k] = ms_of(n, hp);
+        dim_fader_hold_stop(&f);
+        dim_fader_set(&f, 0, 1000);                     /* off, with the soft end and 80 ms at min */
+        n = 0;
+        at_floor[k] = 0;
+        while (f.current && n < 5000) {
+            if (dim_fader_tick(&f) == 59) {
+                at_floor[k]++;
+            }
+            n++;
+        }
+        off_ms[k] = ms_of(n, hp);
+    }
+    CHECK(on_ms[0] >= 884 && on_ms[0] <= 904);          /* 0.941 * 950 = 894 */
+    CHECK(on_ms[1] >= 884 && on_ms[1] <= 904);
+    CHECK(plain_ms[0] >= 990 && plain_ms[0] <= 1010);
+    CHECK(plain_ms[1] >= 990 && plain_ms[1] <= 1010);
+    CHECK(hold_ms[0] >= 1640 && hold_ms[0] <= 1660);    /* 0.5 * 3300 = 1650 */
+    CHECK(hold_ms[1] >= 1640 && hold_ms[1] <= 1660);
+    CHECK(off_ms[1] >= off_ms[0] - 10 && off_ms[1] <= off_ms[0] + 10);   /* same time, either mains */
+    CHECK(at_floor[0] * 10 >= 80 && at_floor[0] * 10 < 90);              /* 80 ms at the min */
+    CHECK(ms_of(at_floor[1], 417) >= 80 && ms_of(at_floor[1], 417) < 89);
+}
+
+static void test_half_period_outside_40_70_hz_is_50_hz(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set_half_period(&f, 100);
+    CHECK(f.half_period == 500);
+    dim_fader_set_half_period(&f, 2000);
+    CHECK(f.half_period == 500);
+    dim_fader_set_half_period(&f, 417);
+    CHECK(f.half_period == 417);
+}
+
+static void test_zc_locks_on_60_hz_and_follows_a_change(void) {
+    zc_tracker_t z;
+    zc_tracker_init(&z);
+    uint16_t t = 1000;
+    zc_tracker_edge(&z, t);
+    for (int i = 0; i < ZC_LOCK_EDGES; i++) {
+        t = (uint16_t)(t + 417);
+        CHECK(zc_tracker_edge(&z, t) == 1);
+    }
+    CHECK(zc_locked(&z));
+    CHECK(z.half_period >= 416 && z.half_period <= 418);
+    for (int i = 0; i < 10; i++) {                      /* bounce and mid-cycle noise ignored */
+        t = (uint16_t)(t + 417);
+        CHECK(zc_tracker_edge(&z, t) == 1);
+        CHECK(zc_tracker_edge(&z, (uint16_t)(t + 3)) == 0);
+        CHECK(zc_tracker_edge(&z, (uint16_t)(t + 200)) == 0);
+    }
+    CHECK(z.half_period >= 416 && z.half_period <= 418);
+    /* the mains changes to 50 Hz (generator, travel): lock is regained there */
+    int acted = 0;
+    for (int i = 0; i < 40; i++) {
+        t = (uint16_t)(t + 500);
+        zc_tracker_check(&z, t);
+        acted += zc_tracker_edge(&z, t);
+    }
+    CHECK(zc_locked(&z));
+    CHECK(z.half_period >= 499 && z.half_period <= 501);
+    CHECK(acted > 30);
+}
+
 int main(void) {
     test_fade_up_takes_two_seconds();
     test_fade_lands_exactly_on_target();
@@ -561,6 +659,9 @@ int main(void) {
     test_fader_floor();
     test_hold_from_dark_and_cancel();
     test_fade_profile();
+    test_times_in_ms_hold_on_50_and_60_hz();
+    test_half_period_outside_40_70_hz_is_50_hz();
+    test_zc_locks_on_60_hz_and_follows_a_change();
     test_zc_locks_after_regular_edges();
     test_zc_ignores_bounce();
     test_zc_gap_drops_lock();

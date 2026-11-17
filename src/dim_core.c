@@ -2,11 +2,11 @@
 #include "curves.h"
 
 static uint16_t rate_q(uint16_t ms) {
-    /* the whole range (1000) in ms: 1000 * 4 quarter steps per ms / 10 per half cycle */
+    /* the whole range (1000 steps) in ms: 1000 * 64 / (ms / 10) per 10 ms */
     if (ms < 10) {
-        return 4000;                        /* at once */
+        return 1000u * DIM_Q_PER_STEP;      /* at once */
     }
-    uint32_t q = (40000u + ms / 2u) / ms;
+    uint32_t q = (1000u * DIM_Q_PER_STEP * 10u + ms / 2u) / ms;
     return (uint16_t)(q < 1u ? 1u : q);
 }
 
@@ -18,7 +18,7 @@ void dim_profile_set(dim_profile_t *p, uint16_t fade_on_ms, uint16_t fade_off_ms
     p->hold_q        = rate_q(hold_ms < 100 ? 100 : hold_ms);
     p->hold_span     = (uint16_t)((hold_end_pct > 100 ? 100 : hold_end_pct) * 10u);
     p->hold_bottom_q = DIM_HOLD_BOTTOM_Q;
-    p->off_hold      = DIM_OFF_HOLD;
+    p->off_hold_ms   = DIM_OFF_HOLD_MS;
 }
 
 void dim_profile_default(dim_profile_t *p) {
@@ -37,12 +37,18 @@ void dim_fader_init(dim_fader_t *f) {
     f->floor_hold = 0;
     f->from_dark  = 0;
     f->acc        = 0;
+    f->half_period = DIM_HALF_PERIOD_50HZ;
     f->hold_fine  = 0;
     dim_profile_default(&f->prof);
 }
 
 void dim_fader_set_profile(dim_fader_t *f, const dim_profile_t *p) {
     f->prof = *p;
+}
+
+void dim_fader_set_half_period(dim_fader_t *f, uint16_t half_period) {
+    f->half_period = (half_period >= ZC_HALF_MIN_TICKS && half_period <= ZC_HALF_MAX_TICKS)
+                     ? half_period : DIM_HALF_PERIOD_50HZ;
 }
 
 void dim_fader_set_floor(dim_fader_t *f, uint16_t floor) {
@@ -100,9 +106,11 @@ void dim_fader_hold_cancel(dim_fader_t *f) {
 
 /* Whole steps to move now for q quarter steps (the rest is kept). */
 static uint16_t take(dim_fader_t *f, uint16_t q) {
-    uint32_t a = (uint32_t)f->acc + q;
-    f->acc = (uint16_t)(a & 3u);
-    return (uint16_t)(a >> 2);
+    /* q 1/64 steps per 10 ms, for a half cycle of half_period: exact over time */
+    uint32_t a    = f->acc + (uint32_t)q * f->half_period;
+    uint32_t unit = (uint32_t)DIM_Q_PER_STEP * DIM_HALF_PERIOD_50HZ;
+    f->acc = a % unit;
+    return (uint16_t)(a / unit);
 }
 
 /* Rate q, slowing to lo_q at distance 0 from the bottom of a span. */
@@ -140,7 +148,7 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
         return hold_tick(f);
     }
     uint16_t cur = f->current, tgt = f->target;
-    uint16_t plain_q = (uint16_t)((f->step ? f->step : 1) * 4u);
+    uint16_t plain_q = (uint16_t)((f->step ? f->step : 1) * DIM_Q_PER_STEP);
 
     if (cur < tgt) {
         f->floor_hold = 0;
@@ -158,13 +166,14 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
         if (tgt < f->floor && cur <= f->floor) {
             /* At the floor on the way to dark: stay a moment, then out
              * (below the floor the lamp is dark anyway). */
-            if (++f->floor_hold >= f->prof.off_hold) {
+            f->floor_hold = (uint16_t)(f->floor_hold + f->half_period);
+            if (f->floor_hold >= (uint32_t)f->prof.off_hold_ms * 50u) {   /* 50 ticks = 1 ms */
                 f->floor_hold = 0;
                 cur           = tgt;
             }
         } else if (tgt < f->floor) {
             /* going dark: the off rate, slowing to 1 per half cycle at the floor */
-            uint16_t step = take(f, eased_q(f->prof.off_q, 4, (uint16_t)(cur - f->floor),
+            uint16_t step = take(f, eased_q(f->prof.off_q, DIM_Q_PER_STEP, (uint16_t)(cur - f->floor),
                                             f->prof.soft_span));
             cur = (uint16_t)(cur - f->floor > step ? cur - step : f->floor);
         } else {

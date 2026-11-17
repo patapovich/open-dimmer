@@ -88,6 +88,8 @@ static void zero_cross(uint16_t now) {
     if (zc_locked(&g_zc)) {
         /* Fade only while the output runs, so the first half cycles after
          * power-up fade in instead of jumping to the target. */
+        dim_fader_set_half_period(&g_fader[0], hp);
+        dim_fader_set_half_period(&g_fader[1], hp);
         c0 = dim_compare(hp, dim_output(g_curve[0], dim_fader_tick(&g_fader[0]), g_min[0], g_max[0]));
         c1 = dim_compare(hp, dim_output(g_curve[1], dim_fader_tick(&g_fader[1]), g_min[1], g_max[1]));
     }
