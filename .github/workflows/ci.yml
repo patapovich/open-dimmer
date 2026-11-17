@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # releases on tags
+
+env:
+  # PY32F0 SDK (CMSIS + LL drivers) used straight from py32f0-template, pinned.
+  SDK_REPO: https://github.com/IOsetting/py32f0-template
+  SDK_COMMIT: 009bdec7ed77c9b782a258c064c227e15ec19498
+
+jobs:
+  test:
+    name: Host unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dimming, input and gesture logic (PC build)
+        run: make test
+
+  build:
+    name: Firmware builds
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-arm-none-eabi libnewlib-arm-none-eabi
+          arm-none-eabi-gcc --version | head -1
+
+      - name: PY32 SDK
+        run: |
+          git clone -q "$SDK_REPO" sdk
+          git -C sdk checkout -q "$SDK_COMMIT"
+
+      - name: Curve tables match their generator
+        run: |
+          python3 tools/gen_curves.py > /tmp/curves.h
+          diff -u src/curves.h /tmp/curves.h
+
+      - name: Build normal, diagnostics, measurement and bench builds
+        run: |
+          set -e
+          for v in "" DIAG=1 MEASURE=1 SIM=1; do
+            echo "::group::make $v"
+            make SDK="$PWD/sdk/Libraries" $v
+            echo "::endgroup::"
+          done
+
+      - name: Size report
+        run: |
+          {
+            echo "| build | app bytes | free of 12288 |"
+            echo "|---|---|---|"
+            for d in build build-diag build-measure build-sim; do
+              n=$(stat -c %s "$d/zdms16_py32.img")
+              echo "| $d | $n | $((12288 - n)) |"
+            done
+            echo
+            echo "bootloader: $(stat -c %s build-boot/boot.bin) of 4096 bytes"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Images for the module (ZTU embedding) refuse bench/measurement builds
+        run: |
+          python3 tools/embed_ztu.py build/zdms16_py32.img /tmp/secondary_mcu_image.c
+          ! python3 tools/embed_ztu.py build-sim/zdms16_py32.img /tmp/x.c
+          ! python3 tools/embed_ztu.py build-measure/zdms16_py32.img /tmp/x.c
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zdms16-py32-${{ github.sha }}
+          path: |
+            build/zdms16_py32.img
+            build/zdms16_py32_full.bin
+            build/zdms16_py32.elf
+            build-boot/boot.bin
+            build-diag/zdms16_py32_full.bin
+            build-measure/zdms16_py32_full.bin
+
+      - name: Release (tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --generate-notes \
+            build/zdms16_py32.img build/zdms16_py32_full.bin build-boot/boot.bin
