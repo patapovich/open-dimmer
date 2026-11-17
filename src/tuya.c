@@ -15,6 +15,33 @@ static uint16_t g_seq;
 static uint8_t  g_network = 0xFF;   /* unknown until the module tells us */
 static uint8_t  g_told_state;
 
+/* Debug: the last DP writes received, read over SWD (symbol g_write_log). */
+#define WRITE_LOG_SIZE     16
+typedef struct {
+    uint32_t ms;
+    uint8_t  dpid;
+    uint8_t  type;
+    uint16_t len;
+    uint32_t value;
+} write_log_t;
+write_log_t     g_write_log[WRITE_LOG_SIZE];
+uint8_t         g_write_log_next;
+static uint32_t g_now_ms;
+
+static void write_log_add(uint8_t dpid, uint8_t type, const uint8_t *v, uint16_t len) {
+    write_log_t *e = &g_write_log[g_write_log_next];
+    uint32_t     x = 0;
+    for (uint16_t i = 0; i < len && i < 4; i++) {
+        x = (x << 8) | v[i];
+    }
+    e->ms    = g_now_ms;
+    e->dpid  = dpid;
+    e->type  = type;
+    e->len   = len;
+    e->value = x;
+    g_write_log_next = (uint8_t)((g_write_log_next + 1) % WRITE_LOG_SIZE);
+}
+
 static uint8_t  g_report[REPORT_MAX_DATA];
 static uint16_t g_report_len;
 static uint8_t  g_report_cmd = TUYA_CMD_REPORT;
@@ -101,6 +128,7 @@ static void handle_write(const uint8_t *data, uint16_t len) {
         if (i + 4 + vlen > len) {
             break;
         }
+        write_log_add(dpid, type, &data[i + 4], vlen);
         /* The module waits for a report of the DP it wrote: that is the ack. */
         if (dimmer_write_dp(dpid, type, &data[i + 4], vlen)) {
             dimmer_report_dp(dpid);
@@ -193,6 +221,8 @@ static void rx_process(void) {
 
 void tuya_poll(uint32_t now_ms) {
     int b;
+
+    g_now_ms = now_ms;
     uint8_t got = 0;
 
     while ((b = uart_getc()) >= 0) {
