@@ -15,7 +15,7 @@ The stock MCU firmware is never touched by the update.
 
 - Phase dimming locked to the zero cross, min/max as physical conduction limits for every curve
   (the same meaning as in the stock firmware).
-- Dimming curves: linear (stock), led (CIE lightness), led_soft, incandescent, led_deep, led_deeper.
+- Dimming curves: led_soft (default), led (CIE lightness), led_deep, led_deeper, incandescent, linear (stock).
 - Per-channel power-on behaviour and per-channel saved fade / hold settings.
 - Wall switch: toggle, state or momentary; with momentary a tap from dark goes on at once, a hold
   from dark rises slowly from the minimum, the hold stops the moment the switch is released.

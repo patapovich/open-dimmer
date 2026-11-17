@@ -31,7 +31,7 @@ timing and the pin scan compiled out there; ~300 bytes left).
 |---|---|
 | 1..6 / 7..12 | channel 1 / 2: on, level, min, switch type, max, countdown (stock layout) |
 | 14 | power-on, both channels (written: both; reported: channel 1's) |
-| 101 / 102 | dimming curve: linear, led (default for new channels), led_soft, incandescent, led_deep, led_deeper |
+| 101 / 102 | dimming curve: incandescent, led, led_deep, led_deeper, led_soft (default for new channels), linear |
 | 103 / 104 | power-on per channel |
 | 105 / 106 | wall switch gesture (momentary type), event: 1 single, 2 double, 3 triple, 4 hold, 5 release |
 | 130..134 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, saves |

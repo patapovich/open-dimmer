@@ -123,7 +123,7 @@ void dimmer_init(void) {
         g_ch[i].min         = 200;
         g_ch[i].max         = DIMMER_LEVEL_MAX;
         g_ch[i].switch_type = 0;
-        g_ch[i].curve       = CURVE_LED;   /* own default; saved records keep theirs */
+        g_ch[i].curve       = CURVE_LED_SOFT;   /* own default; saved records keep theirs */
         g_ch[i].countdown   = 0;
         g_ch[i].fade_on_ms   = DIM_FADE_ON_MS;
         g_ch[i].fade_off_ms  = DIM_FADE_OFF_MS;

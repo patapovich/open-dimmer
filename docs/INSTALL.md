@@ -109,8 +109,9 @@ unreliable, `FREQ=1000000`.
    shows the settings that only this firmware has (device option `own_mcu_settings`, default
    auto).
 3. Set the lamp up: `min_level` just above the level where the lamp still lights from dark,
-   then `dimming_curve` (led for most LED lamps, led_deep or led_deeper if the dim end passes
-   too quickly), and the switch type of the wall switch (momentary for push buttons).
+   then `dimming_curve` (led_soft is the default and suits most LED lamps; led, led_deep or
+   led_deeper if the dim end passes too quickly), and the switch type of the wall switch
+   (momentary for push buttons).
 
 ## By hand (the same steps one by one)
 
