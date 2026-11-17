@@ -1,4 +1,4 @@
-# ZDMS16-2 own PY32 firmware: status (2026-11-17, end of day)
+# ZDMS16-2 own PY32 firmware: status (2026-11-18, end of day)
 
 Own firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2, updated over Zigbee by
 the own ZTU firmware (fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer`, local
@@ -8,7 +8,7 @@ checkout `~/projects/tzs-diag`).
 
 | What | Version / place |
 |---|---|
-| Spare module (<spare IEEE>, test lamp on L1, push button L–S1) | ZTU 1.1.3-74eb831f (0x11033018), MCU **2.1.9 own** |
+| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-b2f77929 (0x1103301d), MCU **2.1.10 own** (released v2.1.10) |
 | House modules (4) | stock PY32 MCU, own ZTU; **not migrated** |
 | PY32 source | this repo (github.com/patapovich/zdms16-py32, local checkout `~/projects/zdms16-py32/fw`) |
 | ZTU + converter | `~/projects/tzs-diag`, branch `home-dimmer` (HEAD b123d6fb, pushed) |
@@ -22,8 +22,8 @@ checkout `~/projects/tzs-diag`).
 
 Bootloader 4 KB @0x08000000, app 12 KB @0x08001000 (header at +0xC0), settings 4 KB
 @0x08004000 (32-page ring, record v2 "ZDS2" 40 bytes; v1 "ZDS1" 20 bytes still read).
-App 2.1.9: 11 476 bytes (~0.8 KB free). DIAG / MEASURE builds ~12.1 KB (health report and
-raw timing compiled out there).
+App 2.1.10: 11 628 bytes (~0.65 KB free). DIAG / MEASURE builds ~12.0 KB (health report, raw
+timing and the pin scan compiled out there; ~300 bytes left).
 
 ## DPs (own firmware; stock ones 1..14 unchanged)
 
@@ -103,9 +103,13 @@ of all five modules for 7 minutes. Before deploying any converter change:
    `number.light_*_on_level_dimmer_left`. Dry run first (expose dump + predicted ids).
 2. Long trial of the spare: `zdms16_health.py` now and then (lock losses, resets).
 3. Fade / hold defaults: the user set channel 1 to `led_soft`; settle the defaults after use.
-4. House-unit migration (not yet wanted): RDP removal (`tools/swd/rdp0_unlock.sh`, mass
-   erase) → power cycle → BOR (`pyocd load … --base-address 0x1FFF0E80 tools/swd/ob_bor25.bin`)
-   → `make flash-all` → power cycle. Mains off, probe only on a dead board.
+4. House-unit migration (not yet wanted): `IMAGE=release tools/swd/install.sh` (one contact;
+   **untested on hardware**, the stock path with the option reload runs first on the first house
+   unit), or the single steps in docs/INSTALL.md. Mains off, probe only on a dead board.
+   Before that: measure the CN2 pad pitch (below 2.54 mm, most likely 2.0 mm: ~6.0 mm first to
+   last pad centre) and whether the pads are near the board edge; buy a matching 4-pin pogo
+   clip (2.0 mm PCB clamp fixture) or a 2.0 mm spring-loaded connector + clamp.
+   Also try `install.sh` once on the spare (re-flash path) when it is off the mains.
 5. Optional: zero-cross delay measurement (`docs/ZC-DELAY-MEASUREMENT.md`).
 6. Parked: per-channel gesture action modes / detached switch type; module button gestures.
 7. Later (user): the release starts the fork's py32-bump at once: a fine-grained PAT for
