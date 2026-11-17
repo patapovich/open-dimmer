@@ -13,7 +13,7 @@ checkout `~/projects/tzs-diag`).
 | PY32 source | this repo (github.com/patapovich/zdms16-py32, local checkout `~/projects/zdms16-py32/fw`) |
 | ZTU + converter | `~/projects/tzs-diag`, branch `home-dimmer` (HEAD b123d6fb, pushed) |
 | Z2M converter deployed | `/config/zigbee2mqtt/external_converters/switch_custom.js` (generated from home-dimmer) |
-| SWD tools | `tools/swd/` (run from anywhere; `.venv` and `pack/` live in `~/projects/zdms16-py32`) |
+| SWD tools | `tools/swd/install.sh` (one-contact install, docs/INSTALL.md; untested on a stock module yet), the single steps beside it (`.venv` and `pack/` live in `~/projects/zdms16-py32`) |
 | HA websocket / expose check | `tools/ha/ha_ws.py`, `tools/ha/expose_dump.js` |
 | HA-side tools | `~/ha-claude/zdms16_mcu_log.py` (raw MCU link log), `zdms16_health.py` (health report), `zdms16_measure_read.py` (diag build stats), `zdms16_ota_series.sh` + `zdms16_ota_guard.sh` (fast OTA) |
 | Docs | `docs/REVIEW-2026-11-17.md`, `docs/ZC-DELAY-MEASUREMENT.md`, `docs/stock-firmware-analysis.md` |
