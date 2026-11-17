@@ -14,8 +14,12 @@ ZTU=patapovich/tuya-zigbee-switch
 make test > /dev/null
 make > /dev/null
 TAG=$(python3 -c "d=open('build/zdms16_py32.img','rb').read(); v=d[0xCC]; print(f'v{v>>6}.{(v>>4)&3}.{v&15}')")
-if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
-    echo "$TAG already released: bump FW_VERSION in src/tuya.h"; exit 1
+if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null &&
+   [ "$(git rev-parse "$TAG^{commit}")" != "$(git rev-parse HEAD)" ]; then
+    # the tag exists but the code has moved on: a new version is needed
+    if [ -n "$(git diff --name-only "$TAG" HEAD -- src boot Makefile py32f002a_app.ld)" ]; then
+        echo "$TAG is released and the firmware changed since: bump FW_VERSION in src/tuya.h"; exit 1
+    fi
 fi
 
 latest_run() {   # repo, extra gh run list args...: id of the newest run
