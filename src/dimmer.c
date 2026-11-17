@@ -525,7 +525,7 @@ void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark) {
     }
     g_last_hold_dir[ch] = dir;
     g_holding[ch]       = 1;
-    phase_hold_start(ch, dir, c->min, c->max);
+    phase_hold_start(ch, dir, c->min, c->max, from_dark);
 }
 
 void dimmer_hold_end(uint8_t ch) {

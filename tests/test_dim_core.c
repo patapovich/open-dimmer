@@ -223,7 +223,7 @@ static void test_hold_up_from_dark_starts_at_min(void) {
     dim_fader_init(&f);
     dim_fader_set(&f, 1, 600);
     dim_fader_tick(&f);                      /* fading in: current 5 */
-    dim_fader_hold_start(&f, +1, 200, 1000);
+    dim_fader_hold_start_from_dark(&f, 200, 1000);
     CHECK(dim_fader_tick(&f) == 200);        /* at the min, moving slowly */
 }
 
@@ -234,7 +234,7 @@ static void test_hold_is_slow_just_above_the_min(void) {
     for (int i = 0; i < 50; i++) {
         dim_fader_tick(&f);
     }
-    dim_fader_hold_start(&f, +1, 60, 1000);
+    dim_fader_hold_start_from_dark(&f, 60, 1000);
     int n50 = 0, n200 = 0, n = 0;
     uint16_t prev = 60;
     while (f.current < 60 + HOLD_SPAN + 100 && n < 2000) {
@@ -444,7 +444,7 @@ static void test_hold_from_dark_and_cancel(void) {
     dim_fader_init(&f);
     dim_fader_set_floor(&f, 60);
     dim_fader_set(&f, 1, 700);                /* on ... */
-    dim_fader_hold_start(&f, +1, 60, 1000);   /* ... rising from the bottom */
+    dim_fader_hold_start_from_dark(&f, 60, 1000);   /* ... rising from the bottom */
     CHECK(dim_fader_tick(&f) == 60);          /* at the min first */
     for (int k = 0; k < 9; k++) {
         dim_fader_tick(&f);                   /* a 100 ms tap */
@@ -467,7 +467,7 @@ static void test_hold_from_dark_and_cancel(void) {
         dim_fader_tick(&f);
     }
     dim_fader_set(&f, 1, 700);
-    dim_fader_hold_start(&f, +1, 60, 1000);
+    dim_fader_hold_start_from_dark(&f, 60, 1000);
     for (int k = 0; k < 40; k++) {
         dim_fader_tick(&f);
     }
@@ -524,6 +524,31 @@ static void test_fade_profile(void) {
     CHECK(k >= 378 && k <= 382);                           /* (1000 - 50) / 2.5 */
 }
 
+static void test_hold_up_from_a_lit_level_is_not_slowed(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set_floor(&f, 60);
+    dim_fader_set(&f, 1, 130);                 /* lit, just above the min */
+    for (int i = 0; i < 100; i++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current == 130);
+    dim_fader_hold_start(&f, +1, 60, 1000);    /* up from there: full rate at once */
+    CHECK(dim_fader_tick(&f) == 130 + DIM_HOLD_RATE);
+    for (int i = 0; i < 20; i++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current == 130 + 21 * DIM_HOLD_RATE);
+    dim_fader_hold_stop(&f);
+    dim_fader_hold_start(&f, -1, 60, 1000);    /* down towards the min: slows there */
+    int n = 0;
+    while (f.current > 60 && n < 2000) {
+        dim_fader_tick(&f);
+        n++;
+    }
+    CHECK(n > (130 + 21 * DIM_HOLD_RATE - 60) / DIM_HOLD_RATE * 2);
+}
+
 int main(void) {
     test_fade_up_takes_two_seconds();
     test_fade_lands_exactly_on_target();
@@ -547,6 +572,7 @@ int main(void) {
     test_hold_stops_at_bounds();
     test_hold_up_from_dark_starts_at_min();
     test_hold_is_slow_just_above_the_min();
+    test_hold_up_from_a_lit_level_is_not_slowed();
     test_remote_write_during_hold();
     test_off_during_hold_then_release_stays_off();
     if (g_failed) {

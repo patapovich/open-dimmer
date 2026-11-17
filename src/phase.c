@@ -228,12 +228,16 @@ void phase_set_curve(uint8_t ch, uint8_t curve) {
     }
 }
 
-void phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi) {
+void phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi, uint8_t from_dark) {
     if (ch >= 2) {
         return;
     }
     __disable_irq();
-    dim_fader_hold_start(&g_fader[ch], dir, lo, hi);
+    if (from_dark) {
+        dim_fader_hold_start_from_dark(&g_fader[ch], lo, hi);
+    } else {
+        dim_fader_hold_start(&g_fader[ch], dir, lo, hi);
+    }
     __enable_irq();
 }
 

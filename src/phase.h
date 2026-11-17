@@ -52,7 +52,7 @@ void     phase_set_range(uint8_t ch, uint16_t min, uint16_t max);
 /** Dimming curve of a channel (curves.h, 0 = linear like the stock firmware). */
 void     phase_set_curve(uint8_t ch, uint8_t curve);
 /** Hold dimming on a channel: the light follows directly between lo and hi. */
-void     phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi);
+void     phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi, uint8_t from_dark);
 /** End of hold: frozen at the value the light has now, which is returned. */
 uint16_t phase_hold_stop(uint8_t ch);
 /** A provisional hold ends without a level (a tap from dark): fade quickly on. */

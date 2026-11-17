@@ -64,6 +64,7 @@ typedef struct {
     uint16_t      floor;     /* lowest lit value (the channel min): fades jump 0 <-> floor */
     uint8_t       floor_hold; /* half cycles spent at the floor on the way to dark */
     uint8_t       from_dark; /* this rise started dark: the on rate */
+    uint8_t       hold_fine; /* the hold slows down near the min: going down, or up from dark */
     uint16_t      acc;       /* quarter steps not yet moved */
     dim_profile_t prof;
 } dim_fader_t;
@@ -83,6 +84,9 @@ uint16_t dim_fader_tick(dim_fader_t *f);
  * towards hi (dir +1) or lo (dir -1) and stop there. The light IS the value:
  * no fade lag, so it never runs on after release. */
 void     dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint16_t lo, uint16_t hi);
+/** Hold that started dark: rising from the min, slowly at first (a very dim
+ * level can be picked). A hold up from a lit level moves at the full rate. */
+void     dim_fader_hold_start_from_dark(dim_fader_t *f, uint16_t lo, uint16_t hi);
 /** End of hold: freeze where the light is now, back to normal fading.
  * Returns that value (the new level). */
 uint16_t dim_fader_hold_stop(dim_fader_t *f);

@@ -37,6 +37,7 @@ void dim_fader_init(dim_fader_t *f) {
     f->floor_hold = 0;
     f->from_dark  = 0;
     f->acc        = 0;
+    f->hold_fine  = 0;
     dim_profile_default(&f->prof);
 }
 
@@ -69,11 +70,17 @@ void dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint16_t lo, uint16_t hi) 
     if (lo > hi) {
         lo = hi;
     }
-    f->hold_lo  = lo;
-    f->hold_hi  = hi;
-    f->acc      = 0;
-    f->target   = f->current;
-    f->hold_dir = dir < 0 ? -1 : 1;
+    f->hold_lo   = lo;
+    f->hold_hi   = hi;
+    f->acc       = 0;
+    f->target    = f->current;
+    f->hold_dir  = dir < 0 ? -1 : 1;
+    f->hold_fine = dir < 0;         /* going down towards the min: fine there */
+}
+
+void dim_fader_hold_start_from_dark(dim_fader_t *f, uint16_t lo, uint16_t hi) {
+    dim_fader_hold_start(f, +1, lo, hi);
+    f->hold_fine = 1;
 }
 
 uint16_t dim_fader_hold_stop(dim_fader_t *f) {
@@ -115,7 +122,9 @@ static uint16_t hold_tick(dim_fader_t *f) {
         cur = f->hold_hi;
     }
     uint16_t d    = cur > f->hold_lo ? (uint16_t)(cur - f->hold_lo) : 0;
-    uint16_t step = take(f, eased_q(f->prof.hold_q, f->prof.hold_bottom_q, d, f->prof.hold_span));
+    uint16_t q    = f->hold_fine ? eased_q(f->prof.hold_q, f->prof.hold_bottom_q, d, f->prof.hold_span)
+                                 : f->prof.hold_q;
+    uint16_t step = take(f, q);
     if (f->hold_dir > 0) {
         cur = (uint16_t)(f->hold_hi - cur > step ? cur + step : f->hold_hi);
     } else {
