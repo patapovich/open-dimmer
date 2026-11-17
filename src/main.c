@@ -48,7 +48,9 @@ static void gpio_init(void) {
     /* Output stage off first. */
     out_low(GATE1_PORT, GATE1_PIN);
     out_low(GATE2_PORT, GATE2_PIN);
-    out_low(LED_PORT, LED_PIN);
+    LL_GPIO_SetOutputPin(LED_PORT, LED_PIN);   /* LED off (active low) */
+    LL_GPIO_SetPinOutputType(LED_PORT, LED_PIN, LL_GPIO_OUTPUT_PUSHPULL);
+    LL_GPIO_SetPinMode(LED_PORT, LED_PIN, LL_GPIO_MODE_OUTPUT);
 
     LL_GPIO_SetPinMode(BUTTON_PORT, BUTTON_PIN, LL_GPIO_MODE_INPUT);
     LL_GPIO_SetPinPull(BUTTON_PORT, BUTTON_PIN, LL_GPIO_PULL_UP);
@@ -68,9 +70,9 @@ static void led_update(uint32_t now) {
         on = dimmer_channel(0)->on;
     }
     if (on) {
-        LL_GPIO_SetOutputPin(LED_PORT, LED_PIN);
+        LL_GPIO_ResetOutputPin(LED_PORT, LED_PIN);   /* active low */
     } else {
-        LL_GPIO_ResetOutputPin(LED_PORT, LED_PIN);
+        LL_GPIO_SetOutputPin(LED_PORT, LED_PIN);
     }
 }
 

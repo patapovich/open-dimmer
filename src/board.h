@@ -16,7 +16,8 @@
 #define ZC_PORT         GPIOA
 #define ZC_PIN          LL_GPIO_PIN_4
 
-/* LED (push-pull output in the stock firmware; blinks while pairing) */
+/* LED (push-pull output in the stock firmware; blinks while pairing).
+ * Active low: lit when the pin is low (seen on the spare 2026-11-17). */
 #define LED_PORT        GPIOA
 #define LED_PIN         LL_GPIO_PIN_5
 
