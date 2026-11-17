@@ -4,7 +4,8 @@
 **  File        : LinkerScript.ld
 **
 **  Abstract    : Linker script for PY32F002A series (zdms16 app: 16 KB code +
-**                4 KB settings sector, .RamFunc copied to RAM with .data)
+**                4 KB settings sector, .RamFunc copied to RAM with .data;
+**                app at 0x08000800 behind the bootloader, header at +0xC0)
 **                Set heap size, stack size and stack location according
 **                to application requirements.
 **                Set memory bank area and size if external memory is used.
@@ -33,8 +34,8 @@ _Min_Stack_Size = 0x200;  /* required amount of stack: 512 bytes */
 /* Specify the memory areas */
 MEMORY
 {
-  RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 3K
-  FLASH (rx)     : ORIGIN = 0x08000000, LENGTH = 16K
+  RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 3K - 16   /* last 16 bytes: OTA mailbox */
+  FLASH (rx)     : ORIGIN = 0x08000800, LENGTH = 14K   /* after the 2 KB bootloader */
   /* Last 4 KB sector: settings ring (src/store.c), never code. */
   SETTINGS (r)   : ORIGIN = 0x08004000, LENGTH = 4K
 }
@@ -53,6 +54,8 @@ SECTIONS
   {
     . = ALIGN(4);
     KEEP(*(.isr_vector)) /* Startup code */
+    . = ALIGN(4);
+    KEEP(*(.app_header)) /* ota_proto.h app_header_t, right after the vectors */
     . = ALIGN(4);
   } >FLASH
 
@@ -167,3 +170,5 @@ SECTIONS
 }
 
 
+
+ASSERT(g_app_header == ORIGIN(FLASH) + 0xC0, "app header must follow the 48-entry vector table")

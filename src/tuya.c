@@ -1,5 +1,8 @@
 #include "tuya.h"
 #include "dimmer.h"
+#include "ota_proto.h"
+#include "phase.h"
+#include "py32f0xx.h"
 #include "uart.h"
 #include <string.h>
 
@@ -147,6 +150,19 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
     case TUYA_CMD_QUERY_ALL:
         dimmer_report_all();
         break;
+
+    case OTA_CMD_NOTIFY: {
+        /* The module has another firmware for us: say yes, then restart into
+         * the bootloader, which fetches it. The module decides whether an
+         * update is wanted (it does not offer one to the stock MCU). */
+        uint8_t ok = 0;
+        tuya_send(OTA_CMD_NOTIFY, seq, &ok, 1);
+        phase_shutdown();
+        OTA_MAILBOX->magic     = OTA_MAILBOX_MAGIC;
+        OTA_MAILBOX->magic_inv = ~OTA_MAILBOX_MAGIC;
+        NVIC_SystemReset();
+        break;
+    }
 
     case TUYA_CMD_VERSION: {
         uint8_t v = FW_VERSION;

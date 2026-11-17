@@ -31,18 +31,34 @@ LDFLAGS  := $(ARCH) -T$(LDSCRIPT) -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(PROJECT)
             --specs=nano.specs --specs=nosys.specs
 
 OBJS     := $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o))) $(addprefix $(BUILD)/,$(notdir $(ASRCS:.s=.o)))
-vpath %.c $(sort $(dir $(SRCS)))
+
+# Bootloader (2 KB at 0x08000000): the same for every app build
+BOOT_BUILD := build-boot
+BOOT_SRCS  := boot/boot.c src/flash_drv.c
+BOOT_OBJS  := $(addprefix $(BOOT_BUILD)/,$(notdir $(BOOT_SRCS:.c=.o)))
+BOOT_CFLAGS := $(CFLAGS) -ffreestanding -fno-tree-loop-distribute-patterns
+BOOT_LDFLAGS := $(ARCH) -Tboot/boot.ld -Wl,--gc-sections -Wl,-Map=$(BOOT_BUILD)/boot.map -nostdlib -lgcc
+
+vpath %.c $(sort $(dir $(SRCS) $(BOOT_SRCS)))
 vpath %.s $(sort $(dir $(ASRCS)))
 
-all: $(BUILD)/$(PROJECT).bin
+# App image (what the Zigbee module carries and sends), bootloader, and the
+# whole flash for the first SWD flashing.
+all: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin $(BUILD)/$(PROJECT)_full.bin
 
-$(BUILD):
+$(BUILD) $(BOOT_BUILD):
 	mkdir -p $@
 
 $(BUILD)/%.o: %.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/%.o: %.s | $(BUILD)
+	$(CC) $(ARCH) -c $< -o $@
+
+$(BOOT_BUILD)/%.o: %.c | $(BOOT_BUILD)
+	$(CC) $(BOOT_CFLAGS) -c $< -o $@
+
+$(BOOT_BUILD)/%.o: %.s | $(BOOT_BUILD)
 	$(CC) $(ARCH) -c $< -o $@
 
 $(BUILD)/$(PROJECT).elf: $(OBJS)
@@ -52,18 +68,36 @@ $(BUILD)/$(PROJECT).elf: $(OBJS)
 $(BUILD)/$(PROJECT).bin: $(BUILD)/$(PROJECT).elf
 	$(OBJCOPY) -O binary $< $@
 
+$(BUILD)/$(PROJECT).img: $(BUILD)/$(PROJECT).bin tools/mkimage.py
+	python3 tools/mkimage.py $< $@
+
+$(BOOT_BUILD)/boot.elf: $(BOOT_OBJS)
+	$(CC) $(BOOT_LDFLAGS) $^ -o $@
+	$(SIZE) $@
+
+$(BOOT_BUILD)/boot.bin: $(BOOT_BUILD)/boot.elf
+	$(OBJCOPY) -O binary $< $@
+
+$(BUILD)/$(PROJECT)_full.bin: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin
+	python3 tools/mkimage.py $< --full $(BOOT_BUILD)/boot.bin $@
+
 # The module must be powered from the probe, never from mains, while wired.
-flash: $(BUILD)/$(PROJECT).bin
+# flash: the app only (the bootloader stays); flash-all: bootloader + app.
+flash: $(BUILD)/$(PROJECT).img
+	$(PYOCD) load -t py32f002ax5 --pack $(PACK) -f 400000 --base-address 0x08000800 $<
+	$(PYOCD) reset -t py32f002ax5 --pack $(PACK) -f 400000
+
+flash-all: $(BUILD)/$(PROJECT)_full.bin
 	$(PYOCD) load -t py32f002ax5 --pack $(PACK) -f 400000 --base-address 0x08000000 $<
 	$(PYOCD) reset -t py32f002ax5 --pack $(PACK) -f 400000
 
 clean:
-	rm -rf build build-sim
+	rm -rf build build-sim build-boot
 
 # Header dependencies (an object is rebuilt when a header it includes changes)
--include $(OBJS:.o=.d)
+-include $(OBJS:.o=.d) $(BOOT_OBJS:.o=.d)
 
-.PHONY: all flash clean
+.PHONY: all flash flash-all clean
 
 # Hardware-free logic on the PC
 test:

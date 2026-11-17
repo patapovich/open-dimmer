@@ -6,6 +6,7 @@
 #include "board.h"
 #include "controls.h"
 #include "dimmer.h"
+#include "ota_proto.h"
 #include "phase.h"
 #include "tuya.h"
 #include "uart.h"
@@ -16,6 +17,11 @@
 
 #define NETWORK_QUERY_FIRST_MS   200
 #define NETWORK_QUERY_EVERY_MS   30000
+
+/* Found by the bootloader right after the vector table; size and CRC are
+ * filled in by tools/mkimage.py. */
+__attribute__((section(".app_header"), used))
+const app_header_t g_app_header = { APP_MAGIC, 0, 0, FW_VERSION, { 0, 0, 0 } };
 
 static volatile uint32_t g_ms;
 

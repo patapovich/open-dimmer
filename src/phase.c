@@ -169,6 +169,16 @@ uint16_t phase_current(uint8_t ch) {
     return ch < 2 ? g_fader[ch].current : 0;
 }
 
+void phase_shutdown(void) {
+    __disable_irq();
+    LL_GPIO_ResetOutputPin(GATE1_PORT, GATE1_PIN);
+    LL_GPIO_ResetOutputPin(GATE2_PORT, GATE2_PIN);
+    LL_GPIO_SetPinMode(GATE1_PORT, GATE1_PIN, LL_GPIO_MODE_OUTPUT);
+    LL_GPIO_SetPinMode(GATE2_PORT, GATE2_PIN, LL_GPIO_MODE_OUTPUT);
+    TIM1->BDTR &= ~TIM_BDTR_MOE;
+    __enable_irq();
+}
+
 void phase_poll(void) {
     __disable_irq();
     uint8_t lost = zc_tracker_check(&g_zc, (uint16_t)TIM16->CNT);

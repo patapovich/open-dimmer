@@ -35,6 +35,8 @@ void     phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi);
 uint16_t phase_hold_stop(uint8_t ch);
 /** Value the channel is at now (0..1000). */
 uint16_t phase_current(uint8_t ch);
+/** Gates to plain GPIO low, for good (before a reset into the bootloader). */
+void     phase_shutdown(void);
 /** Main loop: notices lost zero crosses. */
 void phase_poll(void);
 /** 1 if a ~5 ms CPU stall (flash save) would not miss a zero cross now. */
