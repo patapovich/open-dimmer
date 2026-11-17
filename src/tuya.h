@@ -21,6 +21,7 @@
 #define TUYA_DP_TYPE_ENUM        0x04
 
 #define TUYA_NETWORK_CONNECTED   0x01
+#define TUYA_RESET_NETWORK_REJOIN 0x01  /* data of 0x03: leave and pair again */
 
 /* Our firmware version, Tuya packing: 2 bits major, 2 bits minor, 4 bits patch.
  * 0x81 = 2.0.1 (major 2 tells it apart from the stock 1.0.x). */

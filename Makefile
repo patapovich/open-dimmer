@@ -67,5 +67,7 @@ test:
 	mkdir -p $(BUILD)/host
 	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_dim_core.c src/dim_core.c -o $(BUILD)/host/test_dim_core
 	$(BUILD)/host/test_dim_core
+	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_input_core.c src/input_core.c -o $(BUILD)/host/test_input_core
+	$(BUILD)/host/test_input_core
 
 .PHONY: test

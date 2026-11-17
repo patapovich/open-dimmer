@@ -149,6 +149,72 @@ static void test_zc_follows_frequency_drift(void) {
     CHECK(z.half_period < 512);
 }
 
+
+static void test_hold_follows_without_lag_and_freezes_on_release(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set(&f, 1, 500);
+    for (int i = 0; i < 200; i++) {
+        dim_fader_tick(&f);
+    }
+    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 100, 900);
+    for (int i = 0; i < 50; i++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current == 500 + 50 * DIM_HOLD_RATE);
+    CHECK(f.target == f.current);            /* nothing left to catch up */
+    uint16_t at_release = f.current;
+    CHECK(dim_fader_hold_stop(&f) == at_release);
+    for (int i = 0; i < 100; i++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current == at_release);          /* no run-on after release */
+    CHECK(f.step == DIM_STEP_DEFAULT);       /* normal speed right away */
+}
+
+static void test_hold_stops_at_bounds(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set(&f, 1, 800);
+    for (int i = 0; i < 200; i++) {
+        dim_fader_tick(&f);
+    }
+    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 100, 900);
+    for (int i = 0; i < 1000; i++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current == 900);
+    dim_fader_hold_start(&f, -1, DIM_HOLD_RATE, 100, 900);
+    for (int i = 0; i < 1000; i++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current == 100);                 /* min, never off */
+}
+
+static void test_hold_up_from_dark_starts_at_min(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set(&f, 1, 600);
+    dim_fader_tick(&f);                      /* fading in: current 5 */
+    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 200, 1000);
+    CHECK(dim_fader_tick(&f) == 200 + DIM_HOLD_RATE);
+}
+
+static void test_remote_write_during_hold(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set(&f, 1, 500);
+    for (int i = 0; i < 200; i++) {
+        dim_fader_tick(&f);
+    }
+    dim_fader_hold_start(&f, -1, DIM_HOLD_RATE, 100, 1000);
+    dim_fader_set(&f, 1, 900);               /* a level from the network: finger wins */
+    dim_fader_tick(&f);
+    CHECK(f.current == 500 - DIM_HOLD_RATE);
+    dim_fader_set(&f, 0, 900);               /* off wins */
+    CHECK(f.hold_dir == 0 && f.target == 0);
+}
+
 int main(void) {
     test_fade_up_takes_two_seconds();
     test_fade_lands_exactly_on_target();
@@ -159,6 +225,10 @@ int main(void) {
     test_zc_ignores_bounce();
     test_zc_gap_drops_lock();
     test_zc_follows_frequency_drift();
+    test_hold_follows_without_lag_and_freezes_on_release();
+    test_hold_stops_at_bounds();
+    test_hold_up_from_dark_starts_at_min();
+    test_remote_write_during_hold();
     if (g_failed) {
         printf("%d check(s) failed\n", g_failed);
         return EXIT_FAILURE;

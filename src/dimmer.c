@@ -1,6 +1,7 @@
 #include "dimmer.h"
 #include "phase.h"
 #include "store.h"
+#include "dim_core.h"
 #include "tuya.h"
 #include <string.h>
 
@@ -40,6 +41,7 @@ typedef struct {
 
 _Static_assert(sizeof(saved_t) == STORE_DATA_SIZE, "saved_t must match the store record");
 
+static int8_t   g_last_hold_dir[DIMMER_CHANNELS];
 static saved_t  g_saved;          /* what flash holds now */
 static uint8_t  g_dirty;          /* something changed that may need saving */
 static uint8_t  g_dirty_restart;  /* a new change: restart the delay */
@@ -249,6 +251,73 @@ void dimmer_report_dp(uint8_t dpid) {
     case DP_COUNTDOWN:   tuya_report_value(dpid, c->countdown);   break;
     default:             break;
     }
+}
+
+static void report_local(uint8_t ch, uint8_t with_level) {
+    uint8_t base = (uint8_t)(ch * DP_PER_CHANNEL + 1);
+
+    tuya_report_begin(0);
+    dimmer_report_dp((uint8_t)(base + DP_ON));
+    if (with_level) {
+        dimmer_report_dp((uint8_t)(base + DP_LEVEL));
+    }
+    tuya_report_send();
+}
+
+void dimmer_local_set(uint8_t ch, uint8_t on) {
+    if (ch >= DIMMER_CHANNELS || g_ch[ch].on == (on ? 1 : 0)) {
+        return;
+    }
+    g_ch[ch].on = on ? 1 : 0;
+    apply(ch);
+    mark_dirty();
+    report_local(ch, 0);
+}
+
+void dimmer_boot_set(uint8_t ch, uint8_t on) {
+    if (ch < DIMMER_CHANNELS) {
+        g_ch[ch].on = on ? 1 : 0;
+        apply(ch);
+    }
+}
+
+void dimmer_local_toggle(uint8_t ch) {
+    if (ch < DIMMER_CHANNELS) {
+        dimmer_local_set(ch, !g_ch[ch].on);
+    }
+}
+
+void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark) {
+    if (ch >= DIMMER_CHANNELS || !g_ch[ch].on) {
+        return;
+    }
+    dimmer_channel_t *c   = &g_ch[ch];
+    uint16_t          now = phase_current(ch);
+
+    if (dir == 0) {
+        if (from_dark || now <= c->min + 2 * DIM_HOLD_RATE) {
+            dir = +1;
+        } else if (now + 2 * DIM_HOLD_RATE >= c->max) {
+            dir = -1;
+        } else {
+            dir = g_last_hold_dir[ch] > 0 ? -1 : +1;
+        }
+    }
+    g_last_hold_dir[ch] = dir;
+    phase_hold_start(ch, dir, c->min, c->max);
+}
+
+void dimmer_hold_end(uint8_t ch) {
+    if (ch >= DIMMER_CHANNELS) {
+        return;
+    }
+    uint16_t v = phase_hold_stop(ch);
+    if (!g_ch[ch].on) {
+        return;
+    }
+    g_ch[ch].level = clamp_level(v);
+    apply(ch);
+    report_local(ch, 1);
 }
 
 void dimmer_report_all(void) {

@@ -27,6 +27,12 @@ extern volatile phase_debug_t g_phase_dbg;   /* read over SWD */
 void phase_init(void);
 /** New target for a channel (0 = channel 1). Fades there at 5 per half cycle. */
 void phase_set(uint8_t ch, uint8_t on, uint16_t level);
+/** Hold dimming on a channel: the light follows directly between lo and hi. */
+void     phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi);
+/** End of hold: frozen at the value the light has now, which is returned. */
+uint16_t phase_hold_stop(uint8_t ch);
+/** Value the channel is at now (0..1000). */
+uint16_t phase_current(uint8_t ch);
 /** Main loop: notices lost zero crosses. */
 void phase_poll(void);
 /** 1 if a ~5 ms CPU stall (flash save) would not miss a zero cross now. */

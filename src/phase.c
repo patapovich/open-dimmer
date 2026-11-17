@@ -138,6 +138,29 @@ void phase_set(uint8_t ch, uint8_t on, uint16_t level) {
     }
 }
 
+void phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi) {
+    if (ch >= 2) {
+        return;
+    }
+    __disable_irq();
+    dim_fader_hold_start(&g_fader[ch], dir, DIM_HOLD_RATE, lo, hi);
+    __enable_irq();
+}
+
+uint16_t phase_hold_stop(uint8_t ch) {
+    if (ch >= 2) {
+        return 0;
+    }
+    __disable_irq();
+    uint16_t v = dim_fader_hold_stop(&g_fader[ch]);
+    __enable_irq();
+    return v;
+}
+
+uint16_t phase_current(uint8_t ch) {
+    return ch < 2 ? g_fader[ch].current : 0;
+}
+
 void phase_poll(void) {
     __disable_irq();
     uint8_t lost = zc_tracker_check(&g_zc, (uint16_t)TIM16->CNT);

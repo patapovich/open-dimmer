@@ -1,19 +1,72 @@
 #include "dim_core.h"
 
 void dim_fader_init(dim_fader_t *f) {
-    f->current = 0;
-    f->target  = 0;
-    f->step    = DIM_STEP_DEFAULT;
+    f->current   = 0;
+    f->target    = 0;
+    f->step      = DIM_STEP_DEFAULT;
+    f->hold_dir  = 0;
+    f->hold_rate = DIM_HOLD_RATE;
+    f->hold_lo   = 0;
+    f->hold_hi   = DIM_VALUE_MAX;
 }
 
 void dim_fader_set(dim_fader_t *f, uint8_t on, uint16_t level) {
     if (level > DIM_VALUE_MAX) {
         level = DIM_VALUE_MAX;
     }
+    if (f->hold_dir) {
+        if (!on) {
+            f->hold_dir = 0;                /* off wins over a hold */
+            f->target   = 0;
+        }
+        return;                             /* the finger is in control */
+    }
     f->target = on ? level : 0;
 }
 
+void dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint8_t rate, uint16_t lo, uint16_t hi) {
+    if (hi > DIM_VALUE_MAX) {
+        hi = DIM_VALUE_MAX;
+    }
+    if (lo > hi) {
+        lo = hi;
+    }
+    f->hold_lo   = lo;
+    f->hold_hi   = hi;
+    f->hold_rate = rate ? rate : 1;
+    f->target    = f->current;
+    f->hold_dir  = dir < 0 ? -1 : 1;
+}
+
+uint16_t dim_fader_hold_stop(dim_fader_t *f) {
+    f->hold_dir = 0;
+    f->target   = f->current;
+    return f->current;
+}
+
+static uint16_t hold_tick(dim_fader_t *f) {
+    uint16_t cur = f->current;
+
+    if (f->hold_dir > 0) {
+        if (cur < f->hold_lo) {
+            cur = f->hold_lo;               /* coming up from dark: start at min */
+        }
+        cur = (uint16_t)(f->hold_hi - cur > f->hold_rate ? cur + f->hold_rate : f->hold_hi);
+    } else {
+        if (cur > f->hold_hi) {
+            cur = f->hold_hi;
+        }
+        cur = (uint16_t)(cur - f->hold_lo > f->hold_rate ? cur - f->hold_rate : f->hold_lo);
+    }
+    f->current = cur;
+    f->target  = cur;
+    return cur;
+}
+
 uint16_t dim_fader_tick(dim_fader_t *f) {
+    if (f->hold_dir) {
+        return hold_tick(f);
+    }
     uint16_t cur = f->current, tgt = f->target, step = f->step ? f->step : 1;
 
     if (cur < tgt) {

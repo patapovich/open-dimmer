@@ -1,0 +1,152 @@
+#include "controls.h"
+#include "board.h"
+#include "dimmer.h"
+#include "input_core.h"
+#include "tuya.h"
+
+#define IN_S1             0
+#define IN_S2             1
+#define IN_BUTTON         2
+#define IN_COUNT          3
+
+#define SWITCH_TOGGLE     0
+#define SWITCH_STATE      1
+#define SWITCH_MOMENTARY  2
+
+#define BUTTON_RESET_MS   3000
+#define EV_RING           16      /* power of two */
+
+volatile uint8_t g_input_override;
+
+static input_t           g_in[IN_COUNT];
+static volatile uint8_t  g_ring[EV_RING];
+static volatile uint8_t  g_head, g_tail;
+static volatile uint16_t g_button_press_ms;   /* duration of the last button press */
+
+/* Momentary switches: did this press switch the light on? */
+static uint8_t g_turned_on_by_press[DIMMER_CHANNELS];
+
+static uint8_t closed(uint8_t idx);
+
+void controls_init(void) {
+    __disable_irq();
+    for (uint8_t i = 0; i < IN_COUNT; i++) {
+        input_init(&g_in[i]);
+        /* A switch already closed at power-up is where it rests, not a
+         * press: take it as the starting state, with no event. */
+        if (closed(i)) {
+            g_in[i].pressed = 1;
+            g_in[i].held    = 1;
+        }
+    }
+    __enable_irq();
+    /* A state type switch says what the light is. */
+    for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
+        if (dimmer_channel(ch)->switch_type == SWITCH_STATE) {
+            dimmer_boot_set(ch, g_in[ch].pressed);
+        }
+    }
+}
+
+static uint8_t closed(uint8_t idx) {
+    uint8_t ov = g_input_override;
+    if (ov & 0x80) {
+        return (ov >> idx) & 1;
+    }
+    switch (idx) {
+    case IN_S1:     return !LL_GPIO_IsInputPinSet(S1_PORT, S1_PIN);
+    case IN_S2:     return !LL_GPIO_IsInputPinSet(S2_PORT, S2_PIN);
+    default:        return !LL_GPIO_IsInputPinSet(BUTTON_PORT, BUTTON_PIN);
+    }
+}
+
+void controls_tick_1ms(void) {
+    for (uint8_t i = 0; i < IN_COUNT; i++) {
+        uint8_t ev = input_sample(&g_in[i], closed(i));
+        if (ev == INPUT_EV_NONE) {
+            continue;
+        }
+        if (i == IN_BUTTON) {
+            g_button_press_ms = g_in[i].press_ms;
+        }
+        uint8_t next = (uint8_t)((g_head + 1) & (EV_RING - 1));
+        if (next != g_tail) {                 /* full: drop (cannot happen at human speed) */
+            g_ring[g_head] = (uint8_t)((i << 4) | ev);
+            g_head         = next;
+        }
+    }
+}
+
+static void wall_switch(uint8_t ch, uint8_t ev) {
+    const dimmer_channel_t *c = dimmer_channel(ch);
+
+    switch (c->switch_type) {
+    case SWITCH_STATE:
+        if (ev == INPUT_EV_PRESS) {
+            dimmer_local_set(ch, 1);
+        } else if (ev == INPUT_EV_RELEASE || ev == INPUT_EV_RELEASE_AFTER_HOLD) {
+            dimmer_local_set(ch, 0);
+        }
+        break;
+
+    case SWITCH_MOMENTARY:
+        switch (ev) {
+        case INPUT_EV_PRESS:
+            /* From dark: on at once, no waiting to see if it becomes a hold. */
+            g_turned_on_by_press[ch] = !c->on;
+            if (!c->on) {
+                dimmer_local_set(ch, 1);
+            }
+            break;
+        case INPUT_EV_RELEASE:
+            if (!g_turned_on_by_press[ch]) {
+                dimmer_local_set(ch, 0);
+            }
+            break;
+        case INPUT_EV_HOLD:
+            dimmer_hold_begin(ch, 0, g_turned_on_by_press[ch]);
+            break;
+        case INPUT_EV_RELEASE_AFTER_HOLD:
+            dimmer_hold_end(ch);
+            break;
+        default:
+            break;
+        }
+        break;
+
+    case SWITCH_TOGGLE:
+    default:
+        if (ev == INPUT_EV_PRESS || ev == INPUT_EV_RELEASE ||
+            ev == INPUT_EV_RELEASE_AFTER_HOLD) {
+            dimmer_local_toggle(ch);
+        }
+        break;
+    }
+}
+
+static void button(uint8_t ev) {
+    if (ev == INPUT_EV_RELEASE) {
+        dimmer_local_toggle(0);
+    } else if (ev == INPUT_EV_RELEASE_AFTER_HOLD) {
+        if (g_button_press_ms >= BUTTON_RESET_MS) {
+            uint8_t rejoin = TUYA_RESET_NETWORK_REJOIN;
+            tuya_send(TUYA_CMD_RESET_NETWORK, 0, &rejoin, 1);
+        } else {
+            dimmer_local_toggle(0);
+        }
+    }
+}
+
+void controls_poll(void) {
+    while (g_tail != g_head) {
+        uint8_t e = g_ring[g_tail];
+        g_tail    = (uint8_t)((g_tail + 1) & (EV_RING - 1));
+
+        uint8_t idx = e >> 4, ev = e & 0x0F;
+        if (idx == IN_BUTTON) {
+            button(ev);
+        } else {
+            wall_switch(idx, ev);   /* S1 -> channel 1, S2 -> channel 2 */
+        }
+    }
+}

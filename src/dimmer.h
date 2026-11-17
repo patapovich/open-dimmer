@@ -33,6 +33,18 @@ const dimmer_channel_t *dimmer_channel(uint8_t ch);
 uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16_t len);
 /** Add one DP's current value to the report being built. */
 void dimmer_report_dp(uint8_t dpid);
+/* Local actions (wall switch, button): change the channel and tell the module
+ * with an active 0x06 report, which it treats as a touch. */
+void dimmer_local_set(uint8_t ch, uint8_t on);
+/** At boot, before the module is told our state: no report. */
+void dimmer_boot_set(uint8_t ch, uint8_t on);
+void dimmer_local_toggle(uint8_t ch);
+/** Start hold dimming; dir 0 = pick (up from dark or at min, down at max,
+ * else the opposite of the last hold). */
+void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark);
+/** End hold dimming: keep the level the light has and report it. */
+void dimmer_hold_end(uint8_t ch);
+
 /** Report every DP (answer to query-all). */
 void dimmer_report_all(void);
 
