@@ -17,7 +17,7 @@ SRCS     := $(wildcard src/*.c) \
             $(SDK)/CMSIS/Device/PY32F0xx/Source/system_py32f0xx.c \
             $(addprefix $(SDK)/PY32F0xx_LL_Driver/Src/,$(LL_SRCS))
 ASRCS    := $(SDK)/CMSIS/Device/PY32F0xx/Source/gcc/startup_py32f002a.s
-LDSCRIPT := $(SDK)/LDScripts/py32f002ax5.ld
+LDSCRIPT := py32f002a_app.ld
 
 INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Include \
             -I$(SDK)/PY32F0xx_LL_Driver/Inc

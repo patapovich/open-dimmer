@@ -31,6 +31,8 @@ void    tuya_init(void);
 void    tuya_poll(uint32_t now_ms);
 void    tuya_send(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_t len);
 uint8_t tuya_network_status(void);
+/** ms since the last received byte, 0 while a frame is half received. */
+uint32_t tuya_rx_quiet_ms(uint32_t now_ms);
 
 /* Report builder: begin, add DP units, send as one frame. passive = 1 for answers
  * to the module (write ack, query-all): its firmware does not treat those as a

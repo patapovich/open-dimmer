@@ -1,6 +1,6 @@
 /* Own firmware for the PY32F002A of the AVATTO ZDMS16-2.
- * Step 2: Tuya MCU protocol towards the Zigbee module. The output stage stays
- * off; the LED shows channel 1 (on/off), or blinks while the module is not on a
+ * Step 3: Tuya MCU protocol towards the Zigbee module, settings kept in flash.
+ * The output stage stays off; the LED shows channel 1 (on/off), or blinks while the module is not on a
  * network. */
 #include "board.h"
 #include "dimmer.h"
@@ -88,6 +88,7 @@ int main(void) {
         uint32_t now = g_ms;
 
         tuya_poll(now);
+        dimmer_poll(now, tuya_rx_quiet_ms(now));
 
         /* Asking for the network state also tells the module we are up: it
          * answers and starts its first contact (version, DP dump). */

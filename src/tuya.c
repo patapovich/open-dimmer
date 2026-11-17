@@ -26,6 +26,10 @@ uint8_t tuya_network_status(void) {
     return g_network;
 }
 
+uint32_t tuya_rx_quiet_ms(uint32_t now_ms) {
+    return g_rx_len ? 0 : now_ms - g_rx_last_ms;
+}
+
 void tuya_send(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_t len) {
     uint8_t head[FRAME_HEADER] = { 0x55, 0xAA, 0x02, (uint8_t)(seq >> 8), (uint8_t)seq, cmd,
                                    (uint8_t)(len >> 8), (uint8_t)len };
