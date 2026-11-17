@@ -26,9 +26,15 @@ After that, every update goes over Zigbee.
   | other CMSIS-DAP probes (DAPLink, ...) | `cmsis-dap` | depends on the probe |
 
 - A way to hold four contacts on the module's **CN2** pads (SWD, SWC, GND, VCC; not CN3,
-  which is the radio header) without your hands: a **4-pin pogo-pin clip** ("PCB test clamp
-  pogo pin 4P", pitch 2.54 mm or 2.0 mm: measure the pads first) or a small spring-loaded jig
-  that clamps onto the board edge. Holding wires by hand works but makes the attach unreliable.
+  which is the radio header) without your hands. The CN2 pads are closer than 2.54 mm, most likely
+  **2.0 mm** pitch (to be confirmed: first to last pad centre ≈ 6.0 mm at 2.0 mm, ≈ 3.8 mm at
+  1.27 mm). Options:
+  - a single-row **4-pin pogo-pin clip / PCB clamp fixture in 2.0 mm pitch** (search "PCB clamp
+    fixture 2.0mm 4P pogo pin"; the common 2.54 mm ones do not fit), if the pads are close
+    enough to the board edge for its jaws;
+  - otherwise a 2.0 mm 4-pin **spring-loaded (pogo) connector** pressed down with a small clamp or
+    a printed jig.
+  Holding wires by hand works but makes the attach unreliable.
 - Linux with OpenOCD 0.12 and Python 3. Tools are expected in `~/projects/zdms16-py32`:
 
   ```
