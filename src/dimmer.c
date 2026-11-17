@@ -456,6 +456,11 @@ void dimmer_hold_end(uint8_t ch) {
 }
 
 void dimmer_report_all(void) {
+    /* DP 14 first: a module that reads it for both channels then gets the
+     * per-channel power-on (103/104) after it, in either case right. */
+    tuya_report_begin(1);
+    dimmer_report_dp(DP_POWER_ON);
+    tuya_report_send();
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
         tuya_report_begin(1);
         for (uint8_t i = 0; i < DP_PER_CHANNEL; i++) {
@@ -465,7 +470,4 @@ void dimmer_report_all(void) {
         dimmer_report_dp((uint8_t)(DP_POWER_ON_BASE + ch));
         tuya_report_send();
     }
-    tuya_report_begin(1);
-    dimmer_report_dp(DP_POWER_ON);
-    tuya_report_send();
 }
