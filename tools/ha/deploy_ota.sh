@@ -17,12 +17,23 @@ P=$(git -C "$ZTU_DIR" show --name-only --format= "$C" | grep "MODULE_AVATTO_ZDMS
 F=$(basename "$P")
 git -C "$ZTU_DIR" show "$C:$P" > "$TMP/$F"
 python3 - "$TMP/$F" <<'PY'
-import struct, sys
+import struct, sys, zlib
 d = open(sys.argv[1], "rb").read()
-i = d.find(b"APDZ")
-v = d[i + 12] if i >= 0 else None
+found = None
+pos = d.find(b"APDZ")
+while pos >= 0:                       # the header whose size and CRC check out (the ZTU code
+    start = pos - 0xC0                # also contains the magic as a constant)
+    size, crc = struct.unpack_from("<II", d, pos + 4) if pos + 12 <= len(d) else (0, 0)
+    if start >= 0 and 0 < size <= 12 * 1024 and start + size <= len(d):
+        img = bytearray(d[start:start + size])
+        img[0xC8:0xCC] = bytes(4)
+        if zlib.crc32(img) == crc:
+            found = d[pos + 12]
+            break
+    pos = d.find(b"APDZ", pos + 1)
+v = found
 print(f"image {sys.argv[1].rsplit('/', 1)[1]}: file version 0x{struct.unpack_from('<I', d, 14)[0]:08x}, "
-      + (f"carries PY32 {v >> 6}.{(v >> 4) & 3}.{v & 15}" if v is not None else "NO PY32 image inside"))
+      + (f"carries PY32 {v >> 6}.{(v >> 4) & 3}.{v & 15}" if v is not None else "NO valid PY32 image inside"))
 PY
 read -r -p "deploy to $* ? [y/N] " ok
 [ "$ok" = "y" ] || { echo "not deployed"; exit 1; }
