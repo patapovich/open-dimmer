@@ -8,7 +8,7 @@ checkout `~/projects/tzs-diag`).
 
 | What | Version / place |
 |---|---|
-| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-b2f77929 (0x1103301d), MCU **2.1.10 own** (released v2.1.10) |
+| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-b2f77929 (0x1103301d), MCU **2.1.10 own**; latest release v2.1.11 (default curve led_soft for unsaved channels only, so not deployed) |
 | House modules (4) | stock PY32 MCU, own ZTU; **not migrated** |
 | PY32 source | this repo (github.com/patapovich/zdms16-py32, local checkout `~/projects/zdms16-py32/fw`) |
 | ZTU + converter | `~/projects/tzs-diag`, branch `home-dimmer` (HEAD b123d6fb, pushed) |
