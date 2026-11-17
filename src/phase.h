@@ -11,6 +11,7 @@
 #define PHASE_H
 
 #include <stdint.h>
+#include "dim_core.h"
 
 typedef struct {
     uint32_t zc_edges;      /* zero crosses acted on */
@@ -56,10 +57,8 @@ void     phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi);
 uint16_t phase_hold_stop(uint8_t ch);
 /** A provisional hold ends without a level (a tap from dark): fade quickly on. */
 void     phase_hold_cancel(uint8_t ch);
-/** Fade profile of both channels (dim_fader_set_tuning; 0 = defaults). */
-void     phase_set_tuning(uint32_t packed);
-/** Hold profile of both channels (dim_fader_set_hold_tuning; 0 = defaults). */
-void     phase_set_hold_tuning(uint32_t packed);
+/** How a channel fades and holds (dim_core.h). */
+void     phase_set_profile(uint8_t ch, const dim_profile_t *p);
 /** Value the channel is at now (0..1000). */
 uint16_t phase_current(uint8_t ch);
 /** Gates to plain GPIO low, for good (before a reset into the bootloader). */

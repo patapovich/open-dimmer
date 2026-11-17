@@ -1,40 +1,47 @@
 #include "dim_core.h"
 #include "curves.h"
 
+static uint16_t rate_q(uint16_t ms) {
+    /* the whole range (1000) in ms: 1000 * 4 quarter steps per ms / 10 per half cycle */
+    if (ms < 10) {
+        return 4000;                        /* at once */
+    }
+    uint32_t q = (40000u + ms / 2u) / ms;
+    return (uint16_t)(q < 1u ? 1u : q);
+}
+
+void dim_profile_set(dim_profile_t *p, uint16_t fade_on_ms, uint16_t fade_off_ms,
+                     uint8_t soft_end_pct, uint16_t hold_ms, uint8_t hold_end_pct) {
+    p->on_q          = rate_q(fade_on_ms);
+    p->off_q         = rate_q(fade_off_ms);
+    p->soft_span     = (uint16_t)((soft_end_pct > 100 ? 100 : soft_end_pct) * 10u);
+    p->hold_q        = rate_q(hold_ms < 100 ? 100 : hold_ms);
+    p->hold_span     = (uint16_t)((hold_end_pct > 100 ? 100 : hold_end_pct) * 10u);
+    p->hold_bottom_q = DIM_HOLD_BOTTOM_Q;
+    p->off_hold      = DIM_OFF_HOLD;
+}
+
+void dim_profile_default(dim_profile_t *p) {
+    dim_profile_set(p, DIM_FADE_ON_MS, DIM_FADE_OFF_MS, DIM_SOFT_END_PCT, DIM_HOLD_MS,
+                    DIM_HOLD_END_PCT);
+}
+
 void dim_fader_init(dim_fader_t *f) {
-    f->current   = 0;
-    f->target    = 0;
-    f->step      = DIM_STEP_DEFAULT;
-    f->hold_dir  = 0;
-    f->hold_rate = DIM_HOLD_RATE;
-    f->hold_lo   = 0;
-    f->hold_hi   = DIM_VALUE_MAX;
-    f->floor     = 0;
+    f->current    = 0;
+    f->target     = 0;
+    f->step       = DIM_STEP_DEFAULT;
+    f->hold_dir   = 0;
+    f->hold_lo    = 0;
+    f->hold_hi    = DIM_VALUE_MAX;
+    f->floor      = 0;
     f->floor_hold = 0;
     f->from_dark  = 0;
-    dim_fader_set_tuning(f, 0);
-    dim_fader_set_hold_tuning(f, 0);
-    f->hold_acc = 0;
+    f->acc        = 0;
+    dim_profile_default(&f->prof);
 }
 
-void dim_fader_set_hold_tuning(dim_fader_t *f, uint32_t packed) {
-    if (packed == 0) {
-        packed = DIM_HOLD_TUNING_DEFAULT;
-    }
-    f->hold_rate_cfg  = (uint8_t)packed;
-    f->hold_ease_span = (uint16_t)(((packed >> 8) & 0xFFu) * 4u);
-    f->hold_bottom_q  = (uint8_t)(packed >> 16);
-}
-
-void dim_fader_set_tuning(dim_fader_t *f, uint32_t packed) {
-    if (packed == 0) {
-        packed = DIM_TUNING_DEFAULT;
-    }
-    uint8_t on = (uint8_t)packed, off = (uint8_t)(packed >> 8);
-    f->step_on   = on ? on : 1;
-    f->step_off  = off ? off : 1;
-    f->ease_span = (uint16_t)(((packed >> 16) & 0xFFu) * 4u);
-    f->off_hold  = (uint8_t)(packed >> 24);
+void dim_fader_set_profile(dim_fader_t *f, const dim_profile_t *p) {
+    f->prof = *p;
 }
 
 void dim_fader_set_floor(dim_fader_t *f, uint16_t floor) {
@@ -55,19 +62,18 @@ void dim_fader_set(dim_fader_t *f, uint8_t on, uint16_t level) {
     f->target = on ? level : 0;
 }
 
-void dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint8_t rate, uint16_t lo, uint16_t hi) {
+void dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint16_t lo, uint16_t hi) {
     if (hi > DIM_VALUE_MAX) {
         hi = DIM_VALUE_MAX;
     }
     if (lo > hi) {
         lo = hi;
     }
-    f->hold_lo   = lo;
-    f->hold_hi   = hi;
-    f->hold_rate = f->hold_rate_cfg ? f->hold_rate_cfg : (rate ? rate : 1);
-    f->hold_acc  = 0;
-    f->target    = f->current;
-    f->hold_dir  = dir < 0 ? -1 : 1;
+    f->hold_lo  = lo;
+    f->hold_hi  = hi;
+    f->acc      = 0;
+    f->target   = f->current;
+    f->hold_dir = dir < 0 ? -1 : 1;
 }
 
 uint16_t dim_fader_hold_stop(dim_fader_t *f) {
@@ -81,41 +87,38 @@ uint16_t dim_fader_hold_stop(dim_fader_t *f) {
 void dim_fader_hold_cancel(dim_fader_t *f) {
     f->hold_dir  = 0;
     f->target    = f->current;
-    f->from_dark = 1;               /* the light is coming on: the quick step */
+    f->from_dark = 1;               /* the light is coming on: the on rate */
+    f->acc       = 0;
 }
 
-/* Hold step at value cur: the full rate, slower just above the min (in
- * quarter steps, so below one per half cycle too). */
-static uint16_t hold_step(dim_fader_t *f, uint16_t cur) {
-    uint16_t full_q = (uint16_t)(f->hold_rate * 4u);
-    uint16_t q      = full_q;
-    if (f->hold_ease_span && f->hold_bottom_q < full_q) {
-        uint16_t d = cur > f->hold_lo ? (uint16_t)(cur - f->hold_lo) : 0;
-        if (d < f->hold_ease_span) {
-            q = (uint16_t)(f->hold_bottom_q +
-                           (uint32_t)(full_q - f->hold_bottom_q) * d / f->hold_ease_span);
-        }
+/* Whole steps to move now for q quarter steps (the rest is kept). */
+static uint16_t take(dim_fader_t *f, uint16_t q) {
+    uint32_t a = (uint32_t)f->acc + q;
+    f->acc = (uint16_t)(a & 3u);
+    return (uint16_t)(a >> 2);
+}
+
+/* Rate q, slowing to lo_q at distance 0 from the bottom of a span. */
+static uint16_t eased_q(uint16_t q, uint16_t lo_q, uint16_t d, uint16_t span) {
+    if (span == 0 || d >= span || q <= lo_q) {
+        return q;
     }
-    f->hold_acc = (uint16_t)(f->hold_acc + q);
-    uint16_t step = (uint16_t)(f->hold_acc / 4u);
-    f->hold_acc = (uint16_t)(f->hold_acc % 4u);
-    return step;
+    return (uint16_t)(lo_q + (uint32_t)(q - lo_q) * d / span);
 }
 
 static uint16_t hold_tick(dim_fader_t *f) {
     uint16_t cur = f->current;
 
+    if (f->hold_dir > 0 && cur < f->hold_lo) {
+        cur = f->hold_lo;                   /* coming up from dark: start at min */
+    } else if (f->hold_dir < 0 && cur > f->hold_hi) {
+        cur = f->hold_hi;
+    }
+    uint16_t d    = cur > f->hold_lo ? (uint16_t)(cur - f->hold_lo) : 0;
+    uint16_t step = take(f, eased_q(f->prof.hold_q, f->prof.hold_bottom_q, d, f->prof.hold_span));
     if (f->hold_dir > 0) {
-        if (cur < f->hold_lo) {
-            cur = f->hold_lo;               /* coming up from dark: start at min */
-        }
-        uint16_t step = hold_step(f, cur);
         cur = (uint16_t)(f->hold_hi - cur > step ? cur + step : f->hold_hi);
     } else {
-        if (cur > f->hold_hi) {
-            cur = f->hold_hi;
-        }
-        uint16_t step = hold_step(f, cur);
         cur = (uint16_t)(cur - f->hold_lo > step ? cur - step : f->hold_lo);
     }
     f->current = cur;
@@ -123,21 +126,12 @@ static uint16_t hold_tick(dim_fader_t *f) {
     return cur;
 }
 
-/* Fade step at value cur on the way to dark: full above the ease span, down
- * to 1 at the floor (no easing without a floor: floor 0 is the plain fade). */
-static uint16_t eased_step(const dim_fader_t *f, uint16_t cur, uint16_t step) {
-    if (f->floor == 0 || f->ease_span == 0 || cur >= f->floor + f->ease_span) {
-        return step;
-    }
-    uint16_t d = cur > f->floor ? (uint16_t)(cur - f->floor) : 0;
-    return (uint16_t)(1 + (uint32_t)(step - 1) * d / f->ease_span);
-}
-
 uint16_t dim_fader_tick(dim_fader_t *f) {
     if (f->hold_dir) {
         return hold_tick(f);
     }
-    uint16_t cur = f->current, tgt = f->target, step = f->step ? f->step : 1;
+    uint16_t cur = f->current, tgt = f->target;
+    uint16_t plain_q = (uint16_t)((f->step ? f->step : 1) * 4u);
 
     if (cur < tgt) {
         f->floor_hold = 0;
@@ -145,9 +139,7 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
             cur          = f->floor;        /* light comes on at the lowest lit level */
             f->from_dark = 1;
         }
-        if (f->from_dark) {
-            step = f->step_on;              /* on is quick */
-        }
+        uint16_t step = take(f, f->from_dark ? f->prof.on_q : plain_q);
         cur = (uint16_t)(tgt - cur > step ? cur + step : tgt);
         if (cur == tgt) {
             f->from_dark = 0;
@@ -157,17 +149,18 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
         if (tgt < f->floor && cur <= f->floor) {
             /* At the floor on the way to dark: stay a moment, then out
              * (below the floor the lamp is dark anyway). */
-            if (++f->floor_hold >= f->off_hold) {
+            if (++f->floor_hold >= f->prof.off_hold) {
                 f->floor_hold = 0;
                 cur           = tgt;
             }
+        } else if (tgt < f->floor) {
+            /* going dark: the off rate, slowing to 1 per half cycle at the floor */
+            uint16_t step = take(f, eased_q(f->prof.off_q, 4, (uint16_t)(cur - f->floor),
+                                            f->prof.soft_span));
+            cur = (uint16_t)(cur - f->floor > step ? cur - step : f->floor);
         } else {
-            if (tgt < f->floor) {
-                step = eased_step(f, cur, f->step_off);   /* going dark: even dim end */
-                cur  = (uint16_t)(cur - f->floor > step ? cur - step : f->floor);
-            } else {
-                cur = (uint16_t)(cur - tgt > step ? cur - step : tgt);
-            }
+            uint16_t step = take(f, plain_q);
+            cur = (uint16_t)(cur - tgt > step ? cur - step : tgt);
         }
     }
     f->current = cur;

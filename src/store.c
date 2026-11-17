@@ -5,7 +5,9 @@
 #include <string.h>
 
 #define PAGE_SIZE       128u
-#define STORE_MAGIC     0x5A445331u   /* "ZDS1" */
+#define STORE_MAGIC     0x5A445332u   /* "ZDS2": STORE_DATA_SIZE bytes of data */
+#define STORE_MAGIC_V1  0x5A445331u   /* "ZDS1": the first 20 bytes only (still read) */
+#define STORE_V1_SIZE   20u
 
 typedef struct {
     uint32_t magic;
@@ -15,6 +17,7 @@ typedef struct {
 } record_t;
 
 _Static_assert(sizeof(record_t) <= PAGE_SIZE, "record must fit a page");
+_Static_assert(STORE_DATA_SIZE >= STORE_V1_SIZE, "a version 1 record must fit");
 
 extern const uint8_t _settings_start[];
 extern const uint8_t _settings_end[];
@@ -33,16 +36,27 @@ static const record_t *page_record(uint32_t page) {
     return (const record_t *)(_settings_start + page * PAGE_SIZE);
 }
 
-static uint8_t record_valid(const record_t *r) {
-    return r->magic == STORE_MAGIC &&
-           r->crc == crc32((const uint8_t *)r, offsetof(record_t, crc));
+/* Data size of a valid record (version 2 or the older version 1), else 0. */
+static uint32_t record_size(const record_t *r) {
+    if (r->magic == STORE_MAGIC &&
+        r->crc == crc32((const uint8_t *)r, offsetof(record_t, crc))) {
+        return STORE_DATA_SIZE;
+    }
+    if (r->magic == STORE_MAGIC_V1) {
+        uint32_t crc;
+        memcpy(&crc, r->data + STORE_V1_SIZE, sizeof(crc));
+        if (crc == crc32((const uint8_t *)r, offsetof(record_t, data) + STORE_V1_SIZE)) {
+            return STORE_V1_SIZE;
+        }
+    }
+    return 0;
 }
 
 uint8_t store_load(uint8_t *data) {
     g_newest = -1;
     for (uint32_t i = 0; i < STORE_PAGES; i++) {
         const record_t *r = page_record(i);
-        if (!record_valid(r)) {
+        if (!record_size(r)) {
             continue;
         }
         if (g_newest < 0 || (int32_t)(r->seq - g_seq) > 0) {
@@ -53,7 +67,9 @@ uint8_t store_load(uint8_t *data) {
     if (g_newest < 0) {
         return 0;
     }
-    memcpy(data, page_record((uint32_t)g_newest)->data, STORE_DATA_SIZE);
+    const record_t *r = page_record((uint32_t)g_newest);
+    memset(data, 0, STORE_DATA_SIZE);              /* fields newer than the record: 0 */
+    memcpy(data, r->data, record_size(r));
     return 1;
 }
 

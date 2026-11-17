@@ -5,8 +5,10 @@
  *   DP 14 power-on behaviour (0 off, 1 on, 2 last state), both channels
  *     (written: both; reported: channel 1's, for the stock protocol)
  *   DP 103 / 104 power-on behaviour of channel 1 / 2 (ours)
- *   DP 107 fade profile (value, dim_fader_set_tuning; RAM only, for tuning)
- *   DP 108 hold profile (value, dim_fader_set_hold_tuning; RAM only, for tuning)
+ *   DP 150..154 / 155..159 fade and hold of channel 1 / 2 (values, ours, saved):
+ *     fade on ms (dark -> full), fade off ms (full -> dark), soft end % (going
+ *     dark, the lowest % above the min slow down), hold ms (whole range), hold
+ *     end % (the hold slows down there, to pick a very dim level)
  *   DP 105 / 106 wall switch gesture of channel 1 / 2, reported only, never
  *     in the DP dump (ours, gesture_core.h): 1 single, 2 double, 3 triple,
  *     4 hold, 5 release
@@ -30,6 +32,12 @@ typedef struct {
     uint8_t  switch_type;
     uint8_t  curve;
     uint32_t countdown;  /* seconds, stored and reported only for now */
+    /* How the lamp fades and holds (DPs 150.., dim_profile_set). */
+    uint16_t fade_on_ms;
+    uint16_t fade_off_ms;
+    uint8_t  soft_end_pct;
+    uint16_t hold_ms;
+    uint8_t  hold_end_pct;
 } dimmer_channel_t;
 
 /** Defaults, then saved settings and the power-on behaviour. */

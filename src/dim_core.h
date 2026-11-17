@@ -25,45 +25,48 @@
 #define ZC_LOCK_EDGES          4      /* good half cycles in a row before output */
 #define ZC_WINDOW_DIV          12     /* once locked, edges only within +-1/12 (8 %) */
 
-#define DIM_HOLD_RATE          3      /* per half cycle while held: 1000 in 3.3 s */
-#define DIM_HOLD_EASE_SPAN     200    /* hold: just above the min it moves slower, so a  */
-#define DIM_HOLD_BOTTOM_Q      2      /* very dim level can be picked: at the min 2/4 per */
-                                      /* half cycle, full rate DIM_HOLD_EASE_SPAN above  */
-#define DIM_STEP_ON            10     /* per half cycle when coming on from dark: quick  */
-#define DIM_STEP_OFF           10     /* per half cycle going dark (above the ease span) */
-#define DIM_EASE_SPAN          120    /* going dark: just above the floor the steps      */
-                                      /* shrink to 1, the dim end fades out softly        */
-#define DIM_OFF_HOLD           8      /* half cycles at the floor before going dark      */
+/* Default profile (per channel, see dim_profile_t; the user can set them). */
+#define DIM_FADE_ON_MS         950    /* dark -> full when switched on: quick         */
+#define DIM_FADE_OFF_MS        950    /* full -> dark when switched off               */
+#define DIM_SOFT_END_PCT       12     /* switching off: the lowest 12 % above the min  */
+                                      /* slow down to 1 per half cycle (an even end)   */
+#define DIM_HOLD_MS            3300   /* hold dimming over the whole range             */
+#define DIM_HOLD_END_PCT       20     /* hold: the lowest 20 % above the min slow down */
+#define DIM_HOLD_BOTTOM_Q      2      /* ... to 2/4 per half cycle at the min          */
+#define DIM_OFF_HOLD           8      /* half cycles at the min before going dark      */
+#define DIM_HOLD_RATE          3      /* full hold rate per half cycle at 3300 ms      */
+#define DIM_PROFILE_MS_MAX     10000  /* longest fade / hold time a user can set       */
+
+/* How a channel fades and holds. Rates in quarter steps per half cycle. */
+typedef struct {
+    uint16_t on_q;          /* coming on from dark */
+    uint16_t off_q;         /* going dark, above the soft end */
+    uint16_t soft_span;     /* going dark: values above the floor that slow down (0 = none) */
+    uint16_t hold_q;        /* hold, full rate */
+    uint16_t hold_span;     /* hold: values above the min that slow down (0 = none) */
+    uint8_t  hold_bottom_q; /* hold rate at the min */
+    uint8_t  off_hold;      /* half cycles at the floor before dark */
+} dim_profile_t;
+
+/** Profile from the user settings: times in ms for the whole range (0 = at
+ * once), spans in % of the range. */
+void     dim_profile_set(dim_profile_t *p, uint16_t fade_on_ms, uint16_t fade_off_ms,
+                         uint8_t soft_end_pct, uint16_t hold_ms, uint8_t hold_end_pct);
+void     dim_profile_default(dim_profile_t *p);
 
 typedef struct {
-    uint16_t current;   /* value applied now, 0..1000 */
-    uint16_t target;    /* 0 when off */
-    uint8_t  step;
-    int8_t   hold_dir;  /* 0: normal fading; +1/-1: hold dimming */
-    uint8_t  hold_rate;
-    uint16_t hold_lo;
-    uint16_t hold_hi;
-    uint16_t floor;     /* lowest lit value (the channel min): fades jump 0 <-> floor */
-    uint8_t  floor_hold; /* half cycles spent at the floor on the way to dark */
-    uint8_t  from_dark;  /* this rise started dark: the quick on step */
-    /* Fade profile (dim_fader_set_tuning): steps per half cycle coming on from
-     * dark / going dark, ease span above the floor, half cycles at the floor. */
-    uint8_t  step_on;
-    uint8_t  step_off;
-    uint16_t ease_span;
-    uint8_t  off_hold;
-    /* Hold profile (dim_fader_set_hold_tuning). */
-    uint8_t  hold_rate_cfg;   /* 0: the rate given to hold_start */
-    uint8_t  hold_bottom_q;   /* quarter steps per half cycle at the min */
-    uint16_t hold_ease_span;  /* 0: no slow-down */
-    uint16_t hold_acc;        /* quarter steps not yet moved */
+    uint16_t      current;   /* value applied now, 0..1000 */
+    uint16_t      target;    /* 0 when off */
+    uint8_t       step;      /* lit to lit (level changes), per half cycle */
+    int8_t        hold_dir;  /* 0: normal fading; +1/-1: hold dimming */
+    uint16_t      hold_lo;
+    uint16_t      hold_hi;
+    uint16_t      floor;     /* lowest lit value (the channel min): fades jump 0 <-> floor */
+    uint8_t       floor_hold; /* half cycles spent at the floor on the way to dark */
+    uint8_t       from_dark; /* this rise started dark: the on rate */
+    uint16_t      acc;       /* quarter steps not yet moved */
+    dim_profile_t prof;
 } dim_fader_t;
-
-#define DIM_HOLD_TUNING_DEFAULT ((uint32_t)0 | (uint32_t)(DIM_HOLD_EASE_SPAN / 4) << 8 | \
-                                 (uint32_t)DIM_HOLD_BOTTOM_Q << 16)
-
-#define DIM_TUNING_DEFAULT ((uint32_t)DIM_STEP_ON | (uint32_t)DIM_STEP_OFF << 8 | \
-                            (uint32_t)(DIM_EASE_SPAN / 4) << 16 | (uint32_t)DIM_OFF_HOLD << 24)
 
 void     dim_fader_init(dim_fader_t *f);
 /** Target for this channel: 0 when off, else the level (10..1000). */
@@ -72,21 +75,14 @@ void     dim_fader_set(dim_fader_t *f, uint8_t on, uint16_t level);
  * turning off leaves from there: below it the lamp is dark anyway, so a fade
  * through 0..floor would only show as a delay. */
 void     dim_fader_set_floor(dim_fader_t *f, uint16_t floor);
-/** Fade profile, packed: byte 0 step on from dark, 1 step going dark, 2 ease
- * span / 4 (0 = no easing), 3 half cycles at the floor before dark; 0 = the
- * defaults (DIM_TUNING_DEFAULT). Steps of 0 count as 1. */
-void     dim_fader_set_tuning(dim_fader_t *f, uint32_t packed);
-/** Hold profile, packed: byte 0 rate per half cycle (0 = the caller's), 1 slow-down
- * span above the min / 4 (0 = none), 2 quarter steps per half cycle at the min;
- * 0 = the defaults (DIM_HOLD_TUNING_DEFAULT). */
-void     dim_fader_set_hold_tuning(dim_fader_t *f, uint32_t packed);
-/** One half cycle: move current towards target by step, return current. */
+void     dim_fader_set_profile(dim_fader_t *f, const dim_profile_t *p);
+/** One half cycle: move current towards target, return current. */
 uint16_t dim_fader_tick(dim_fader_t *f);
 
-/** Hold dimming: from the value the light has now, move by rate per half cycle
+/** Hold dimming: from the value the light has now, move at the hold rate
  * towards hi (dir +1) or lo (dir -1) and stop there. The light IS the value:
  * no fade lag, so it never runs on after release. */
-void     dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint8_t rate, uint16_t lo, uint16_t hi);
+void     dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint16_t lo, uint16_t hi);
 /** End of hold: freeze where the light is now, back to normal fading.
  * Returns that value (the new level). */
 uint16_t dim_fader_hold_stop(dim_fader_t *f);

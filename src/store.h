@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 
-#define STORE_DATA_SIZE    20
+#define STORE_DATA_SIZE    40   /* records of 20 (version 1) are read too, rest 0 */
 
 /** Load the newest valid record. Returns 1 if one was found. */
 uint8_t store_load(uint8_t *data);

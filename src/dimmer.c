@@ -12,8 +12,9 @@
 #define DP_CURVE_BASE    101   /* + channel */
 #define DP_POWER_ON_BASE 103   /* + channel: power-on behaviour of one channel (ours) */
 #define DP_ACTION_BASE   105   /* + channel: wall switch gesture, event only (ours) */
-#define DP_FADE_TUNING   107   /* fade profile, both channels, RAM only (ours, for tuning) */
-#define DP_HOLD_TUNING   108   /* hold profile, both channels, RAM only (ours, for tuning) */
+#define DP_PROFILE_BASE  150   /* + 5 * channel: fade on ms, fade off ms, soft end %, */
+#define DP_PROFILE_COUNT 5     /* hold ms, hold end % (ours, saved)                  */
+enum { PF_FADE_ON, PF_FADE_OFF, PF_SOFT_END, PF_HOLD, PF_HOLD_END };
 
 enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
 
@@ -23,12 +24,10 @@ enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
 
 #define SAVE_DELAY_MS    2000   /* coalesce bursts of writes into one save */
 #define SAVE_QUIET_MS    100    /* the CPU stalls ~5 ms while saving: not mid-frame */
-#define SAVED_FORMAT     2     /* 1: one power-on for both channels */
+#define SAVED_FORMAT     3     /* 1: one power-on for both channels; 2: no fade profile */
 #define SAVE_RETRIES     3
 
 static dimmer_channel_t g_ch[DIMMER_CHANNELS];
-static uint32_t         g_fade_tuning;   /* DP 107, 0 = defaults; not saved */
-static uint32_t         g_hold_tuning;   /* DP 108, 0 = defaults; not saved */
 static uint8_t          g_power_on[DIMMER_CHANNELS];   /* 0 off, 1 on, 2 last state */
 
 /* What survives a power cut. The level is the one set while off, or the one the
@@ -47,6 +46,15 @@ typedef struct {
         uint8_t  switch_type;
         uint8_t  curve;      /* was reserved (0) in early records: 0 = linear */
     } ch[DIMMER_CHANNELS];
+    /* Format 3. Stored as value + 1: 0 (older records) = the default. */
+    struct {
+        uint16_t fade_on_ms;
+        uint16_t fade_off_ms;
+        uint16_t hold_ms;
+        uint8_t  soft_end_pct;
+        uint8_t  hold_end_pct;
+    } pf[DIMMER_CHANNELS];
+    uint8_t reserved[4];
 } saved_t;
 
 _Static_assert(sizeof(saved_t) == STORE_DATA_SIZE, "saved_t must match the store record");
@@ -72,6 +80,11 @@ static void snapshot(saved_t *s) {
         s->ch[i].max         = g_ch[i].max;
         s->ch[i].switch_type = g_ch[i].switch_type;
         s->ch[i].curve       = g_ch[i].curve;
+        s->pf[i].fade_on_ms   = (uint16_t)(g_ch[i].fade_on_ms + 1u);
+        s->pf[i].fade_off_ms  = (uint16_t)(g_ch[i].fade_off_ms + 1u);
+        s->pf[i].hold_ms      = (uint16_t)(g_ch[i].hold_ms + 1u);
+        s->pf[i].soft_end_pct = (uint8_t)(g_ch[i].soft_end_pct + 1u);
+        s->pf[i].hold_end_pct = (uint8_t)(g_ch[i].hold_end_pct + 1u);
         if (g_power_on[i] == POWER_ON_LAST && g_ch[i].on) {
             s->on_mask |= (uint8_t)(1u << i);
         }
@@ -79,6 +92,10 @@ static void snapshot(saved_t *s) {
 }
 
 static void apply(uint8_t ch) {
+    dim_profile_t p;
+    dim_profile_set(&p, g_ch[ch].fade_on_ms, g_ch[ch].fade_off_ms, g_ch[ch].soft_end_pct,
+                    g_ch[ch].hold_ms, g_ch[ch].hold_end_pct);
+    phase_set_profile(ch, &p);
     phase_set_range(ch, g_ch[ch].min, g_ch[ch].max);
     phase_set_curve(ch, g_ch[ch].curve);
     phase_set(ch, g_ch[ch].on, g_ch[ch].level);
@@ -108,12 +125,17 @@ void dimmer_init(void) {
         g_ch[i].switch_type = 0;
         g_ch[i].curve       = 0;
         g_ch[i].countdown   = 0;
+        g_ch[i].fade_on_ms   = DIM_FADE_ON_MS;
+        g_ch[i].fade_off_ms  = DIM_FADE_OFF_MS;
+        g_ch[i].soft_end_pct = DIM_SOFT_END_PCT;
+        g_ch[i].hold_ms      = DIM_HOLD_MS;
+        g_ch[i].hold_end_pct = DIM_HOLD_END_PCT;
     }
     g_power_on[0] = POWER_ON_OFF;
     g_power_on[1] = POWER_ON_OFF;
 
     saved_t s;
-    if (store_load((uint8_t *)&s) && (s.format == SAVED_FORMAT || s.format == 1)) {
+    if (store_load((uint8_t *)&s) && s.format >= 1 && s.format <= SAVED_FORMAT) {
         g_power_on[0] = s.power_on <= POWER_ON_LAST ? s.power_on : POWER_ON_OFF;
         g_power_on[1] = s.format == 1 ? g_power_on[0]
                       : s.power_on_2 <= POWER_ON_LAST ? s.power_on_2 : POWER_ON_OFF;
@@ -123,6 +145,23 @@ void dimmer_init(void) {
             g_ch[i].max         = clamp_level(s.ch[i].max);
             g_ch[i].switch_type = s.ch[i].switch_type;
             g_ch[i].curve       = s.ch[i].curve < CURVE_COUNT ? s.ch[i].curve : 0;
+            if (s.format >= 3) {              /* stored + 1; 0 = default */
+                if (s.pf[i].fade_on_ms && s.pf[i].fade_on_ms <= DIM_PROFILE_MS_MAX + 1u) {
+                    g_ch[i].fade_on_ms = (uint16_t)(s.pf[i].fade_on_ms - 1u);
+                }
+                if (s.pf[i].fade_off_ms && s.pf[i].fade_off_ms <= DIM_PROFILE_MS_MAX + 1u) {
+                    g_ch[i].fade_off_ms = (uint16_t)(s.pf[i].fade_off_ms - 1u);
+                }
+                if (s.pf[i].hold_ms && s.pf[i].hold_ms <= DIM_PROFILE_MS_MAX + 1u) {
+                    g_ch[i].hold_ms = (uint16_t)(s.pf[i].hold_ms - 1u);
+                }
+                if (s.pf[i].soft_end_pct && s.pf[i].soft_end_pct <= 101u) {
+                    g_ch[i].soft_end_pct = (uint8_t)(s.pf[i].soft_end_pct - 1u);
+                }
+                if (s.pf[i].hold_end_pct && s.pf[i].hold_end_pct <= 101u) {
+                    g_ch[i].hold_end_pct = (uint8_t)(s.pf[i].hold_end_pct - 1u);
+                }
+            }
             if (g_ch[i].min > g_ch[i].max) {
                 g_ch[i].min = g_ch[i].max;
             }
@@ -233,17 +272,36 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         mark_dirty();
         return 1;
     }
-    if (dpid == DP_FADE_TUNING || dpid == DP_HOLD_TUNING) {
+    if (dpid >= DP_PROFILE_BASE && dpid < DP_PROFILE_BASE + DP_PROFILE_COUNT * DIMMER_CHANNELS) {
         if (type != TUYA_DP_TYPE_VALUE || len != 4) {
             return 0;
         }
-        if (dpid == DP_FADE_TUNING) {
-            g_fade_tuning = be32(value);
-            phase_set_tuning(g_fade_tuning);
+        uint32_t          v  = be32(value);
+        uint8_t           k  = (uint8_t)((dpid - DP_PROFILE_BASE) % DP_PROFILE_COUNT);
+        dimmer_channel_t *pc = &g_ch[(dpid - DP_PROFILE_BASE) / DP_PROFILE_COUNT];
+        if (k == PF_SOFT_END || k == PF_HOLD_END) {
+            if (v > 100u) {
+                return 0;
+            }
+            if (k == PF_SOFT_END) {
+                pc->soft_end_pct = (uint8_t)v;
+            } else {
+                pc->hold_end_pct = (uint8_t)v;
+            }
         } else {
-            g_hold_tuning = be32(value);
-            phase_set_hold_tuning(g_hold_tuning);
+            if (v > DIM_PROFILE_MS_MAX) {
+                return 0;
+            }
+            if (k == PF_FADE_ON) {
+                pc->fade_on_ms = (uint16_t)v;
+            } else if (k == PF_FADE_OFF) {
+                pc->fade_off_ms = (uint16_t)v;
+            } else {
+                pc->hold_ms = (uint16_t)v;
+            }
         }
+        apply((uint8_t)((dpid - DP_PROFILE_BASE) / DP_PROFILE_COUNT));
+        mark_dirty();
         return 1;
     }
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
@@ -360,12 +418,17 @@ void dimmer_report_dp(uint8_t dpid) {
         tuya_report_enum(dpid, g_power_on[0]);
         return;
     }
-    if (dpid == DP_FADE_TUNING) {
-        tuya_report_value(dpid, g_fade_tuning ? g_fade_tuning : DIM_TUNING_DEFAULT);
-        return;
-    }
-    if (dpid == DP_HOLD_TUNING) {
-        tuya_report_value(dpid, g_hold_tuning ? g_hold_tuning : DIM_HOLD_TUNING_DEFAULT);
+    if (dpid >= DP_PROFILE_BASE && dpid < DP_PROFILE_BASE + DP_PROFILE_COUNT * DIMMER_CHANNELS) {
+        const dimmer_channel_t *pc = &g_ch[(dpid - DP_PROFILE_BASE) / DP_PROFILE_COUNT];
+        uint32_t                v;
+        switch ((dpid - DP_PROFILE_BASE) % DP_PROFILE_COUNT) {
+        case PF_FADE_ON:  v = pc->fade_on_ms;   break;
+        case PF_FADE_OFF: v = pc->fade_off_ms;  break;
+        case PF_SOFT_END: v = pc->soft_end_pct; break;
+        case PF_HOLD:     v = pc->hold_ms;      break;
+        default:          v = pc->hold_end_pct; break;
+        }
+        tuya_report_value(dpid, v);
         return;
     }
     if (dpid >= DP_POWER_ON_BASE && dpid < DP_POWER_ON_BASE + DIMMER_CHANNELS) {
@@ -502,6 +565,11 @@ void dimmer_report_all(void) {
         }
         dimmer_report_dp((uint8_t)(DP_CURVE_BASE + ch));
         dimmer_report_dp((uint8_t)(DP_POWER_ON_BASE + ch));
+        tuya_report_send();
+        tuya_report_begin(1);
+        for (uint8_t k = 0; k < DP_PROFILE_COUNT; k++) {
+            dimmer_report_dp((uint8_t)(DP_PROFILE_BASE + DP_PROFILE_COUNT * ch + k));
+        }
         tuya_report_send();
     }
 }

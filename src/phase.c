@@ -233,7 +233,7 @@ void phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi) {
         return;
     }
     __disable_irq();
-    dim_fader_hold_start(&g_fader[ch], dir, DIM_HOLD_RATE, lo, hi);
+    dim_fader_hold_start(&g_fader[ch], dir, lo, hi);
     __enable_irq();
 }
 
@@ -247,18 +247,12 @@ uint16_t phase_hold_stop(uint8_t ch) {
     return v;
 }
 
-void phase_set_tuning(uint32_t packed) {
-    __disable_irq();
-    dim_fader_set_tuning(&g_fader[0], packed);
-    dim_fader_set_tuning(&g_fader[1], packed);
-    __enable_irq();
-}
-
-void phase_set_hold_tuning(uint32_t packed) {
-    __disable_irq();
-    dim_fader_set_hold_tuning(&g_fader[0], packed);
-    dim_fader_set_hold_tuning(&g_fader[1], packed);
-    __enable_irq();
+void phase_set_profile(uint8_t ch, const dim_profile_t *p) {
+    if (ch < 2) {
+        __disable_irq();
+        dim_fader_set_profile(&g_fader[ch], p);
+        __enable_irq();
+    }
 }
 
 void phase_hold_cancel(uint8_t ch) {

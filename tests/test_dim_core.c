@@ -1,6 +1,11 @@
 /* PC tests for the hardware-free dimming logic: make test */
 #include "dim_core.h"
 #include "curves.h"
+
+/* the default profile in whole steps (quarter steps / 4) */
+#define ON_STEP   ((40000 + DIM_FADE_ON_MS / 2) / DIM_FADE_ON_MS / 4)
+#define SOFT_SPAN (DIM_SOFT_END_PCT * 10)
+#define HOLD_SPAN (DIM_HOLD_END_PCT * 10)
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -179,7 +184,7 @@ static void test_hold_follows_without_lag_and_freezes_on_release(void) {
     for (int i = 0; i < 200; i++) {
         dim_fader_tick(&f);
     }
-    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 100, 900);
+    dim_fader_hold_start(&f, +1, 100, 900);
     for (int i = 0; i < 50; i++) {
         dim_fader_tick(&f);
     }
@@ -201,12 +206,12 @@ static void test_hold_stops_at_bounds(void) {
     for (int i = 0; i < 200; i++) {
         dim_fader_tick(&f);
     }
-    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 100, 900);
+    dim_fader_hold_start(&f, +1, 100, 900);
     for (int i = 0; i < 1000; i++) {
         dim_fader_tick(&f);
     }
     CHECK(f.current == 900);
-    dim_fader_hold_start(&f, -1, DIM_HOLD_RATE, 100, 900);
+    dim_fader_hold_start(&f, -1, 100, 900);
     for (int i = 0; i < 1000; i++) {
         dim_fader_tick(&f);
     }
@@ -218,7 +223,7 @@ static void test_hold_up_from_dark_starts_at_min(void) {
     dim_fader_init(&f);
     dim_fader_set(&f, 1, 600);
     dim_fader_tick(&f);                      /* fading in: current 5 */
-    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 200, 1000);
+    dim_fader_hold_start(&f, +1, 200, 1000);
     CHECK(dim_fader_tick(&f) == 200);        /* at the min, moving slowly */
 }
 
@@ -229,10 +234,10 @@ static void test_hold_is_slow_just_above_the_min(void) {
     for (int i = 0; i < 50; i++) {
         dim_fader_tick(&f);
     }
-    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 60, 1000);
+    dim_fader_hold_start(&f, +1, 60, 1000);
     int n50 = 0, n200 = 0, n = 0;
     uint16_t prev = 60;
-    while (f.current < 60 + DIM_HOLD_EASE_SPAN + 100 && n < 2000) {
+    while (f.current < 60 + HOLD_SPAN + 100 && n < 2000) {
         uint16_t now = dim_fader_tick(&f);
         CHECK(now >= prev && now - prev <= DIM_HOLD_RATE);
         prev = now;
@@ -240,25 +245,27 @@ static void test_hold_is_slow_just_above_the_min(void) {
         if (now < 60 + 50) {
             n50 = n;
         }
-        if (now < 60 + DIM_HOLD_EASE_SPAN) {
+        if (now < 60 + HOLD_SPAN) {
             n200 = n;
         }
     }
     CHECK(n50 > 3 * 50 / DIM_HOLD_RATE);              /* the dimmest 50 take > 3x longer */
-    CHECK(n200 > 2 * DIM_HOLD_EASE_SPAN / DIM_HOLD_RATE);
+    CHECK(n200 > 2 * HOLD_SPAN / DIM_HOLD_RATE);
     CHECK(n200 < 200);                                  /* still under 2 s */
     /* down towards the min: slow there too, and stops at it */
-    dim_fader_hold_start(&f, -1, DIM_HOLD_RATE, 60, 1000);
+    dim_fader_hold_start(&f, -1, 60, 1000);
     for (int i = 0; i < 2000; i++) {
         dim_fader_tick(&f);
     }
     CHECK(f.current == 60);
-    /* tuning: no slow-down = the plain rate */
-    dim_fader_set_hold_tuning(&f, 3u | 0u << 8);
-    dim_fader_hold_start(&f, +1, 1, 60, 1000);
+    /* profile: no slow-down = the plain rate */
+    dim_profile_t p;
+    dim_profile_default(&p);
+    CHECK(p.hold_span == HOLD_SPAN && p.hold_bottom_q == DIM_HOLD_BOTTOM_Q && p.hold_q == 12);
+    p.hold_span = 0;
+    dim_fader_set_profile(&f, &p);
+    dim_fader_hold_start(&f, +1, 60, 1000);
     CHECK(dim_fader_tick(&f) == 63);
-    dim_fader_set_hold_tuning(&f, 0);
-    CHECK(f.hold_ease_span == DIM_HOLD_EASE_SPAN && f.hold_bottom_q == DIM_HOLD_BOTTOM_Q);
 }
 
 static void test_remote_write_during_hold(void) {
@@ -268,7 +275,7 @@ static void test_remote_write_during_hold(void) {
     for (int i = 0; i < 200; i++) {
         dim_fader_tick(&f);
     }
-    dim_fader_hold_start(&f, -1, DIM_HOLD_RATE, 100, 1000);
+    dim_fader_hold_start(&f, -1, 100, 1000);
     dim_fader_set(&f, 1, 900);               /* a level from the network: finger wins */
     dim_fader_tick(&f);
     CHECK(f.current == 500 - DIM_HOLD_RATE);
@@ -326,7 +333,7 @@ static void test_off_during_hold_then_release_stays_off(void) {
     for (int i = 0; i < 200; i++) {
         dim_fader_tick(&f);
     }
-    dim_fader_hold_start(&f, -1, DIM_HOLD_RATE, 100, 1000);
+    dim_fader_hold_start(&f, -1, 100, 1000);
     dim_fader_tick(&f);
     dim_fader_set(&f, 0, 800);               /* off from the network */
     dim_fader_tick(&f);                      /* fading out */
@@ -370,9 +377,9 @@ static void test_fader_floor(void) {
     dim_fader_init(&f);
     dim_fader_set_floor(&f, 287);
     dim_fader_set(&f, 1, 600);
-    CHECK(dim_fader_tick(&f) == 287 + DIM_STEP_ON);   /* on: from the floor, quick */
+    CHECK(dim_fader_tick(&f) == 287 + ON_STEP);   /* on: from the floor, quick */
     int n_on = 1;
-    uint16_t prev = 287 + DIM_STEP_ON;
+    uint16_t prev = 287 + ON_STEP;
     while (f.current != 600 && n_on < 1000) {
         uint16_t now = dim_fader_tick(&f);
         CHECK(now > prev);
@@ -380,7 +387,7 @@ static void test_fader_floor(void) {
         n_on++;
     }
     CHECK(f.current == 600);
-    CHECK(n_on == (600 - 287 + DIM_STEP_ON - 1) / DIM_STEP_ON);
+    CHECK(n_on >= (600 - 287) * DIM_FADE_ON_MS / 10000 && n_on <= (600 - 287) * DIM_FADE_ON_MS / 10000 + 2);
 
     dim_fader_set(&f, 0, 600);              /* off */
     int at_floor = 0, n_off = 0, last_steps = 0;
@@ -392,7 +399,7 @@ static void test_fader_floor(void) {
         if (now == 287) {
             at_floor++;
         }
-        if (now > 0 && now < 287 + DIM_EASE_SPAN / 4 && now != 287) {
+        if (now > 0 && now < 287 + SOFT_SPAN / 4 && now != 287) {
             last_steps++;                   /* the dim end is not rushed */
         }
         prev = now;
@@ -437,7 +444,7 @@ static void test_hold_from_dark_and_cancel(void) {
     dim_fader_init(&f);
     dim_fader_set_floor(&f, 60);
     dim_fader_set(&f, 1, 700);                /* on ... */
-    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 60, 1000);   /* ... rising from the bottom */
+    dim_fader_hold_start(&f, +1, 60, 1000);   /* ... rising from the bottom */
     CHECK(dim_fader_tick(&f) == 60);          /* at the min first */
     for (int k = 0; k < 9; k++) {
         dim_fader_tick(&f);                   /* a 100 ms tap */
@@ -446,21 +453,21 @@ static void test_hold_from_dark_and_cancel(void) {
     CHECK(tap >= 60 && tap < 60 + 10);
     dim_fader_hold_cancel(&f);
     dim_fader_set(&f, 1, 700);
-    CHECK(dim_fader_tick(&f) == tap + DIM_STEP_ON);   /* quick on */
+    CHECK(dim_fader_tick(&f) == tap + ON_STEP);   /* quick on */
     int n = 0;
     while (f.current != 700 && n < 1000) {
         dim_fader_tick(&f);
         n++;
     }
     CHECK(f.current == 700);
-    CHECK(n < (700 - 60) / DIM_STEP_ON + 2);
+    CHECK(n < (700 - 60) / ON_STEP + 2);
     /* a real hold from dark: rises from the floor, frozen at release */
     dim_fader_set(&f, 0, 700);
     while (f.current) {
         dim_fader_tick(&f);
     }
     dim_fader_set(&f, 1, 700);
-    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 60, 1000);
+    dim_fader_hold_start(&f, +1, 60, 1000);
     for (int k = 0; k < 40; k++) {
         dim_fader_tick(&f);
     }
@@ -470,12 +477,14 @@ static void test_hold_from_dark_and_cancel(void) {
     CHECK(dim_fader_tick(&f) == held);                    /* stays */
 }
 
-static void test_fade_tuning(void) {
+static void test_fade_profile(void) {
     dim_fader_t f;
     dim_fader_init(&f);
-    CHECK(f.step_on == DIM_STEP_ON && f.step_off == DIM_STEP_OFF);
-    CHECK(f.ease_span == DIM_EASE_SPAN && f.off_hold == DIM_OFF_HOLD);
-    dim_fader_set_tuning(&f, 20u | 4u << 8 | 0u << 16 | 0u << 24);   /* on 20, off 4, no ease, no hold */
+    dim_profile_t p;
+    dim_profile_set(&p, 500, 2500, 0, 3300, 20);    /* on 20 per half cycle, off 4, no soft end */
+    CHECK(p.on_q == 80 && p.off_q == 16 && p.soft_span == 0 && p.hold_q == 12);
+    p.off_hold = 0;
+    dim_fader_set_profile(&f, &p);
     dim_fader_set_floor(&f, 100);
     dim_fader_set(&f, 1, 500);
     CHECK(dim_fader_tick(&f) == 120);
@@ -492,8 +501,27 @@ static void test_fade_tuning(void) {
         n++;
     }
     CHECK(n == (500 - 100) / 4 + 1);                       /* at the floor once, then out */
-    dim_fader_set_tuning(&f, 0);                           /* back to the defaults */
-    CHECK(f.step_on == DIM_STEP_ON && f.ease_span == DIM_EASE_SPAN);
+    /* times: 0 = at once, slow times keep their fraction (quarter steps) */
+    dim_profile_set(&p, 0, 10000, 12, 10000, 20);
+    CHECK(p.on_q == 4000 && p.off_q == 4 && p.hold_q == 4);
+    dim_fader_init(&f);
+    dim_fader_set_profile(&f, &p);
+    dim_fader_set_floor(&f, 50);
+    dim_fader_set(&f, 1, 1000);
+    CHECK(dim_fader_tick(&f) == 1000);                     /* fade on 0 ms: at once */
+    dim_profile_set(&p, 4000, 950, 12, 3300, 20);          /* 4 s: 2.5 per half cycle */
+    dim_fader_set_profile(&f, &p);
+    dim_fader_set(&f, 0, 1000);
+    while (f.current) {
+        dim_fader_tick(&f);
+    }
+    dim_fader_set(&f, 1, 1000);
+    int k = 0;
+    while (f.current != 1000 && k < 2000) {
+        dim_fader_tick(&f);
+        k++;
+    }
+    CHECK(k >= 378 && k <= 382);                           /* (1000 - 50) / 2.5 */
 }
 
 int main(void) {
@@ -507,7 +535,7 @@ int main(void) {
     test_output_min_max_are_physical_for_every_curve();
     test_fader_floor();
     test_hold_from_dark_and_cancel();
-    test_fade_tuning();
+    test_fade_profile();
     test_zc_locks_after_regular_edges();
     test_zc_ignores_bounce();
     test_zc_gap_drops_lock();
