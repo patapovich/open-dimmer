@@ -163,11 +163,17 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
     }
 
     case OTA_CMD_NOTIFY: {
-        /* The module has another firmware for us: say yes, then restart into
-         * the bootloader, which fetches it. The module decides whether an
-         * update is wanted (it does not offer one to the stock MCU). */
-        uint8_t ok = 0;
+        /* The module has a newer firmware for us: say yes, then restart into
+         * the bootloader, which fetches it. Anything else is declined, so a
+         * bad offer cannot keep the light restarting. */
+        uint32_t size = len >= 9 ? ((uint32_t)data[1] << 24) | ((uint32_t)data[2] << 16) |
+                                   ((uint32_t)data[3] << 8) | data[4] : 0;
+        uint8_t  ok   = (len >= 9 && data[0] > FW_VERSION && size >= APP_HEADER_OFFSET &&
+                         size <= APP_MAX_SIZE) ? 0 : 1;
         tuya_send(OTA_CMD_NOTIFY, seq, &ok, 1);
+        if (ok != 0) {
+            break;
+        }
         phase_shutdown();
         dimmer_prepare_restart();
         OTA_MAILBOX->magic     = OTA_MAILBOX_MAGIC;
