@@ -319,7 +319,6 @@ static void update(uint8_t have_app) {
 
 int main(void);
 int main(void) {
-    pins_safe();
     clock_and_uart();
     g_boot.result = 0xFF;
 
@@ -345,6 +344,7 @@ int main(void) {
 extern uint32_t _estack, _sidata, _sdata, _edata, _sbss, _ebss;
 
 void Reset_Handler(void) {
+    pins_safe();                  /* first: the gate pins float from reset until here */
     const uint32_t *s = &_sidata;
     uint32_t       *d = &_sdata;
     while (d < &_edata) {
