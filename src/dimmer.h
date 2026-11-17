@@ -5,6 +5,7 @@
  *   DP 14 power-on behaviour (0 off, 1 on, 2 last state), both channels
  *     (written: both; reported: channel 1's, for the stock protocol)
  *   DP 103 / 104 power-on behaviour of channel 1 / 2 (ours)
+ *   DP 107 fade profile (value, dim_fader_set_tuning; RAM only, for tuning)
  *   DP 105 / 106 wall switch gesture of channel 1 / 2, reported only, never
  *     in the DP dump (ours, gesture_core.h): 1 single, 2 double, 3 triple,
  *     4 hold, 5 release
@@ -56,6 +57,9 @@ void dimmer_report_action(uint8_t ch, uint8_t gesture);
 void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark);
 /** End hold dimming: keep the level the light has and report it. */
 void dimmer_hold_end(uint8_t ch);
+/** A press from dark started rising from the minimum but was a tap: on to the
+ * level the channel has (not stored, nothing new to report). */
+void dimmer_hold_cancel(uint8_t ch);
 
 /** Before a restart into the bootloader: save pending settings and leave the
  *  light state in the mailbox, to be restored after the update. */

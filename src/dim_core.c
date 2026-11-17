@@ -11,6 +11,19 @@ void dim_fader_init(dim_fader_t *f) {
     f->hold_hi   = DIM_VALUE_MAX;
     f->floor     = 0;
     f->floor_hold = 0;
+    f->from_dark  = 0;
+    dim_fader_set_tuning(f, 0);
+}
+
+void dim_fader_set_tuning(dim_fader_t *f, uint32_t packed) {
+    if (packed == 0) {
+        packed = DIM_TUNING_DEFAULT;
+    }
+    uint8_t on = (uint8_t)packed, off = (uint8_t)(packed >> 8);
+    f->step_on   = on ? on : 1;
+    f->step_off  = off ? off : 1;
+    f->ease_span = (uint16_t)(((packed >> 16) & 0xFFu) * 4u);
+    f->off_hold  = (uint8_t)(packed >> 24);
 }
 
 void dim_fader_set_floor(dim_fader_t *f, uint16_t floor) {
@@ -53,6 +66,12 @@ uint16_t dim_fader_hold_stop(dim_fader_t *f) {
     return f->current;
 }
 
+void dim_fader_hold_cancel(dim_fader_t *f) {
+    f->hold_dir  = 0;
+    f->target    = f->current;
+    f->from_dark = 1;               /* the light is coming on: the quick step */
+}
+
 static uint16_t hold_tick(dim_fader_t *f) {
     uint16_t cur = f->current;
 
@@ -72,14 +91,14 @@ static uint16_t hold_tick(dim_fader_t *f) {
     return cur;
 }
 
-/* Fade step at value cur: full above the ease span, down to 1 at the floor
- * (no easing without a floor: floor 0 is the plain stock-like fade). */
+/* Fade step at value cur on the way to dark: full above the ease span, down
+ * to 1 at the floor (no easing without a floor: floor 0 is the plain fade). */
 static uint16_t eased_step(const dim_fader_t *f, uint16_t cur, uint16_t step) {
-    if (f->floor == 0 || cur >= f->floor + DIM_EASE_SPAN) {
+    if (f->floor == 0 || f->ease_span == 0 || cur >= f->floor + f->ease_span) {
         return step;
     }
     uint16_t d = cur > f->floor ? (uint16_t)(cur - f->floor) : 0;
-    return (uint16_t)(1 + (uint32_t)(step - 1) * d / DIM_EASE_SPAN);
+    return (uint16_t)(1 + (uint32_t)(step - 1) * d / f->ease_span);
 }
 
 uint16_t dim_fader_tick(dim_fader_t *f) {
@@ -91,22 +110,29 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
     if (cur < tgt) {
         f->floor_hold = 0;
         if (cur < f->floor) {
-            cur = f->floor;                 /* light comes on at the lowest lit level */
+            cur          = f->floor;        /* light comes on at the lowest lit level */
+            f->from_dark = 1;
         }
-        step = eased_step(f, cur, step);
-        cur  = (uint16_t)(tgt - cur > step ? cur + step : tgt);
+        if (f->from_dark) {
+            step = f->step_on;              /* on is quick */
+        }
+        cur = (uint16_t)(tgt - cur > step ? cur + step : tgt);
+        if (cur == tgt) {
+            f->from_dark = 0;
+        }
     } else if (cur > tgt) {
+        f->from_dark = 0;
         if (tgt < f->floor && cur <= f->floor) {
             /* At the floor on the way to dark: stay a moment, then out
              * (below the floor the lamp is dark anyway). */
-            if (++f->floor_hold >= DIM_OFF_HOLD) {
+            if (++f->floor_hold >= f->off_hold) {
                 f->floor_hold = 0;
                 cur           = tgt;
             }
         } else {
-            step = eased_step(f, cur, step);
             if (tgt < f->floor) {
-                cur = (uint16_t)(cur - f->floor > step ? cur - step : f->floor);
+                step = eased_step(f, cur, f->step_off);   /* going dark: even dim end */
+                cur  = (uint16_t)(cur - f->floor > step ? cur - step : f->floor);
             } else {
                 cur = (uint16_t)(cur - tgt > step ? cur - step : tgt);
             }

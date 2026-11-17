@@ -54,6 +54,10 @@ void     phase_set_curve(uint8_t ch, uint8_t curve);
 void     phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi);
 /** End of hold: frozen at the value the light has now, which is returned. */
 uint16_t phase_hold_stop(uint8_t ch);
+/** A provisional hold ends without a level (a tap from dark): fade quickly on. */
+void     phase_hold_cancel(uint8_t ch);
+/** Fade profile of both channels (dim_fader_set_tuning; 0 = defaults). */
+void     phase_set_tuning(uint32_t packed);
 /** Value the channel is at now (0..1000). */
 uint16_t phase_current(uint8_t ch);
 /** Gates to plain GPIO low, for good (before a reset into the bootloader). */

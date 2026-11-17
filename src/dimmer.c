@@ -12,6 +12,7 @@
 #define DP_CURVE_BASE    101   /* + channel */
 #define DP_POWER_ON_BASE 103   /* + channel: power-on behaviour of one channel (ours) */
 #define DP_ACTION_BASE   105   /* + channel: wall switch gesture, event only (ours) */
+#define DP_FADE_TUNING   107   /* fade profile, both channels, RAM only (ours, for tuning) */
 
 enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
 
@@ -25,6 +26,7 @@ enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
 #define SAVE_RETRIES     3
 
 static dimmer_channel_t g_ch[DIMMER_CHANNELS];
+static uint32_t         g_fade_tuning;   /* DP 107, 0 = defaults; not saved */
 static uint8_t          g_power_on[DIMMER_CHANNELS];   /* 0 off, 1 on, 2 last state */
 
 /* What survives a power cut. The level is the one set while off, or the one the
@@ -229,6 +231,14 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         mark_dirty();
         return 1;
     }
+    if (dpid == DP_FADE_TUNING) {
+        if (type != TUYA_DP_TYPE_VALUE || len != 4) {
+            return 0;
+        }
+        g_fade_tuning = be32(value);
+        phase_set_tuning(g_fade_tuning);
+        return 1;
+    }
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
         if (type != TUYA_DP_TYPE_ENUM || len != 1 || value[0] >= CURVE_COUNT) {
             return 0;
@@ -343,6 +353,10 @@ void dimmer_report_dp(uint8_t dpid) {
         tuya_report_enum(dpid, g_power_on[0]);
         return;
     }
+    if (dpid == DP_FADE_TUNING) {
+        tuya_report_value(dpid, g_fade_tuning ? g_fade_tuning : DIM_TUNING_DEFAULT);
+        return;
+    }
     if (dpid >= DP_POWER_ON_BASE && dpid < DP_POWER_ON_BASE + DIMMER_CHANNELS) {
         tuya_report_enum(dpid, g_power_on[dpid - DP_POWER_ON_BASE]);
         return;
@@ -453,6 +467,15 @@ void dimmer_hold_end(uint8_t ch) {
     g_ch[ch].level = clamp_level(v);
     apply(ch);
     report_local(ch, 1);
+}
+
+void dimmer_hold_cancel(uint8_t ch) {
+    if (ch >= DIMMER_CHANNELS || !g_holding[ch]) {
+        return;
+    }
+    g_holding[ch] = 0;
+    phase_hold_cancel(ch);
+    apply(ch);                      /* target: the level it has, or dark if switched off meanwhile */
 }
 
 void dimmer_report_all(void) {

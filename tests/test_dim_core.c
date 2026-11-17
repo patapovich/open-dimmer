@@ -330,21 +330,17 @@ static void test_fader_floor(void) {
     dim_fader_init(&f);
     dim_fader_set_floor(&f, 287);
     dim_fader_set(&f, 1, 600);
-    CHECK(dim_fader_tick(&f) == 288);       /* on: starts at the floor, slowly */
+    CHECK(dim_fader_tick(&f) == 287 + DIM_STEP_ON);   /* on: from the floor, quick */
     int n_on = 1;
-    uint16_t prev = 288, max_step_low = 0;
+    uint16_t prev = 287 + DIM_STEP_ON;
     while (f.current != 600 && n_on < 1000) {
         uint16_t now = dim_fader_tick(&f);
         CHECK(now > prev);
-        if (prev < 287 + DIM_EASE_SPAN && now - prev > max_step_low) {
-            max_step_low = (uint16_t)(now - prev);
-        }
         prev = now;
         n_on++;
     }
     CHECK(f.current == 600);
-    CHECK(max_step_low < DIM_STEP_DEFAULT || max_step_low == DIM_STEP_DEFAULT);
-    CHECK(n_on > (600 - 287) / DIM_STEP_DEFAULT + 20);   /* the soft start takes longer */
+    CHECK(n_on == (600 - 287 + DIM_STEP_ON - 1) / DIM_STEP_ON);
 
     dim_fader_set(&f, 0, 600);              /* off */
     int at_floor = 0, n_off = 0, last_steps = 0;
@@ -373,7 +369,17 @@ static void test_fader_floor(void) {
         dim_fader_tick(&f);
     }
     dim_fader_set(&f, 1, 600);
-    CHECK(dim_fader_tick(&f) == 795);
+    CHECK(dim_fader_tick(&f) == 795);       /* lit to lit: the plain step */
+    for (int k = 0; k < 400; k++) {
+        dim_fader_tick(&f);
+    }
+    dim_fader_set(&f, 1, 300);              /* down near the floor, still lit: plain too */
+    for (int k = 0; k < 59; k++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current == 305);
+    dim_fader_set(&f, 1, 500);              /* back up while lit: the plain step, not the on step */
+    CHECK(dim_fader_tick(&f) == 305 + DIM_STEP_DEFAULT);
     /* hold from dark still starts at the hold lo */
     dim_fader_set(&f, 1, 287);
     for (int k = 0; k < 400; k++) {
@@ -386,6 +392,68 @@ static void test_fader_floor(void) {
     CHECK(dim_fader_tick(&f) == 5);
 }
 
+static void test_hold_from_dark_and_cancel(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set_floor(&f, 60);
+    dim_fader_set(&f, 1, 700);                /* on ... */
+    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 60, 1000);   /* ... rising from the bottom */
+    CHECK(dim_fader_tick(&f) == 60 + DIM_HOLD_RATE);
+    for (int k = 0; k < 9; k++) {
+        dim_fader_tick(&f);                   /* a 100 ms tap */
+    }
+    CHECK(f.current == 60 + 10 * DIM_HOLD_RATE);
+    dim_fader_hold_cancel(&f);
+    dim_fader_set(&f, 1, 700);
+    CHECK(dim_fader_tick(&f) == 60 + 10 * DIM_HOLD_RATE + DIM_STEP_ON);   /* quick on */
+    int n = 0;
+    while (f.current != 700 && n < 1000) {
+        dim_fader_tick(&f);
+        n++;
+    }
+    CHECK(f.current == 700);
+    CHECK(n < (700 - 90) / DIM_STEP_ON + 2);
+    /* a real hold from dark: rises from the floor, frozen at release */
+    dim_fader_set(&f, 0, 700);
+    while (f.current) {
+        dim_fader_tick(&f);
+    }
+    dim_fader_set(&f, 1, 700);
+    dim_fader_hold_start(&f, +1, DIM_HOLD_RATE, 60, 1000);
+    for (int k = 0; k < 40; k++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current == 60 + 40 * DIM_HOLD_RATE);
+    CHECK(dim_fader_hold_stop(&f) == 60 + 40 * DIM_HOLD_RATE);
+    CHECK(dim_fader_tick(&f) == 60 + 40 * DIM_HOLD_RATE);    /* stays */
+}
+
+static void test_fade_tuning(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    CHECK(f.step_on == DIM_STEP_ON && f.step_off == DIM_STEP_OFF);
+    CHECK(f.ease_span == DIM_EASE_SPAN && f.off_hold == DIM_OFF_HOLD);
+    dim_fader_set_tuning(&f, 20u | 4u << 8 | 0u << 16 | 0u << 24);   /* on 20, off 4, no ease, no hold */
+    dim_fader_set_floor(&f, 100);
+    dim_fader_set(&f, 1, 500);
+    CHECK(dim_fader_tick(&f) == 120);
+    while (f.current != 500) {
+        dim_fader_tick(&f);
+    }
+    dim_fader_set(&f, 0, 500);
+    uint16_t prev = 500;
+    int n = 0;
+    while (f.current) {
+        uint16_t now = dim_fader_tick(&f);
+        CHECK(now == 0 || prev - now == 4 || now == 100);   /* plain steps of 4 */
+        prev = now;
+        n++;
+    }
+    CHECK(n == (500 - 100) / 4 + 1);                       /* at the floor once, then out */
+    dim_fader_set_tuning(&f, 0);                           /* back to the defaults */
+    CHECK(f.step_on == DIM_STEP_ON && f.ease_span == DIM_EASE_SPAN);
+}
+
 int main(void) {
     test_fade_up_takes_two_seconds();
     test_fade_lands_exactly_on_target();
@@ -396,6 +464,8 @@ int main(void) {
     test_output_linear_is_unchanged();
     test_output_min_max_are_physical_for_every_curve();
     test_fader_floor();
+    test_hold_from_dark_and_cancel();
+    test_fade_tuning();
     test_zc_locks_after_regular_edges();
     test_zc_ignores_bounce();
     test_zc_gap_drops_lock();

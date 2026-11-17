@@ -247,6 +247,21 @@ uint16_t phase_hold_stop(uint8_t ch) {
     return v;
 }
 
+void phase_set_tuning(uint32_t packed) {
+    __disable_irq();
+    dim_fader_set_tuning(&g_fader[0], packed);
+    dim_fader_set_tuning(&g_fader[1], packed);
+    __enable_irq();
+}
+
+void phase_hold_cancel(uint8_t ch) {
+    if (ch < 2) {
+        __disable_irq();
+        dim_fader_hold_cancel(&g_fader[ch]);
+        __enable_irq();
+    }
+}
+
 uint16_t phase_current(uint8_t ch) {
     return ch < 2 ? g_fader[ch].current : 0;
 }

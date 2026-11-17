@@ -108,19 +108,27 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
         dimmer_report_action(ch, gesture_event(&g_gesture[ch], ev, g_now));
         switch (ev) {
         case INPUT_EV_PRESS:
-            /* From dark: on at once, no waiting to see if it becomes a hold. */
+            /* From dark: on at once at the minimum, rising slowly while the
+             * finger stays (a hold picks a level from the bottom, with no
+             * flash to the stored level); a tap then goes quickly on to the
+             * stored level. */
             g_turned_on_by_press[ch] = !c->on;
             if (!c->on) {
                 dimmer_local_set(ch, 1);
+                dimmer_hold_begin(ch, +1, 1);
             }
             break;
         case INPUT_EV_RELEASE:
-            if (!g_turned_on_by_press[ch]) {
+            if (g_turned_on_by_press[ch]) {
+                dimmer_hold_cancel(ch);
+            } else {
                 dimmer_local_set(ch, 0);
             }
             break;
         case INPUT_EV_HOLD:
-            dimmer_hold_begin(ch, 0, g_turned_on_by_press[ch]);
+            if (!g_turned_on_by_press[ch]) {
+                dimmer_hold_begin(ch, 0, 0);    /* from dark the rise is already running */
+            }
             break;
         case INPUT_EV_RELEASE_AFTER_HOLD:
             dimmer_hold_end(ch);
