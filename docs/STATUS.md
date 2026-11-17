@@ -59,12 +59,20 @@ Min and max are physical conduction limits for every curve (same meaning as the 
   measurement builds; size report; artifacts.
 - **Release:** bump `FW_VERSION` in `src/tuya.h`, commit, `tools/release/release.sh`: checks,
   tags `vX.Y.Z` (must match the image), CI publishes the release (image, full image,
-  bootloader, `secondary_mcu_image.c`, `SHA256SUMS`); then, locally in `~/projects/tzs-diag`,
-  it puts the release's `secondary_mcu_image.c` (checksum) into `home-dimmer`, runs lint +
-  stub tests, commits, rebuilds `home-dimmer_build` (= home-dimmer + branch `fork-ci`) and
-  runs the fork's `build.yml`, whose "Update firmware files" commit has the OTA image.
-  Rerunning after a failure carries on (an existing release is not tagged again). A cloud
-  hand-over would need a workflow on the fork's default branch + a token (not done).
+  bootloader, `secondary_mcu_image.c`, `SHA256SUMS`).
+- **Carry (cloud):** workflow `py32-bump.yml` on the default branch (`main`) of
+  `patapovich/tuya-zigbee-switch` (fork only) runs hourly, by hand
+  (`gh workflow run py32-bump.yml --repo patapovich/tuya-zigbee-switch [-f py32_tag=vX.Y.Z]
+  [-f force=true]`) or on a `repository_dispatch` `py32-release`: takes the release's
+  `secondary_mcu_image.c` (checksum), refuses an older version than home-dimmer carries
+  (unless force), runs lint + tests, commits to `home-dimmer`, rebuilds `home-dimmer_build`
+  (= home-dimmer + branch `fork-ci`) and starts `build.yml`, whose "Update firmware files"
+  commit has the OTA image. `release.sh` starts it right after the release and waits for both;
+  `LOCAL_BUMP=1` does the carrying in `~/projects/tzs-diag` instead.
+- **Instant hand-over (optional):** a secret `ZTU_DISPATCH_TOKEN` in zdms16-py32 (fine-grained
+  PAT for `patapovich/tuya-zigbee-switch` with Contents: read and write) makes the release job
+  send the `py32-release` dispatch itself (then `NO_TRIGGER=1 tools/release/release.sh` only
+  waits). Without it the hourly run picks the release up.
 - **Deploy (local, home network):** `tools/ha/deploy_ota.sh <ieee> [...]`: newest OTA image
   from `home-dimmer_build`, shows the PY32 version it carries, asks, then fast OTA one module at
   a time with the guard. The ZTU updates the MCU only if it is our firmware and older. Then

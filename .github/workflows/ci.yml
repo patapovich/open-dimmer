@@ -96,3 +96,16 @@ jobs:
           sha256sum build/zdms16_py32.img build/zdms16_py32_full.bin build-boot/boot.bin secondary_mcu_image.c > SHA256SUMS
           gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME" \
             build/zdms16_py32.img build/zdms16_py32_full.bin build-boot/boot.bin secondary_mcu_image.c SHA256SUMS
+
+      - name: Hand over to the Zigbee firmware at once (tags v*, needs secret ZTU_DISPATCH_TOKEN)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.ZTU_DISPATCH_TOKEN }}
+        run: |
+          # Without the token the fork's py32-bump picks the release up within the hour.
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::no ZTU_DISPATCH_TOKEN: patapovich/tuya-zigbee-switch picks $GITHUB_REF_NAME up within the hour"
+            exit 0
+          fi
+          gh api repos/patapovich/tuya-zigbee-switch/dispatches -f event_type=py32-release \
+            -F "client_payload[tag]=$GITHUB_REF_NAME"
