@@ -52,18 +52,27 @@ Min and max are physical conduction limits for every curve (same meaning as the 
 - The board's S1 input stays low ~0.1 s after release: a fast double tap merges in
   hardware; doubles need ~0.2 s gaps.
 
-## Build and deploy recipe
+## Build and deploy (CI / CD)
 
-1. `make test && make` (also `make DIAG=1`, `make MEASURE=1` must fit), bump `FW_VERSION`
-   in `src/tuya.h`, commit.
-2. `python3 tools/embed_ztu.py build/zdms16_py32.img ~/projects/tzs-diag/src/zigbee/secondary_mcu_image.c`
-3. In tzs-diag: `make -C src/stub build`, pytest (`~/projects/tuya-zigbee-switch/.venv/bin/python -m pytest tests/`),
-   uncrustify check, commit, push `home-dimmer`, rebuild `home-dimmer_build` (= home-dimmer +
-   cherry-pick 6f0e1c76), `gh workflow run build.yml --repo patapovich/tuya-zigbee-switch --ref home-dimmer_build`.
-4. Take `bin/router/MODULE_AVATTO_ZDMS16_2/tlc_switch-*.zigbee` from the CI commit, copy to
-   `/config/zigbee2mqtt/images/`, set `image_block_response_delay` 50, run
-   `zdms16_ota_series.sh <image> <ieee>:<ieee>` with `zdms16_ota_guard.sh` (restores 250).
-5. The ZTU offers the carried MCU image only to an own MCU with an older version.
+- **CI** (`.github/workflows/ci.yml`, every push / PR): host tests; normal, DIAG, MEASURE and
+  SIM builds with the pinned SDK; curve tables vs generator; ZTU embedding refuses bench and
+  measurement builds; size report; artifacts.
+- **Release:** bump `FW_VERSION` in `src/tuya.h`, commit, `tools/release/release.sh`: checks,
+  tags `vX.Y.Z` (must match the image), CI publishes the release (image, full image,
+  bootloader, `secondary_mcu_image.c`, `SHA256SUMS`), then `py32-bump` in
+  `patapovich/tuya-zigbee-switch` takes `secondary_mcu_image.c` from the release (checksum),
+  runs lint + tests, commits to `home-dimmer`, rebuilds `home-dimmer_build` (+ `fork-ci`) and
+  starts `build.yml`, whose "Update firmware files" commit has the OTA image. With a secret
+  `ZTU_DISPATCH_TOKEN` (fine-grained PAT, Actions write on the fork) the release job starts
+  `py32-bump` itself (then run `NO_BUMP=1 tools/release/release.sh` to only wait).
+- **Deploy (local, home network):** `tools/ha/deploy_ota.sh <ieee> [...]`: newest OTA image
+  from `home-dimmer_build`, shows the PY32 version it carries, asks, then fast OTA one module at
+  a time with the guard. The ZTU updates the MCU only if it is our firmware and older. Then
+  `~/ha-claude/zdms16_health.py <ieee>`.
+- By hand (what the scripts do): `make test && make`, `tools/embed_ztu.py build/zdms16_py32.img
+  ~/projects/tzs-diag/src/zigbee/secondary_mcu_image.c`, stub tests in tzs-diag, push, build
+  branch = home-dimmer + `fork-ci`, `gh workflow run build.yml --ref home-dimmer_build`,
+  `zdms16_ota_series.sh` + `zdms16_ota_guard.sh`.
 
 ## Converter changes: checklist (after the 2026-11-17 incident)
 

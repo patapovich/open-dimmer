@@ -42,6 +42,9 @@ make flash-all                             # SWD (pyOCD), board off the mains
 
 `tools/embed_ztu.py` turns an image into the C file the Zigbee firmware carries.
 
+CI builds and tests every push; a `vX.Y.Z` tag publishes a release that the Zigbee firmware fork
+picks up and builds into its OTA image (`tools/release/release.sh`, see docs/STATUS.md).
+
 ## Layout
 
 | Path | |
