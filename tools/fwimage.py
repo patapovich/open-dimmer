@@ -6,7 +6,9 @@ against src/ota_proto.h.
 
     fwimage.py full <full.bin> [--old-boot] [--erase-settings]
         check a whole-flash image before an SWD install (tools/swd/install.sh): app header and
-        CRC, no SIM build, the bootloader's identity and boot sector CRC; refuses a bootloader
+        CRC, no SIM build, the app rules of every image (reserved flags, layout, SP exactly
+        0x20000BE0 and an odd reset vector in the image, version byte, build; build 0 only as
+        a 2.1.x app), the bootloader's identity and boot sector CRC; refuses a bootloader
         without boot_id unless --old-boot, an app over 12 KB unless --erase-settings
     fwimage.py notes <boot.bin> [<full.bin>]
         the bootloader line of the release notes (version, size, boot sector CRC = DP 136);
@@ -138,6 +140,34 @@ def version_problem(version, flags):
     return None
 
 
+def legacy_problem(h, size):
+    """A 2.1.x app (build 0): version byte up to 0x9C, neither CONFIRMS nor RING_HIGH, 12 KB."""
+    if (h.build != BUILD_NONE or h.version > VERSION_LEGACY_MAX
+            or h.flags & (FLAG_CONFIRMS | FLAG_RING_HIGH)):
+        return (f"a 2.1.x app has build 0, a version byte up to 0x{VERSION_LEGACY_MAX:02X} and neither "
+                f"CONFIRMS nor RING_HIGH; this one: build {h.build}, version 0x{h.version:02X}, "
+                f"flags 0x{h.flags:02X}")
+    if size > APP_LIMIT_LEGACY:
+        return f"a 2.1.x app of {size} bytes (12 KB max)"
+    return None
+
+
+def app_problem(img, h):
+    """The rules every app image follows wherever it goes (mkimage, a full image, the ZTU): no
+    reserved flag, the settings layout, the exact vectors (SP 0x20000BE0, so that the stack stays
+    below the mailbox; an odd reset vector inside the image), the version byte; then the build
+    rules, or the 2.1.x rules for build 0."""
+    if h.flags & FLAGS_RESERVED:
+        return f"flags 0x{h.flags:02X}: 0x20..0x80 are reserved (the bootloader ignores them)"
+    p = (layout_problem(len(img), h.flags) or vector_problem(img, len(img), exact_sp=True)
+         or version_problem(h.version, h.flags))
+    if p:
+        return p
+    if h.build == BUILD_NONE:
+        return legacy_problem(h, len(img))
+    return build_problem(h.build, h.flags)
+
+
 def boot_id(boot):
     """The v2 bootloader's identity at offset 0x10, or None (v1: code there)."""
     if len(boot) < BOOT_ID_OFFSET + 16:
@@ -207,6 +237,8 @@ def check_full(full, old_boot=False, erase_settings=False, lines=None):
     app = rest[:h.size]
     if image_crc(app) != h.crc:
         raise Refused("app CRC mismatch")
+    if h.crc == 0:
+        raise Refused("app CRC 0: the bootloader uses 0 for 'no image'")
     if any(b != 0xFF for b in rest[h.size:]):
         raise Refused("bytes after the app's end are not 0xFF (not made by mkimage.py --full?)")
     if h.flags & FLAG_SIM:
@@ -218,6 +250,9 @@ def check_full(full, old_boot=False, erase_settings=False, lines=None):
     p = boot_vector_problem(boot)
     if p:
         raise Refused(p)
+    p = app_problem(app, h)                               # the last gate before a permanent install
+    if p:
+        raise Refused(f"app: {p}")
     if h.flags & FLAG_MEASURE:
         lines.append("MEASUREMENT build: outputs off, takes no update (back over SWD)")
     if h.flags & FLAG_DIAG:

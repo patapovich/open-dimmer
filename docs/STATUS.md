@@ -122,7 +122,8 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
   bench, measurement and diagnostics builds; size report; artifacts.
 - **Release:** bump `FW_VERSION` in `src/tuya.h` (never 0xBF, reserved for SIM, or 0xFF; a
   warning comes when fewer than 16 codes are left) and `FW_BUILD` next to it (the previous
-  release tag's + 100, the first one 300; spare test builds are `make FW_TEST=1..99`, the version
+  release tag's + 100, the first one 300; spare test builds are `make FW_TEST=1..99`, below the
+  release `make FW_PREV=1 FW_TEST=n`, bench test B11's `LINK_WDG_TEST=1` only so; the version
   byte stays; docs/BOOTLOADER.md section 2), add the version's short section to
   `CHANGELOG.md` (the release notes; `release.sh` and the release job refuse a version without
   one), commit on `main`,

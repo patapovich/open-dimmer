@@ -16,7 +16,9 @@
 # bootloader version (boot_id) and its boot sector CRC (what the app reports as DP 136) are
 # shown first. A debugger reset keeps the RAM, so the boot word of the mailbox (0x20000BF8,
 # 0x20000BFC) is written 0 before every reset this issues: the new firmware starts with fresh
-# tries.
+# tries. On a read-protected (stock) chip only from the image load on: the stock firmware has no
+# mailbox, removing the protection erases the flash, and a pyOCD session more between the attach
+# and the option reload only gives the stock firmware time to take the SWD pins.
 #
 # Environment:
 #   IMAGE=<zdms16_py32_full.bin>   default: fw/build/zdms16_py32_full.bin; IMAGE=release takes
@@ -44,6 +46,7 @@ PROBE="${PROBE:-cmsis-dap}"
 IMAGE="${IMAGE:-$FW/build/zdms16_py32_full.bin}"
 REPO_URL="${REPO_URL:-https://github.com/patapovich/zdms16-py32}"
 OB_IMAGE="$FW/tools/swd/ob_bor25.bin"            # RDP 0xAA (none) + BOR on at 2.5 V, WRPR 0xFFFF
+STOCK=""                                          # 1 while a read-protected (stock) firmware is on the chip
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -57,8 +60,11 @@ py()   { "$PYOCD" "$@" -t py32f002ax5 --pack "$PACK" -f "$FREQ" -O connect_mode=
 # every boot.
 BOOT_WORD_ZERO=(-c "write32 0x20000BF8 0" -c "write32 0x20000BFC 0")
 IWDG_FREEZE=(-c "write32 0x40015808 0x1000")
-zero_boot_word() {   # best effort, before a reset the chip does by itself (load, option reload)
-    py commander "${IWDG_FREEZE[@]}" "${BOOT_WORD_ZERO[@]}" > /dev/null 2>&1 || true
+zero_boot_word() {   # best effort, before a reset the chip does by itself (load, option reload).
+                     # A core the attach halted stays halted until that reset (pyOCD's commander
+                     # does not resume by default; said here so that no version or config does).
+    [ -z "$STOCK" ] || return 0                    # stock firmware: see the top
+    py commander -O resume_on_disconnect=false "${IWDG_FREEZE[@]}" "${BOOT_WORD_ZERO[@]}" > /dev/null 2>&1 || true
 }
 reset_clean() {      # halt, boot word 0 (read back), reset: the last step
     local out
@@ -149,11 +155,16 @@ read -r OPTR WRPR <<< "$regs"
 say "attached, OPTR=$OPTR WRPR=$WRPR"
 RDP=$(( OPTR & 0xFF ))
 BYTE1=$(( (OPTR >> 8) & 0xFF ))
+# Read-protected: the stock firmware runs. It takes the SWD pins about 1.5 s after it starts
+# (docs/stock-firmware-analysis.md), so from here to the option reload only the sessions that
+# must be (option byte write, OBL_LAUNCH), and no boot word clear (see the top).
+[ "$RDP" -eq $((0xAA)) ] || STOCK=1
 
 # --- 2./3. option bytes ----------------------------------------------------------------
 reload_options() {   # FLASH_CR OBL_LAUNCH: reset with the new option bytes, no power cycle.
                      # Prints "OPTR WRPR" after it; everything for the user goes to stderr.
-    zero_boot_word
+    zero_boot_word                                 # not on a stock chip: it runs again since the
+                                                   # option write's reset, and the OBL must come first
     py commander -c "write32 0x40022008 0x45670123" -c "write32 0x40022008 0xCDEF89AB" \
         -c "write32 0x4002200C 0x08192A3B" -c "write32 0x4002200C 0x4C5D6E7F" \
         -c "write32 0x40022014 0x08000000" > /dev/null 2>&1 || true   # the reset drops the link
@@ -178,7 +189,7 @@ if [ "$RDP" -ne $((0xAA)) ] || [ "$BYTE1" -ne $((0xF9)) ] || [ $(( WRPR & 0xFFFF
     fi
     [ $(( WRPR & 0xFFFF )) -eq $((0xFFFF)) ] || echo "sector write protection is on (WRPR=$WRPR): cleared first"
     say "option bytes: protection off, brown-out reset 2.5 V, no write protection"
-    zero_boot_word                                 # pyOCD resets after the write
+    zero_boot_word                                 # pyOCD resets after the write (not on a stock chip)
     py load --base-address 0x1FFF0E80 "$OB_IMAGE" > "$TMP/ob.log" 2>&1 || { cat "$TMP/ob.log"; die "option byte write failed"; }
     regs=$(reload_options) || die "no attach after the option reload"
     read -r OPTR WRPR <<< "$regs"
@@ -186,6 +197,7 @@ if [ "$RDP" -ne $((0xAA)) ] || [ "$BYTE1" -ne $((0xF9)) ] || [ $(( WRPR & 0xFFFF
     [ $(( OPTR & 0xFF )) -eq $((0xAA)) ] || die "read protection still on (OPTR=$OPTR)"
     [ $(( (OPTR >> 8) & 0xFF )) -eq $((0xF9)) ] || die "BOR not set (OPTR=$OPTR)"
     [ $(( WRPR & 0xFFFF )) -eq $((0xFFFF)) ] || die "write protection still on (WRPR=$WRPR)"
+    STOCK=""                                       # the flash is erased: no stock firmware from here on
 else
     say "already unlocked with BOR, no write protection: re-flashing"
 fi

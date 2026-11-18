@@ -217,7 +217,10 @@ that the full image is exactly that bootloader and app. `WRP=1` write-protects t
 sector after the write (off by default; try it on a spare first); a later install clears the
 protection by itself before it writes. Before every reset it issues, the script (like
 `make flash-all`) clears the bootloader's boot word in RAM, so the new firmware starts with a
-fresh try counter.
+fresh try counter. On a stock module it does so only from the firmware write on: the stock
+firmware has no boot word, removing the read protection erases it anyway, and between the attach
+and the option reload the script starts no tool it does not need, so that the stock firmware
+gets no time to take the SWD pins.
 
 > The one-contact path with the option reload has not been run on a stock module yet (the
 > first module here was unlocked with the separate steps below). If anything is off, the

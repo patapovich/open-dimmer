@@ -19,12 +19,35 @@ MEASURE  ?= 0
 # SWD: make flash-all. Their image header flags (MEASURE 0x02, DIAG 0x04) make
 # tools/embed_ztu.py refuse them, so no Zigbee firmware ever carries one.
 DIAG     ?= 0
-# make FW_TEST=n (1..99): a spare test build with the build number FW_BUILD + n (FW_BUILD in
-# src/tuya.h is the release build; docs/BOOTLOADER.md section 2). It stays below the next release
-# (FW_BUILD + 100), so a unit that ran it always takes that release. The version byte stays: test
-# builds bump only the build. Its own BUILD directory (build-test<n>, as a VERSION_BYTE build
-# needs one), and tools/mkimage.py checks that the image's build is the release build + n.
+# Build number (src/tuya.h, docs/BOOTLOADER.md section 2): FW_BUILD is the release build, a
+# literal in src/tuya.h that no make variable overrides (tools/release/release_check.py reads it).
+# make FW_TEST=n (1..99): a spare test build FW_BUILD + n, below the next release (FW_BUILD + 100),
+# so a unit that ran it always takes that release. make FW_PREV=1 FW_TEST=n: FW_BUILD - 100 + n,
+# below this release (bench tests B3, B11: e.g. 299 below release 300). The version byte stays:
+# test builds bump only the build. Each has its own BUILD directory (as a VERSION_BYTE build needs
+# one), and tools/mkimage.py --test n checks that the image's build is a release build + n, so a
+# test build never has the header of a release.
 FW_TEST  ?=
+FW_PREV  ?=
+# make LINK_WDG_TEST=1 FW_PREV=1 FW_TEST=n: bench test B11 (spare, SWD): the link watchdog fires
+# after 2 min without a frame in a run of 5 min, and sees no frame at all (src/link_core.h). Only
+# below the release, so a unit on the release never takes such an image, even carried by mistake.
+LINK_WDG_TEST ?=
+ifneq ($(FW_BUILD),)
+  $(error FW_BUILD is the release build in src/tuya.h; test builds: make FW_TEST=n [FW_PREV=1])
+endif
+# The same refusals as src/tuya.h's #errors (same words), here before anything is built.
+ifneq ($(filter-out 0 1,$(LINK_WDG_TEST)),)
+  $(error LINK_WDG_TEST=$(LINK_WDG_TEST): LINK_WDG_TEST=1 (bench test B11) or 0)
+endif
+ifeq ($(LINK_WDG_TEST),1)
+  ifneq ($(FW_PREV),1)
+    $(error LINK_WDG_TEST builds lie below the release: make LINK_WDG_TEST=1 FW_PREV=1 FW_TEST=n)
+  endif
+  ifneq ($(filter 1,$(SIM) $(MEASURE) $(DIAG)),)
+    $(error LINK_WDG_TEST is a normal build's bench switch (not with SIM, MEASURE or DIAG))
+  endif
+endif
 ifneq ($(FW_TEST),)
   ifeq ($(filter $(FW_TEST),$(shell seq 1 99)),)
     $(error FW_TEST=$(FW_TEST): a test build takes 1..99 (FW_BUILD + n stays below the next release))
@@ -33,7 +56,15 @@ ifneq ($(FW_TEST),)
     $(error FW_TEST=$(FW_TEST) with SIM=1: a SIM build has the fixed build 0xFFFE)
   endif
 endif
-BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)$(if $(FW_TEST),-test$(FW_TEST))
+ifneq ($(FW_PREV),)
+  ifneq ($(FW_PREV),1)
+    $(error FW_PREV=$(FW_PREV): make FW_PREV=1 FW_TEST=n (1..99) or leave FW_PREV unset)
+  endif
+  ifeq ($(FW_TEST),)
+    $(error FW_PREV=1 alone would be the previous release: make FW_PREV=1 FW_TEST=n (1..99), the build FW_BUILD - 100 + n)
+  endif
+endif
+BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)$(if $(FW_PREV),-prev)$(if $(FW_TEST),-t$(FW_TEST))$(if $(filter 1,$(LINK_WDG_TEST)),-linktest)
 
 CC       := arm-none-eabi-gcc
 OBJCOPY  := arm-none-eabi-objcopy
@@ -50,7 +81,8 @@ LDSCRIPT := py32f002a_app.ld
 INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Include \
             -I$(SDK)/PY32F0xx_LL_Driver/Inc
 DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) -DMEASURE=$(MEASURE) -DDIAG_REPORT=$(DIAG) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE),$(if $(filter 1,$(MEASURE)),-DFW_VERSION=0x8F,$(if $(filter 1,$(DIAG)),-DFW_VERSION=0x8E))) \
-            $(if $(FW_TEST),-DFW_TEST=$(FW_TEST))
+            $(if $(FW_TEST),-DFW_TEST=$(FW_TEST)) $(if $(FW_PREV),-DFW_PREV=$(FW_PREV)) \
+            $(if $(filter 1,$(LINK_WDG_TEST)),-DLINK_WDG_TEST=1)
 ARCH     := -mcpu=cortex-m0plus -mthumb
 CFLAGS   := $(ARCH) $(DEFS) $(INCLUDES) -Os -g -Wall -Wextra -Wno-unused-parameter \
             -ffunction-sections -fdata-sections -std=c11 -MMD -MP
@@ -128,14 +160,16 @@ $(BUILD)/$(PROJECT)_full.bin: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin too
 # mailbox (0x20000BF8, 0x20000BFC) is written 0 before every reset (pyocd load resets
 # after writing; then the final reset): the flashed build starts with fresh tries
 # (docs/BOOTLOADER.md section 3). The watchdog is frozen while the core is halted
-# (DBGMCU APBFZ1 DBG_IWDG_STOP): the v2 bootloader starts it at every boot.
+# (DBGMCU APBFZ1 DBG_IWDG_STOP): the v2 bootloader starts it at every boot, and pyocd load
+# halts the core to program it. If that first step fails, the load goes on with a warning.
 PYOCD_T        = -t py32f002ax5 --pack $(PACK) -f 400000
 BOOT_WORD_ZERO := -c "write32 0x20000BF8 0" -c "write32 0x20000BFC 0"
 IWDG_FREEZE    := -c "write32 0x40015808 0x1000"
 flash flash-all: $(BUILD)/$(PROJECT)_full.bin
 	@[ "$$(stat -c %s $<)" -le 16384 ] || { \
 	    echo "$< reaches the settings sector (0x08004000), which pyocd would erase: tools/swd/install.sh ERASE_SETTINGS=1" >&2; exit 1; }
-	-$(PYOCD) commander $(PYOCD_T) -O connect_mode=attach $(IWDG_FREEZE) $(BOOT_WORD_ZERO) >/dev/null 2>&1
+	$(PYOCD) commander $(PYOCD_T) -O connect_mode=attach -O resume_on_disconnect=false $(IWDG_FREEZE) $(BOOT_WORD_ZERO) >/dev/null 2>&1 || \
+	    echo "warning: the watchdog freeze and the boot word clear before the load failed: the load halts a core whose watchdog may run, and its reset keeps the old boot word" >&2
 	$(PYOCD) load $(PYOCD_T) --format bin --base-address 0x08000000 $<
 	$(PYOCD) commander $(PYOCD_T) -O connect_mode=attach $(IWDG_FREEZE) -c halt $(BOOT_WORD_ZERO) -c reset
 
@@ -215,6 +249,8 @@ test:
 	cc $(HOST_CFLAGS) tests/test_contact_burst.c src/tuya.c src/dimmer.c src/dim_core.c \
 	   -o $(BUILD)/host/test_contact_burst
 	$(BUILD)/host/test_contact_burst
+	@# the stock Zigbee firmware facts of docs/BOOTLOADER.md section 15 (skipped without STOCK_ZTU_DUMP)
+	python3 tests/test_stock_ztu_dump.py
 	python3 tests/test_tools.py
 
 .PHONY: test

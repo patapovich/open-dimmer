@@ -41,11 +41,14 @@ trap 'rm -rf "$TMP"' EXIT
 
 # --- tests and all four builds, in fresh build dirs (objects of an earlier VERSION_BYTE
 #     build cannot mix in) ---------------------------------------------------------------------
-# A release build is never a test build or another version byte, whatever the environment says.
-unset FW_TEST VERSION_BYTE
-make test > /dev/null
+# A release build is never a test build, a bench switch or another version byte, whatever the
+# environment or MAKEFLAGS say: every build knob is set on the command line, which beats both
+# (a variant's own knob comes last and wins).
+unset FW_TEST FW_PREV FW_BUILD LINK_WDG_TEST VERSION_BYTE
+KNOBS=(SIM=0 MEASURE=0 DIAG=0 FW_TEST= FW_PREV= FW_BUILD= LINK_WDG_TEST= VERSION_BYTE=)
+make "${KNOBS[@]}" test > /dev/null
 for v in "" DIAG=1 MEASURE=1 SIM=1; do
-    make ${v:+"$v"} BUILD="$TMP/build${v:+-${v%=1}}" > /dev/null || die "make $v failed"
+    make "${KNOBS[@]}" ${v:+"$v"} BUILD="$TMP/build${v:+-${v%=1}}" > /dev/null || die "make $v failed"
 done
 vf=$(python3 -c "import sys; d=open(sys.argv[1],'rb').read(); print(d[0xCC], d[0xCD])" "$TMP/build/zdms16_py32.img")
 read -r VB FLAGS <<< "$vf"

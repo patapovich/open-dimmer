@@ -4,7 +4,8 @@ against the rules of docs/BOOTLOADER.md (sections 1, 2 and 11).
 
     mkimage.py app.bin app.img [--test N]
         app image, as written at 0x08001000. --test N (1..99, make FW_TEST=N): a spare test
-        build, whose build number must be the release build + N
+        build, whose build number must be the release build + N (with make FW_PREV=1: the
+        previous release build + N)
     mkimage.py app.img --full boot.bin out.bin [--old-boot] [--legacy-app]
         boot padded to 4 KB + app: the whole flash image for an SWD install. The bootloader
         must have its boot_id at 0x10 (--old-boot: a v1 bootloader, bench only). The app must
@@ -20,9 +21,12 @@ Refused for an image this makes: build 0, 1..255 or 0xFFFF; 0xFFFE unless SIM, S
 0xFFFE; a build without CONFIRMS; a build that is not a release build (a multiple of 100) or,
 with --test N, not the release build + N; CRC 0; over 12 KB without RING_HIGH, over 14 KB;
 reserved flags; version byte 0xFF, 0xBF unless SIM, below 0x80 (major < 2 is the stock
-firmware's); vectors the bootloader would not start (SP outside RAM, reset vector outside the
-image). The version byte, which the app and old ZTUs compare as 'strictly newer', gets a
-warning when its free codes run out.
+firmware's); vectors other than the ZTU's image_info takes (initial SP exactly 0x20000BE0,
+so that the stack stays below the mailbox; an odd reset vector inside the image). --full
+applies the same rules to the app it takes (the build rules too, but not the release/test
+offset), or with --legacy-app the 2.1.x rules (build 0, version byte up to 0x9C, neither
+CONFIRMS nor RING_HIGH, 12 KB). The version byte, which the app and old ZTUs compare as
+'strictly newer', gets a warning when its free codes run out.
 """
 import os
 import struct
@@ -55,30 +59,26 @@ def check_version(version: int, flags: int) -> None:
 
 
 def check_app(img: bytes, h, legacy: bool = False, test=0) -> None:
-    """The rules for an app image (header filled in). test: the FW_TEST offset its build must have
-    (0: a release build), None for an existing image (--full: checked when it was made)."""
-    if h.flags & fw.FLAGS_RESERVED:
-        refuse(f"flags 0x{h.flags:02X}: 0x20..0x80 are reserved (the bootloader ignores them)")
-    p = fw.layout_problem(len(img), h.flags) or fw.vector_problem(img, len(img), exact_sp=False)
-    if p:
-        refuse(p)
+    """The rules for an app image (header filled in), the same for an image it creates and for
+    one --full takes (fwimage.app_problem: reserved flags, layout, SP exactly 0x20000BE0 and an
+    odd reset vector inside the image, version byte, build). test: the FW_TEST offset its build
+    must have (0: a release build), None for an existing image (--full)."""
     if legacy:
-        if h.build != fw.BUILD_NONE or h.flags & (fw.FLAG_CONFIRMS | fw.FLAG_RING_HIGH):
-            refuse(f"--legacy-app takes a 2.1.x image (build 0, no CONFIRMS, no RING_HIGH); "
-                   f"this one has build {h.build}, flags 0x{h.flags:02X}")
-        if len(img) > fw.APP_LIMIT_LEGACY:
-            refuse(f"a 2.1.x app of {len(img)} bytes (12 KB max)")
+        p = fw.legacy_problem(h, len(img))
+        if p:
+            refuse(f"--legacy-app takes a 2.1.x image: {p}")
     elif h.build == fw.BUILD_NONE:
         refuse("app header without a build number (build 0): FW_BUILD in src/tuya.h; an existing "
                "2.1.x image goes into a full image only with --legacy-app")
-    else:
-        p = fw.build_problem(h.build, h.flags)
-        if p:
-            refuse(p)
-        if test is not None and h.build != fw.BUILD_SIM and h.build % fw.BUILD_STEP != test:
-            refuse(f"build {h.build}: " + (f"--test {test} wants the release build + {test}" if test else
-                   "a build without FW_TEST must be a release build (a multiple of 100); "
-                   "test builds: make FW_TEST=1..99"))
+    p = fw.app_problem(img, h)
+    if p:
+        refuse(p)
+    if (not legacy and test is not None and h.build != fw.BUILD_SIM
+            and h.build % fw.BUILD_STEP != test):
+        refuse(f"build {h.build}: " + (
+            f"--test {test} wants the release build + {test} (FW_PREV=1: the previous one's + {test})"
+            if test else "a build without FW_TEST must be a release build (a multiple of 100); "
+                         "test builds: make FW_TEST=1..99"))
     check_version(h.version, h.flags)
 
 

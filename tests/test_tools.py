@@ -3,7 +3,8 @@
 rules of docs/BOOTLOADER.md sections 1, 2 and 11), tools/embed_ztu.py (what the Zigbee module
 may carry), tools/release/release_check.py (release rules), tools/check_elf.py (CI ELF checks),
 tools/swd/install.sh and make flash (against a fake pyOCD / OpenOCD / curl that model the
-chip's option bytes, flash and mailbox), tools/ota_swd_emu.py (against a model of the
+chip's option bytes, flash, mailbox, watchdog freeze and a stock firmware that takes the SWD
+pins; mutants of the scripts show that the tests notice), tools/ota_swd_emu.py (against a model of the
 bootloader's SWD interface), tools/gen_curves.py (curve tables) and tools/changelog.py
 (release notes). Synthetic images, no toolchain and no hardware. Run: python3 tests/test_tools.py"""
 import contextlib
@@ -287,9 +288,18 @@ class MkImage(ToolRun):
             self.assert_refused(self.mkimage(0x9D, CONFIRMS | f, 300), "0x20..0x80 are reserved")
 
     def test_refuses_vectors_the_bootloader_would_not_start(self):
-        self.assert_refused(self.mkimage(sp=0x30000BE0), "not in RAM")
+        self.assert_refused(self.mkimage(sp=0x30000BE0), "not 0x20000BE0")
         self.assert_refused(self.mkimage(reset=0x08000101), "outside the image")
         self.assert_refused(self.mkimage(reset=0x08001201), "outside the image")
+
+    def test_exact_vectors_as_the_ztu_takes_them(self):
+        """Section 4 'Jump checks': SP exactly 0x20000BE0 (a higher stack overlays the mailbox's
+        boot word) and an odd reset vector stay in the tools, for every image they make."""
+        for sp in (0x20000C00, 0x20000BDC, 0x20000000):
+            self.assert_refused(self.mkimage(sp=sp), "not 0x20000BE0")
+        self.assert_refused(self.mkimage(reset=0x08001100), "is even")
+        rc, out, _ = self.mkimage(sp=0x20000BE0, reset=0x08001101)
+        self.assertEqual(rc, 0, out)
 
     def test_refuses_a_wrong_magic(self):
         d = bytearray(app_bin())
@@ -389,6 +399,24 @@ class MkImageFull(ToolRun):
         self.assert_refused(self.full(finished_img(), boot_v2(), "--legacy-app"), "--legacy-app takes a 2.1.x image")
         self.assert_refused(self.full(legacy_img(0x9C, CONFIRMS), boot_v2(), "--legacy-app"),
                             "--legacy-app takes a 2.1.x image")
+
+    def test_app_rules_apply_to_an_existing_image(self):
+        """An image --full takes passes the rules of an image mkimage makes (exact vectors, layout,
+        reserved flags, version byte, build), or the 2.1.x rules with --legacy-app."""
+        for img, msg in ((finished_img(sp=0x20000C00), "not 0x20000BE0"),
+                         (finished_img(reset=0x08001100), "is even"),
+                         (finished_img(size=12 * KB + 4), "only with RING_HIGH"),
+                         (finished_img(0x9D, CONFIRMS | 0x20, 300), "reserved"),
+                         (finished_img(0x9D, CONFIRMS, 255), "1..255"),
+                         (finished_img(0x9D, 0, 300), "without the CONFIRMS flag"),
+                         (finished_img(0xFF, CONFIRMS, 300), "version byte 0xFF"),
+                         (finished_img(0x47, CONFIRMS, 300), "major below 2")):
+            self.assert_refused(self.full(img, boot_v2()), msg)
+        for img, msg in ((legacy_img(sp=0x20000C00), "not 0x20000BE0"),
+                         (legacy_img(reset=0x08001100), "is even"),
+                         (legacy_img(0x9D), "version byte up to 0x9C"),
+                         (legacy_img(0x9C, RING_HIGH), "neither CONFIRMS nor RING_HIGH")):
+            self.assert_refused(self.full(img, boot_v2(), "--legacy-app"), msg)
 
     def test_refusals(self):
         self.assert_refused(self.full(finished_img(), b"\0" * 4097), "bootloader is 4097 bytes")
@@ -556,6 +584,37 @@ class FullImageCheck(ToolRun):
         self.assertNotEqual(rc, 0)
         self.assertIn("not a bootloader for sector 0", out)
 
+    def test_app_rules(self):
+        """The last gate before a bootloader stays for good: the app inside follows the rules of
+        every image, whoever made the file (a release, another branch, a bypass of mkimage)."""
+        boot = boot_v2()
+        for img, opts, msg in ((finished_img(sp=0x20000C00), (), "not 0x20000BE0"),
+                               (finished_img(reset=0x08001100), (), "is even"),
+                               (finished_img(reset=0x08001201), (), "outside the image"),
+                               (finished_img(size=13 * KB), ("--erase-settings",), "only with RING_HIGH"),
+                               (finished_img(0x9D, CONFIRMS | 0x80, 300), (), "reserved"),
+                               (finished_img(0x9D, CONFIRMS, 255), (), "1..255"),
+                               (finished_img(0x9D, CONFIRMS, 0xFFFF), (), "0xFFFF"),
+                               (finished_img(0x9D, CONFIRMS, 0xFFFE), (), "reserved for SIM builds"),
+                               (finished_img(0x9D, 0, 300), (), "without the CONFIRMS flag"),
+                               (finished_img(0xFF, CONFIRMS, 300), (), "version byte 0xFF"),
+                               (legacy_img(0x9C, CONFIRMS), (), "a 2.1.x app has build 0"),
+                               (legacy_img(0x9D), (), "version byte up to 0x9C")):
+            rc, out = self.check(full_img(boot, img), *opts)
+            self.assertNotEqual(rc, 0, msg)
+            self.assertIn(msg, out)
+        d = bytearray(app_bin())
+        struct.pack_into("<I", d, HDR + 4, len(d))
+        rc, out = self.check(full_img(boot, crc_forced_zero(bytes(d))))
+        self.assertNotEqual(rc, 0)
+        self.assertIn("app CRC 0", out)
+        # a 2.1.x app: under the v2 bootloader (bench test B6) and under v1 (a 2.1.x release)
+        rc, out = self.check(full_img(boot, legacy_img()))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("build none (2.1.x)", out)
+        rc, out = self.check(full_img(boot_v1(), legacy_img(0x9B)), "--old-boot")
+        self.assertEqual(rc, 0, out)
+
     def test_refusal_still_shows_the_bootloader(self):
         rc, out = self.check(full_img(boot_v1(), finished_img()))
         self.assertNotEqual(rc, 0)
@@ -720,8 +779,30 @@ class ReleaseRules(unittest.TestCase):
         self.assertLess(first(r"tools/release/release_check\.py"), push)
         self.assertLess(first(r"tools/fwimage\.py notes build-boot/boot\.bin"), push)
         self.assertLess(first(r"tools/changelog\.py"), push)          # the CHANGELOG.md requirement stays
-        self.assertLess(first(r"unset FW_TEST VERSION_BYTE"), first(r"make test"))
+        self.assertLess(first(r"KNOBS=\("), first(r"make .*test"))
         self.assertIn("tools/fwimage.py", re.search(r"FW_PATHS=\((.*)\)", text).group(1))
+        # every make of this repo (before the push) gets the knobs on its command line
+        makes = [l for l in lines[:push] if re.match(r"\s*make\b", l)]
+        self.assertEqual(len(makes), 2)
+        for l in makes:
+            self.assertIn('make "${KNOBS[@]}"', l)
+
+    def test_release_knobs_beat_the_environment(self):
+        """release.sh's KNOBS on the command line give a plain release build whatever the
+        environment and MAKEFLAGS say (a B11 or test build never becomes a release)."""
+        with open(os.path.join(TOOLS, "release", "release.sh")) as f:
+            knobs = re.search(r"^KNOBS=\((.*)\)$", f.read(), re.M).group(1).split()
+        for k in ("SIM", "MEASURE", "DIAG", "FW_TEST", "FW_PREV", "FW_BUILD", "LINK_WDG_TEST", "VERSION_BYTE"):
+            self.assertTrue(any(x.split("=")[0] == k for x in knobs), k)
+        env = dict(os.environ, LC_ALL="C", FW_TEST="5", FW_PREV="1", FW_BUILD="200", LINK_WDG_TEST="1",
+                   VERSION_BYTE="0x81", SIM="1", MEASURE="1", DIAG="1", MAKEFLAGS="FW_TEST=7 LINK_WDG_TEST=1")
+        for target in ("build/main.o", "build/zdms16_py32.img"):
+            p = subprocess.run(["make", "-n", "-B", "--no-print-directory", "-C", REPO, *knobs, target,
+                                "-o", "build/zdms16_py32.bin"], capture_output=True, text=True, env=env)
+            out = p.stdout + p.stderr
+            self.assertEqual(p.returncode, 0, out)
+            self.assertNotRegex(out, r"-DFW_TEST|-DFW_PREV|-DLINK_WDG_TEST|-DFW_VERSION|-DFW_BUILD|--test|"
+                                     r"-DSIM_ZC=1|-DMEASURE=1|-DDIAG_REPORT=1")
 
 
 # --- CI ELF checks ------------------------------------------------------------------------------
@@ -774,8 +855,23 @@ class ElfChecks(unittest.TestCase):
 
 
 # --- fake chip tools for install.sh and make flash ---------------------------------------------
-FAKE_PYOCD = r'''#!/usr/bin/env python3
-# Fake pyOCD: the chip's option bytes, flash and mailbox boot word in $FAKE_STATE/state.json.
+# The chip in $FAKE_STATE/state.json: option bytes, flash, the mailbox's boot word, the firmware
+# on the flash ("stock", "v1", "v2" bootloader, "empty"), whether the core runs, and DBGMCU's
+# watchdog freeze. The rules the fakes model, worst case where the real chip may be kinder:
+#  - the stock firmware takes the SWD pins about 1.5 s after it starts (docs/stock-firmware-
+#    analysis.md): after a reset that starts it, one tool start-up still fits; after a resume of
+#    a stock core that an attach halted (in its start-up delay already), none does. A session
+#    that comes too late fails ("swd_lost"); an OpenOCD attach that fails stands for the user's
+#    "lift the probe and press it on again", a power-up that loads the pending option bytes;
+#  - a pyOCD commander session resumes a core it leaves halted unless -O
+#    resume_on_disconnect=false (pyOCD's general default; its commander's own default is false);
+#  - pyocd load halts the core to program it; every halt needs the watchdog frozen before it
+#    (OpenOCD's attach writes the freeze microseconds after its halt: that counts as before);
+#  - a reset clears the freeze (DBGMCU may keep it; the tools must not count on that);
+#  - option bytes take effect at OBL_LAUNCH or a power-up; removing the read protection erases
+#    the flash;
+#  - a v2 or v1 bootloader writes a fresh boot word (tries 1) at every boot.
+FAKE_COMMON = r'''#!/usr/bin/env python3
 import json, os, sys
 SF = os.path.join(os.environ["FAKE_STATE"], "state.json")
 st = json.load(open(SF))
@@ -783,19 +879,43 @@ def save():
     json.dump(st, open(SF, "w"))
 def log(*e):
     st["log"].append(list(e))
+def halt():
+    if not st["iwdg_frozen"]:
+        st["halted_without_freeze"] = True
+        log("halt_without_freeze")
+    st["running"] = False
 def reset(kind):
-    log("reset", kind, st["ram"][0], st["ram"][1], st["halted_without_freeze"])
-    st["halted"] = False
-    if st.get("boot_v2"):            # the bootloader writes a fresh valid word (tries 1) at every boot
+    log("reset", kind, st["ram"][0], st["ram"][1], st["fw"])
+    st["running"], st["iwdg_frozen"], st["swd_budget"] = True, False, 1
+    if st["fw"] in ("v1", "v2"):
         w = 0xB2000001
         st["ram"] = [w, w ^ 0xFFFFFFFF]
 def apply_ob():
     ob = bytes.fromhex(st.pop("pending_ob"))
+    was = st["optr"] & 0xFF
     st["optr"] = (st["optr"] & 0xFFFF0000) | ob[0] | ob[1] << 8
     st["wrpr"] = ob[12] | ob[13] << 8
+    if was != 0xAA and ob[0] == 0xAA:          # read protection removed: the flash is erased
+        st["flash"], st["fw"] = "", "empty"
+def swd_free():
+    """False when the stock firmware runs and has had the time to take the SWD pins."""
+    if st["fw"] == "stock" and st["running"]:
+        if st["swd_budget"] <= 0:
+            return False
+        st["swd_budget"] -= 1
+    return True
 a = sys.argv[1:]
+'''
+
+FAKE_PYOCD = FAKE_COMMON + r'''
 cmd = a[0]
+opts = [a[i + 1] for i, x in enumerate(a) if x == "-O"]
+if not swd_free():
+    log("swd_lost", cmd); save(); sys.exit("no SWD: the stock firmware has the pins")
 if cmd == "commander":
+    st["commanders"] = st.get("commanders", 0) + 1
+    if st["commanders"] <= int(os.environ.get("FAKE_COMMANDERS_FAIL", "0")):
+        log("commander_failed"); save(); sys.exit("commander failed")
     cs = [a[i + 1] for i, x in enumerate(a) if x == "-c"]
     for c in cs:
         p = c.split()
@@ -810,8 +930,7 @@ if cmd == "commander":
         elif p[0] == "halt":
             if os.environ.get("FAKE_HALT_FAILS"):
                 log("halt_failed"); save(); sys.exit("halt failed")
-            if not st.get("iwdg_frozen"): st["halted_without_freeze"] = True
-            st["halted"] = True
+            halt()
         elif p[0] == "read32":
             print("%08x:  %08x %08x                      |........|" % (int(p[1], 0), st["ram"][0], st["ram"][1]))
         elif p[0] == "reset":
@@ -820,31 +939,49 @@ if cmd == "commander":
             n = int(p[2], 0)
             open(p[3], "wb").write(bytes.fromhex(st["flash"])[:n])
     log("commander", *cs)
+    if not st["running"] and "resume_on_disconnect=false" not in opts:
+        st["running"] = True
+        log("resume")
+        if st["fw"] == "stock":
+            st["swd_budget"] = 0
 elif cmd == "load":
     base = int(a[a.index("--base-address") + 1], 0)
     f = [x for i, x in enumerate(a) if i > 0 and os.path.isfile(x) and a[i - 1] != "--pack"][0]
     data = open(f, "rb").read()
+    halt()                          # pyOCD programs with the core halted
     if base == 0x1FFF0E80:          # active only after an option reload (OBL_LAUNCH) or a power-up
         st["pending_ob"] = data.hex()
         log("ob_write", data.hex())
-        if "--no-reset" not in a: reset("load")
     else:
         if not st["wrpr"] & 1:
             log("load_refused_wrp"); save(); sys.exit("write protected")
         st["flash"] = data.hex()
+        st["fw"] = "v2" if data[0x10:0x14] == bytes.fromhex("4f44424c") else "v1"
         log("load", len(data))
-        if "--no-reset" not in a: reset("load")
+    if "--no-reset" not in a: reset("load")
 elif cmd == "reset":
     reset("reset")
 save()
 '''
 
-FAKE_OPENOCD = r'''#!/usr/bin/env python3
-import json, os
-SF = os.path.join(os.environ["FAKE_STATE"], "state.json")
-st = json.load(open(SF))
-st["log"].append(["attach"])
-json.dump(st, open(SF, "w"))
+FAKE_OPENOCD = FAKE_COMMON + r'''
+cs = [a[i + 1] for i, x in enumerate(a) if x == "-c"]
+if not swd_free():
+    # The stock firmware has the pins: no attach. The user lifts the probe and presses it on
+    # again (install.sh asks): a power-up, which loads the pending option bytes.
+    log("attach_failed")
+    if "pending_ob" in st:
+        apply_ob()
+    st["running"], st["iwdg_frozen"], st["swd_budget"] = True, False, 1
+    st["ram"] = [0x12345678, 0x9ABCDEF0]
+    save()
+    sys.exit(1)
+log("attach")
+if "mww 0x40015808 0x1000" in cs:
+    st["iwdg_frozen"] = True
+if "halt 100" in cs:
+    halt()
+save()
 print("OPTR=0x%08x" % st["optr"])
 print("WRPR=0x%08x" % st["wrpr"])
 '''
@@ -888,9 +1025,12 @@ class FakeChip(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def chip(self, optr=0x0000F9AA, wrpr=0xFFFF, ram=(0xB2000003, 0xB2000003 ^ 0xFFFFFFFF), boot_v2=True):
-        self.state = {"optr": optr, "wrpr": wrpr, "ram": list(ram), "flash": "", "log": [],
-                      "boot_v2": boot_v2, "halted_without_freeze": False}
+    def chip(self, optr=0x0000F9AA, wrpr=0xFFFF, ram=(0xB2000003, 0xB2000003 ^ 0xFFFFFFFF), fw_on_chip=None):
+        """A chip just powered from the probe: its firmware runs (a stock one when read-protected)."""
+        if fw_on_chip is None:
+            fw_on_chip = "v2" if optr & 0xFF == 0xAA else "stock"
+        self.state = {"optr": optr, "wrpr": wrpr, "ram": list(ram), "flash": "", "log": [], "fw": fw_on_chip,
+                      "running": True, "iwdg_frozen": False, "swd_budget": 1, "halted_without_freeze": False}
         with open(os.path.join(self.tmp.name, "state.json"), "w") as f:
             json.dump(self.state, f)
 
@@ -907,7 +1047,7 @@ class FakeChip(unittest.TestCase):
         e.update({k: str(v) for k, v in kw.items()})
         return e
 
-    def install(self, image=None, **kw):
+    def install(self, image=None, script=None, **kw):
         if isinstance(image, bytes):
             p = os.path.join(self.tmp.name, "full.bin")
             with open(p, "wb") as f:
@@ -915,19 +1055,42 @@ class FakeChip(unittest.TestCase):
             kw["IMAGE"] = p
         elif image is not None:
             kw["IMAGE"] = image
-        p = subprocess.run(["bash", os.path.join(TOOLS, "swd", "install.sh")], env=self.env(**kw),
+        p = subprocess.run(["bash", script or os.path.join(TOOLS, "swd", "install.sh")], env=self.env(**kw),
                            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
         return p.returncode, p.stdout + p.stderr
+
+    def mutant(self, *changes):
+        """install.sh changed (old, new pairs) in a copy of what it needs: does a test notice?"""
+        root = os.path.join(self.tmp.name, "mutant", "fw")
+        os.makedirs(os.path.join(root, "tools", "swd"))
+        shutil.copy(os.path.join(TOOLS, "fwimage.py"), os.path.join(root, "tools"))
+        shutil.copy(os.path.join(TOOLS, "swd", "ob_bor25.bin"), os.path.join(root, "tools", "swd"))
+        with open(os.path.join(TOOLS, "swd", "install.sh")) as f:
+            text = f.read()
+        for old, new in changes:
+            self.assertIn(old, text)
+            text = text.replace(old, new)
+        path = os.path.join(root, "tools", "swd", "install.sh")
+        with open(path, "w") as f:
+            f.write(text)
+        return path
 
     def events(self, kind):
         return [e for e in self.st()["log"] if e[0] == kind]
 
+    def kinds(self):
+        return [e[0] for e in self.st()["log"]]
+
     def assert_every_reset_clean(self):
+        """Every reset that starts one of our bootloaders sees a zero boot word, no halt came
+        without the watchdog frozen, and the stock firmware never took the SWD pins."""
         resets = self.events("reset")
         self.assertTrue(resets)
         for r in resets:
-            self.assertEqual(r[2:4], [0, 0], f"reset with the boot word set: {r}")
+            if r[4] in ("v1", "v2"):
+                self.assertEqual(r[2:4], [0, 0], f"reset with the boot word set: {r}")
         self.assertFalse(self.st()["halted_without_freeze"], "the core was halted without DBG_IWDG_STOP")
+        self.assertEqual(self.events("swd_lost") + self.events("attach_failed"), [])
 
     def test_reflash(self):
         boot, img = boot_v2(), finished_img()
@@ -942,17 +1105,83 @@ class FakeChip(unittest.TestCase):
         self.assertEqual(self.events("ob_write"), [])
         self.assertEqual(len(self.events("reset")), 2)          # pyOCD's after the load, then the final one
         self.assert_every_reset_clean()
+        self.assertEqual(self.events("resume"), [], "a session resumed the core the attach halted")
 
     def test_stock_module(self):
+        """One contact: the core the attach halted stays halted up to the option byte write, and
+        from that write's reset (the stock firmware runs again) only the OBL_LAUNCH session
+        comes before the option reload. No boot word clear before the flash is erased."""
         self.chip(optr=0x0000F855)                               # RDP on, no BOR
         rc, out = self.install(full_img(boot_v2(), finished_img()), YES=1)
         self.assertEqual(rc, 0, out)
         self.assertIn("read protection is ON", out)
+        self.assertNotIn("lift the probe", out)
         obs = self.events("ob_write")
         self.assertEqual(obs[0][1], "aaf95506ff0000ffffffffffffff0000")
         self.assertEqual(self.st()["optr"] & 0xFFFF, 0xF9AA)
         self.assertEqual([r[1] for r in self.events("reset")], ["load", "obl", "load", "commander"])
+        self.assertEqual([r[4] for r in self.events("reset")], ["stock", "empty", "v2", "v2"])
+        log = self.st()["log"]
+        self.assertEqual(self.kinds()[:6], ["attach", "ob_write", "reset", "reset", "commander", "attach"], log)
+        self.assertIn("write32 0x40022014 0x08000000", log[4])  # that session is the OBL_LAUNCH
         self.assert_every_reset_clean()
+
+    def test_stock_module_late_option_reload(self):
+        """The stock firmware wins the race after the option byte write: the user presses again
+        (the power-up loads the option bytes), and the install goes on."""
+        self.chip(optr=0x0000F855)
+        script = self.mutant(('    py commander -c "write32 0x40022008 0x45670123"',
+                              '    py commander -c "read32 0x20000BF8 8" > /dev/null 2>&1 || true   # one session more\n'
+                              '    py commander -c "write32 0x40022008 0x45670123"'))
+        rc, out = self.install(full_img(boot_v2(), finished_img()), script=script, YES=1)
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(self.events("swd_lost"))
+        self.assertTrue(self.events("attach_failed"))
+        self.assertEqual(self.st()["optr"] & 0xFFFF, 0xF9AA)
+        self.assertEqual(bytes.fromhex(self.st()["flash"]), full_img(boot_v2(), finished_img()))
+
+    def test_model_a_resumed_stock_core_takes_the_pins(self):
+        """The rule the stock tests rest on: a pyOCD session that leaves a stock core the attach
+        halted running loses SWD for the next one; -O resume_on_disconnect=false keeps it."""
+        env = self.env()
+        pyocd, openocd = os.path.join(self.bin, "pyocd"), os.path.join(self.bin, "openocd")
+        ob = os.path.join(TOOLS, "swd", "ob_bor25.bin")
+        for keep, ok in ((False, False), (True, True)):
+            self.chip(optr=0x0000F855)
+            subprocess.run([openocd, "-c", "halt 100", "-c", "mww 0x40015808 0x1000"], env=env, check=True,
+                           capture_output=True)
+            subprocess.run([pyocd, "commander", *(["-O", "resume_on_disconnect=false"] if keep else []),
+                            "-c", "write32 0x20000BF8 0"], env=env, check=True, capture_output=True)
+            p = subprocess.run([pyocd, "load", "--base-address", "0x1FFF0E80", ob], env=env, capture_output=True)
+            self.assertEqual(p.returncode == 0, ok, keep)
+            self.assertEqual(bool(self.events("swd_lost")), not ok)
+
+    def test_mutants_are_caught(self):
+        """The fake chip notices what the review found missing: a clear on the stock path, a
+        session that resumes the halted stock core, a load without the watchdog frozen."""
+        img = full_img(boot_v2(), finished_img())
+        # a boot word clear before the option byte write and the reload on a stock chip
+        self.chip(optr=0x0000F855)
+        rc, out = self.install(img, script=self.mutant(('    [ -z "$STOCK" ] || return 0', '')), YES=1)
+        self.assertTrue(self.events("swd_lost") or self.events("attach_failed"), out)
+        shutil.rmtree(os.path.join(self.tmp.name, "mutant"))
+        # the same, from a session that resumes the core
+        self.chip(optr=0x0000F855)
+        rc, out = self.install(img, script=self.mutant(('    [ -z "$STOCK" ] || return 0', ''),
+                                                       ("-O resume_on_disconnect=false ", "")), YES=1)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("option byte write failed", out)
+        shutil.rmtree(os.path.join(self.tmp.name, "mutant"))
+        # no watchdog freeze before the WRP option byte write (pyOCD halts to program)
+        self.chip()
+        rc, out = self.install(img, script=self.mutant(('-O resume_on_disconnect=false "${IWDG_FREEZE[@]}"',
+                                                        '-O resume_on_disconnect=false')), WRP=1)
+        self.assertTrue(self.st()["halted_without_freeze"], out)
+        shutil.rmtree(os.path.join(self.tmp.name, "mutant"))
+        # no freeze at the attach
+        self.chip()
+        rc, out = self.install(img, script=self.mutant(('-c "mww 0x40015808 0x1000" ', '')))
+        self.assertTrue(self.st()["halted_without_freeze"], out)
 
     def test_stock_module_asks_first(self):
         self.chip(optr=0x0000F855)
@@ -980,8 +1209,22 @@ class FakeChip(unittest.TestCase):
         rc, out = self.install(full, OLD_BOOT=1)
         self.assertEqual(rc, 0, out)
         self.assertIn("v1 or older", out)
+        self.assert_every_reset_clean()
         rc, out = self.install(full, OLD_BOOT="yes")
         self.assertIn("OLD_BOOT must be 1 or unset", out)
+
+    def test_app_rules_before_anything_is_done(self):
+        """The app in a full image follows the rules of every image (SP 0x20000BE0, an odd reset
+        vector, layout, build): install.sh is the last gate before a bootloader stays for good."""
+        self.chip()
+        for img, msg in ((finished_img(sp=0x20000C00), "not 0x20000BE0"),
+                         (finished_img(reset=0x08001100), "is even"),
+                         (finished_img(0x9D, CONFIRMS, 255), "1..255"),
+                         (finished_img(0x9D, CONFIRMS | 0x40, 300), "reserved")):
+            rc, out = self.install(full_img(boot_v2(), img))
+            self.assertNotEqual(rc, 0, msg)
+            self.assertIn(msg, out)
+            self.assertEqual(self.st()["log"], [], msg)
 
     def test_erase_settings(self):
         full = full_img(boot_v2(), finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=13 * KB))
@@ -1017,6 +1260,7 @@ class FakeChip(unittest.TestCase):
         self.assertIn("write protection is on (WRPR=0x0000fffe): cleared first", out)
         self.assertEqual(self.st()["wrpr"], 0xFFFF)
         self.assertNotIn(["load_refused_wrp"], self.st()["log"])
+        self.assert_every_reset_clean()
 
     def release_files(self, sums_prefix="", tamper=None, drop=None):
         boot, img = boot_v2(), finished_img()
@@ -1080,30 +1324,50 @@ class FakeChip(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertIn("is not its boot.bin + app image", out)
 
-    def test_make_flash(self):
-        full = full_img(boot_v2(), finished_img())
+    def make_flash(self, full, makefile=None, **env):
         build = os.path.join(self.tmp.name, "b")
-        os.makedirs(build)
+        os.makedirs(build, exist_ok=True)
         with open(os.path.join(build, "zdms16_py32_full.bin"), "wb") as f:
             f.write(full)
-        self.chip()
-        p = subprocess.run(["make", "-s", "-C", REPO, "flash", f"BUILD={build}", "-o", f"{build}/zdms16_py32_full.bin",
+        p = subprocess.run(["make", "-s", "-C", REPO, *(["-f", makefile] if makefile else []), "flash",
+                            f"BUILD={build}", "-o", f"{build}/zdms16_py32_full.bin",
                             f"PYOCD={os.path.join(self.bin, 'pyocd')}", f"PACK={self.pack}"],
-                           env=self.env(), capture_output=True, text=True)
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                           env=self.env(**env), capture_output=True, text=True)
+        return p.returncode, p.stdout + p.stderr
+
+    def test_make_flash(self):
+        full = full_img(boot_v2(), finished_img())
+        self.chip()
+        rc, out = self.make_flash(full)
+        self.assertEqual(rc, 0, out)
         self.assertEqual(bytes.fromhex(self.st()["flash"]), full)
         self.assertEqual([r[1] for r in self.events("reset")], ["load", "commander"])
         self.assert_every_reset_clean()
+        self.assertNotIn("warning", out)
         # an image over 12 KB would erase the settings sector
-        with open(os.path.join(build, "zdms16_py32_full.bin"), "wb") as f:
-            f.write(full_img(boot_v2(), finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=13 * KB)))
         self.chip()
-        p = subprocess.run(["make", "-s", "-C", REPO, "flash", f"BUILD={build}", "-o", f"{build}/zdms16_py32_full.bin",
-                            f"PYOCD={os.path.join(self.bin, 'pyocd')}", f"PACK={self.pack}"],
-                           env=self.env(), capture_output=True, text=True)
-        self.assertNotEqual(p.returncode, 0)
-        self.assertIn("ERASE_SETTINGS=1", p.stderr)
+        rc, out = self.make_flash(full_img(boot_v2(), finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=13 * KB)))
+        self.assertNotEqual(rc, 0)
+        self.assertIn("ERASE_SETTINGS=1", out)
         self.assertEqual(self.st()["log"], [])
+
+    def test_make_flash_warns_when_the_first_step_fails(self):
+        self.chip()
+        rc, out = self.make_flash(full_img(boot_v2(), finished_img()), FAKE_COMMANDERS_FAIL=1)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("warning: the watchdog freeze and the boot word clear before the load failed", out)
+
+    def test_make_flash_mutant_without_the_freeze_is_caught(self):
+        with open(os.path.join(REPO, "Makefile")) as f:
+            text = f.read()
+        old = "-O resume_on_disconnect=false $(IWDG_FREEZE) $(BOOT_WORD_ZERO)"
+        self.assertIn(old, text)
+        mutant = os.path.join(self.tmp.name, "Makefile.mutant")
+        with open(mutant, "w") as f:
+            f.write(text.replace(old, "-O resume_on_disconnect=false $(BOOT_WORD_ZERO)"))
+        self.chip()
+        rc, out = self.make_flash(full_img(boot_v2(), finished_img()), makefile=mutant)
+        self.assertTrue(self.st()["halted_without_freeze"], out)
 
 
 # --- Makefile -------------------------------------------------------------------------------
@@ -1124,18 +1388,62 @@ class Makefile(unittest.TestCase):
 
     def test_fw_test_plumbing(self):
         # -B: as if nothing were built yet; -o: the linked binary as it is (no SDK needed)
-        rc, out = self.make("-B", "FW_TEST=5", "build-test5/zdms16_py32.img", "-o", "build-test5/zdms16_py32.bin")
+        rc, out = self.make("-B", "FW_TEST=5", "build-t5/zdms16_py32.img", "-o", "build-t5/zdms16_py32.bin")
         self.assertEqual(rc, 0, out)
-        self.assertIn("tools/mkimage.py build-test5/zdms16_py32.bin build-test5/zdms16_py32.img --test 5", out)
-        rc, out = self.make("-B", "FW_TEST=5", "build-test5/main.o")
+        self.assertIn("tools/mkimage.py build-t5/zdms16_py32.bin build-t5/zdms16_py32.img --test 5", out)
+        rc, out = self.make("-B", "FW_TEST=5", "build-t5/main.o")
         self.assertEqual(rc, 0, out)
         self.assertIn("-DFW_TEST=5", out)
+        self.assertNotIn("-DFW_PREV", out)
         rc, out = self.make("-B", "build/main.o")
         self.assertIn("src/main.c", out)
-        self.assertNotIn("-DFW_TEST", out)
+        self.assertNotRegex(out, r"-DFW_TEST|-DFW_PREV|-DLINK_WDG_TEST|-DFW_BUILD")
         rc, out = self.make("-B", "build/zdms16_py32.img", "-o", "build/zdms16_py32.bin")
         self.assertIn("tools/mkimage.py build/zdms16_py32.bin build/zdms16_py32.img", out)
         self.assertNotIn("--test", out)
+
+    def test_previous_release_test_build(self):
+        """Bench test B3: make FW_PREV=1 FW_TEST=99 builds 299 below release 300 (src/tuya.h
+        computes it); mkimage --test 99 holds it to a release build + 99."""
+        rc, out = self.make("-B", "FW_PREV=1", "FW_TEST=99", "build-prev-t99/zdms16_py32.img",
+                            "-o", "build-prev-t99/zdms16_py32.bin")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("tools/mkimage.py build-prev-t99/zdms16_py32.bin build-prev-t99/zdms16_py32.img --test 99", out)
+        rc, out = self.make("-B", "FW_PREV=1", "FW_TEST=99", "build-prev-t99/main.o")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("-DFW_TEST=99 -DFW_PREV=1", out)
+        for args, msg in ((("FW_PREV=1",), "would be the previous release: make FW_PREV=1 FW_TEST=n"),
+                          (("FW_PREV=0", "FW_TEST=5"), "make FW_PREV=1 FW_TEST=n (1..99) or leave FW_PREV unset"),
+                          (("FW_PREV=2", "FW_TEST=5"), "make FW_PREV=1 FW_TEST=n (1..99) or leave FW_PREV unset"),
+                          (("FW_BUILD=200", "FW_TEST=99"), "FW_BUILD is the release build in src/tuya.h"),
+                          (("FW_BUILD=300",), "FW_BUILD is the release build in src/tuya.h")):
+            rc, out = self.make(*args, "build/x.o")
+            self.assertNotEqual(rc, 0, args)
+            self.assertIn(msg, out)
+
+    def test_link_watchdog_bench_build_only_below_the_release(self):
+        """Bench test B11's switch builds only below the release (FW_PREV=1 FW_TEST=n), so its
+        image never has a release's header: mkimage --test applies to it, and a unit on the
+        release never takes it."""
+        for args, msg in ((("LINK_WDG_TEST=1",), "LINK_WDG_TEST builds lie below the release"),
+                          (("LINK_WDG_TEST=1", "FW_TEST=5"), "LINK_WDG_TEST builds lie below the release"),
+                          (("LINK_WDG_TEST=1", "FW_PREV=1", "FW_TEST=5", "MEASURE=1"), "a normal build's bench switch"),
+                          (("LINK_WDG_TEST=1", "FW_PREV=1", "FW_TEST=5", "DIAG=1"), "a normal build's bench switch"),
+                          (("LINK_WDG_TEST=1", "FW_PREV=1", "FW_TEST=5", "SIM=1"), "a normal build's bench switch"),
+                          (("LINK_WDG_TEST=yes",), "LINK_WDG_TEST=1 (bench test B11) or 0")):
+            rc, out = self.make(*args, "build/x.o")
+            self.assertNotEqual(rc, 0, args)
+            self.assertIn(msg, out)
+        rc, out = self.make("-B", "LINK_WDG_TEST=1", "FW_PREV=1", "FW_TEST=99",
+                            "build-prev-t99-linktest/zdms16_py32.img", "-o", "build-prev-t99-linktest/zdms16_py32.bin")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("--test 99", out)
+        rc, out = self.make("-B", "LINK_WDG_TEST=1", "FW_PREV=1", "FW_TEST=99", "build-prev-t99-linktest/main.o")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("-DLINK_WDG_TEST=1", out)
+        rc, out = self.make("-B", "LINK_WDG_TEST=0", "build/main.o")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("-DLINK_WDG_TEST", out)
 
     def test_test_boot_is_part_of_make_test(self):
         """make test-boot (the bootloader harness, docs/BOOTLOADER.md section 11) runs in make test,
