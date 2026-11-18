@@ -8,9 +8,17 @@ After that, every update goes over Zigbee.
 > whole procedure. Never connect a probe, a computer or an earthed oscilloscope to a module that
 > is connected to the mains.
 
+> **Blank until DONE.** Once the read protection is removed, the PY32 is blank or incomplete
+> until the install has finished: nothing drives the dimmer outputs. Do NOT connect such a module
+> to the mains. If anything fails or stops half way, rerun the install (`tools/swd/install.sh`, or
+> the steps by hand) until it has written and checked the firmware.
+
 > **No way back.** The stock PY32 firmware is read-protected (RDP level 1). Removing the
-> protection erases it, and it cannot be read out beforehand. After this the module needs this
-> firmware (or another one written for it).
+> protection erases it, and it cannot be read out beforehand. It also erases the settings the MCU
+> keeps (min/max, switch type, power-on): write them down first (below). After this the module
+> needs this firmware (or another one written for it). This firmware in turn works only with the
+> fork's Zigbee firmware (section 0): it does not answer the product query (0x01) that the stock
+> Zigbee firmware needs.
 
 ## What you need
 
@@ -107,6 +115,25 @@ over the air from the stock firmware, no opening needed:
    stock MCU: `mcu_version` shows the stock version (for example 1.0.7). Only then open the
    module for the MCU part below.
 
+## Before you open it: write the settings down
+
+Removing the read protection also erases the settings the stock MCU keeps. The MCU then starts
+with this firmware's defaults: min 20 % (MCU 200, `min_level` 51), max 100 % (1000, 254),
+switch type toggle, power-on off, dimming curve led_soft. These can drive an existing setup
+wrongly: with toggle a push button lights the lamp only while it is held, and the brightness of
+every level changes.
+
+Before the erase, write down for each channel, from Zigbee2MQTT (or Home Assistant):
+
+- `min_level` and `max_level` (on the 1..254 scale; values set from Zigbee2MQTT come back
+  exactly when written again),
+- `switch_type`,
+- `power_on_behavior` (the stock MCU has one setting for both channels).
+
+The exact MCU values are the raw DPs: 3 min, 5 max, 4 switch type for channel 1; 9, 11, 10 for
+channel 2; 14 power-on. One place to read them is the fork's log of the MCU link (Basic
+attributes 0xff41..0xff45: the last 30 DP events with their values).
+
 ## 1. Quick install: one contact
 
 | Pico (debugprobe) | Module CN2 |
@@ -130,27 +157,56 @@ When it beeps and says so, press the clip onto CN2 and hold it until **DONE** (a
 2. asks once, then writes the option bytes in one go: read protection off (this **erases
    the stock firmware**) and brown-out reset at 2.5 V,
 3. reloads the option bytes without a power cycle (FLASH_CR OBL_LAUNCH). If the chip does not
-   come back, it beeps and asks you to lift the clip and press it again,
+   come back, lift the clip and press it on again (the script waits 60 s for it),
 4. writes bootloader + app, reads it back and compares, and starts the firmware.
 
 On a module that already runs this firmware it skips steps 2–3 and just re-flashes. A SIM
-(bench) build is refused. Other probes: `PROBE=stlink` or `PROBE=jlink`; if the SWD link is
-unreliable, `FREQ=1000000`.
+(bench) build is refused. Other probes: `PROBE=stlink` or `PROBE=jlink`. `FREQ` is pyOCD's SWD
+clock: the script's default of 4 MHz has never been tested, every tested step ran at 400 kHz,
+so give `FREQ=400000` as above.
 
 > The one-contact path with the option reload has not been run on a stock module yet (the
 > first module here was unlocked with the separate steps below). If anything is off, the
-> script stops with a message; the steps by hand below always work.
+> script stops with a message; the steps by hand below always work. Known gaps until the
+> script is fixed: after the option reload its "lift the probe" prompt and beep appear only
+> once the chip is back, so lift and press again yourself when nothing happens for ~5 s; and
+> when the chip comes back only after that second press, the read-protection / BOR check is
+> skipped. Run `install.sh` once more in that case: it must say "already unlocked with BOR".
+> If it stopped before **DONE**, the PY32 may be blank: do NOT connect the module to the
+> mains, run the install again.
 
 ## 2. Back in service
 
+Only after the install said **DONE** (or every step by hand succeeded, with the firmware
+written last): a blank or half-installed PY32 must never go on the mains. Rerun the install
+instead.
+
+Keep the wall switch and any automations away from the module until step 4 is done (disable
+automations that drive it).
+
 1. Power-cycle, disconnect the probe, close the module, connect it to the mains.
-2. In Zigbee2MQTT, `mcu_version` now shows `2.x.y own`. Restart Zigbee2MQTT once so that it
-   shows the settings that only this firmware has (device option `own_mcu_settings`, default
-   auto).
-3. Set the lamp up: `min_level` just above the level where the lamp still lights from dark,
-   then `dimming_curve` (led_soft is the default and suits most LED lamps; led, led_deep or
-   led_deeper if the dim end passes too quickly), and the switch type of the wall switch
-   (momentary for push buttons).
+2. In Zigbee2MQTT, press **Reconfigure** on the device: it reads `mcu_version` and the settings
+   again. Check that `mcu_version` shows `2.x.y own` (Reconfigure again if not).
+3. Then restart Zigbee2MQTT once. Only then does it show the settings that only this firmware
+   has (device option `own_mcu_settings`, default auto), and Home Assistant gets entities for
+   them: per channel the dimming curve, the power-on behaviour, fade and hold, and the wall
+   switch gestures as `action`. The shared `power_on_behavior` is replaced by the per-channel
+   `power_on_behavior` entities: update automations that use it.
+4. Restore the settings you wrote down, per channel:
+   - `dimming_curve` to `linear` first: it gives every level the same conduction as the stock
+     firmware, so the old min/max, `on_level` and the brightness values in automations keep
+     their meaning. Every other curve (led_soft is the default) changes how bright each level
+     is: switch later on purpose and retune min/max, `on_level` and automations then;
+   - `min_level` and `max_level`. min = max is accepted: every level then gives that one
+     conduction (`min_level` = `max_level` = 254: full conduction, no phase cut);
+   - `switch_type` (momentary for push buttons);
+   - `power_on_behavior` (the old shared value on both channels).
+
+   Check that Zigbee2MQTT shows the values back.
+5. A new lamp, with nothing to restore: `min_level` just above the level where the lamp still
+   lights from dark, then `dimming_curve` (led_soft is the default and suits most LED lamps;
+   led, led_deep or led_deeper if the dim end passes too quickly), and the switch type of the
+   wall switch (momentary for push buttons).
 
 ## By hand (the same steps one by one)
 
@@ -176,11 +232,14 @@ The script keeps trying to attach for 90 s. **Power-cycle the module's VCC while
 stock firmware takes the SWD pins over shortly after power-up, so the attach has to happen in
 that window. Once the core is halted, the script writes option bytes with RDP = 0xAA
 (`tools/swd/ob_rdp0.bin`: `aa f0 55 0f ff 00 00 ff ...`). The chip then erases its flash.
-Power-cycle the module again afterwards.
+Power-cycle the module again afterwards. From here until the firmware is flashed (last step),
+the PY32 is blank: do NOT connect the module to the mains. If a step fails, repeat it.
 
 If the attach never succeeds, check the wiring first ("No ACK" means no contact). As an
 alternative, tie BOOT0 (PY32 pin 5) to 3.3 V before power-up: the ROM bootloader then runs
-instead of the stock firmware (see `tools/swd/dump_py32.sh`).
+instead of the stock firmware (see `tools/swd/dump_py32.sh`). That takes a thin wire soldered to
+pin 5 of the TSSOP20. Remove it before the module is closed: while BOOT0 is high, the MCU starts
+its ROM bootloader at every power-up instead of the firmware.
 
 ### Brown-out reset (recommended)
 
