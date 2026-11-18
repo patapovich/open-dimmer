@@ -25,7 +25,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Dimming, input and gesture logic, settings store, flash driver, protocol, UART, health, image tools (PC build)
+      # make test includes make test-boot, the bootloader harness (docs/BOOTLOADER.md section 11):
+      # plain cc, no ARM toolchain and no zlib; Linux >= 4.17 for MAP_FIXED_NOREPLACE (24.04 has it).
+      - name: Bootloader harness, dimming, input and gesture logic, settings store, flash driver, protocol, UART, health, image tools (PC build)
         run: make test
 
   build:
@@ -69,26 +71,42 @@ jobs:
           # Below this many free bytes a build gets a warning: room for the next fix is short.
           HEADROOM_WARN_BYTES: 512
         run: |
+          # The app's room: 12 KB, or 14 KB with RING_HIGH (settings ring at 0x08004800)
+          room() { python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); print(14336 if d[0xCD] & 0x10 else 12288)" "$1"; }
           {
-            echo "| build | app bytes | free of 12288 |"
+            echo "| build | app bytes | free of |"
             echo "|---|---|---|"
             for d in build build-diag build-measure build-sim; do
               n=$(stat -c %s "$d/zdms16_py32.img")
-              echo "| $d | $n | $((12288 - n)) |"
+              r=$(room "$d/zdms16_py32.img")
+              echo "| $d | $n | $((r - n)) of $r |"
             done
             echo
             echo "bootloader: $(stat -c %s build-boot/boot.bin) of 4096 bytes"
+            python3 tools/fwimage.py notes build-boot/boot.bin build/zdms16_py32_full.bin
           } | tee -a "$GITHUB_STEP_SUMMARY"
           for d in build build-diag build-measure build-sim; do
-            free=$((12288 - $(stat -c %s "$d/zdms16_py32.img")))
+            r=$(room "$d/zdms16_py32.img")
+            free=$((r - $(stat -c %s "$d/zdms16_py32.img")))
             if [ "$free" -lt "$HEADROOM_WARN_BYTES" ]; then
-              echo "::warning title=Flash headroom::$d has only $free of 12288 bytes free (warning below $HEADROOM_WARN_BYTES)"
+              echo "::warning title=Flash headroom::$d has only $free of $r bytes free (warning below $HEADROOM_WARN_BYTES)"
             fi
           done
           free=$((4096 - $(stat -c %s build-boot/boot.bin)))
           if [ "$free" -lt "$HEADROOM_WARN_BYTES" ]; then
             echo "::warning title=Flash headroom::the bootloader has only $free of 4096 bytes free (warning below $HEADROOM_WARN_BYTES)"
           fi
+
+      - name: Bootloader and app ELF checks (boot_id, flash write guard, RAM, ring layout)
+        run: |
+          set -e
+          # k_boot_id at 0x08000010 (16 bytes); _flash_write_start/_end = 0x08001000/0x08004800;
+          # boot.bin <= 4096 (warning above 3584); _ebss + 512 bytes of stack <= 0x20000BE0
+          python3 tools/check_elf.py boot build-boot/boot.elf build-boot/boot.bin
+          # RING_HIGH exactly when _settings_start is 0x08004800, in every build
+          for d in build build-diag build-measure build-sim; do
+            python3 tools/check_elf.py app "$d/zdms16_py32.elf" "$d/zdms16_py32.img"
+          done
 
       - name: The app's own memset/memcpy/memmove/memcmp (src/libc_min.c) call nothing
         run: |
@@ -166,6 +184,7 @@ jobs:
           sparse-checkout: |
             CHANGELOG.md
             tools/changelog.py
+            tools/fwimage.py
           sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@v4
@@ -188,6 +207,15 @@ jobs:
           # GitHub's list of commits.
           python3 ../tools/changelog.py "$GITHUB_REF_NAME" ../CHANGELOG.md > ../notes.md || {
             echo "::error::CHANGELOG.md has no section for $GITHUB_REF_NAME"; exit 1; }
+          # A release carries a release build (a multiple of 100 from 300 on; tools/release/release.sh
+          # checks it against the previous release before tagging).
+          build=$(python3 -c "import struct; print(struct.unpack_from('<H', open('zdms16_py32.img','rb').read(), 0xCE)[0])")
+          [ "$build" -ge 300 ] && [ "$build" -le 65533 ] && [ $((build % 100)) = 0 ] || {
+            echo "::error::the image's build $build is not a release build"; exit 1; }
+          # The bootloader every module installed from this release keeps for good: its size and
+          # the boot sector CRC (DP 136), also checked against the full image.
+          { echo; echo "Build $build."; python3 ../tools/fwimage.py notes boot.bin zdms16_py32_full.bin; } >> ../notes.md || {
+            echo "::error::the bootloader line of the release notes"; exit 1; }
           gh release create "$GITHUB_REF_NAME" --verify-tag --notes-file ../notes.md --generate-notes \
               --title "$GITHUB_REF_NAME" *
 

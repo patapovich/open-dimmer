@@ -19,7 +19,21 @@ MEASURE  ?= 0
 # SWD: make flash-all. Their image header flags (MEASURE 0x02, DIAG 0x04) make
 # tools/embed_ztu.py refuse them, so no Zigbee firmware ever carries one.
 DIAG     ?= 0
-BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)
+# make FW_TEST=n (1..99): a spare test build with the build number FW_BUILD + n (FW_BUILD in
+# src/tuya.h is the release build; docs/BOOTLOADER.md section 2). It stays below the next release
+# (FW_BUILD + 100), so a unit that ran it always takes that release. The version byte stays: test
+# builds bump only the build. Its own BUILD directory (build-test<n>, as a VERSION_BYTE build
+# needs one), and tools/mkimage.py checks that the image's build is the release build + n.
+FW_TEST  ?=
+ifneq ($(FW_TEST),)
+  ifeq ($(filter $(FW_TEST),$(shell seq 1 99)),)
+    $(error FW_TEST=$(FW_TEST): a test build takes 1..99 (FW_BUILD + n stays below the next release))
+  endif
+  ifeq ($(SIM),1)
+    $(error FW_TEST=$(FW_TEST) with SIM=1: a SIM build has the fixed build 0xFFFE)
+  endif
+endif
+BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)$(if $(FW_TEST),-test$(FW_TEST))
 
 CC       := arm-none-eabi-gcc
 OBJCOPY  := arm-none-eabi-objcopy
@@ -35,7 +49,8 @@ LDSCRIPT := py32f002a_app.ld
 
 INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Include \
             -I$(SDK)/PY32F0xx_LL_Driver/Inc
-DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) -DMEASURE=$(MEASURE) -DDIAG_REPORT=$(DIAG) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE),$(if $(filter 1,$(MEASURE)),-DFW_VERSION=0x8F,$(if $(filter 1,$(DIAG)),-DFW_VERSION=0x8E)))
+DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) -DMEASURE=$(MEASURE) -DDIAG_REPORT=$(DIAG) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE),$(if $(filter 1,$(MEASURE)),-DFW_VERSION=0x8F,$(if $(filter 1,$(DIAG)),-DFW_VERSION=0x8E))) \
+            $(if $(FW_TEST),-DFW_TEST=$(FW_TEST))
 ARCH     := -mcpu=cortex-m0plus -mthumb
 CFLAGS   := $(ARCH) $(DEFS) $(INCLUDES) -Os -g -Wall -Wextra -Wno-unused-parameter \
             -ffunction-sections -fdata-sections -std=c11 -MMD -MP
@@ -82,29 +97,47 @@ $(BUILD)/$(PROJECT).elf: $(OBJS)
 $(BUILD)/$(PROJECT).bin: $(BUILD)/$(PROJECT).elf
 	$(OBJCOPY) -O binary $< $@
 
-$(BUILD)/$(PROJECT).img: $(BUILD)/$(PROJECT).bin tools/mkimage.py
-	python3 tools/mkimage.py $< $@
+$(BUILD)/$(PROJECT).img: $(BUILD)/$(PROJECT).bin tools/mkimage.py tools/fwimage.py
+	python3 tools/mkimage.py $< $@ $(if $(FW_TEST),--test $(FW_TEST))
 
+# The bootloader's flash bytes (text + data) from the ELF: a warning above 3584 (512 bytes left
+# of its 4 KB sector; CI warns the same, tools/check_elf.py).
+BOOT_WARN_ABOVE := 3584
 $(BOOT_BUILD)/boot.elf: $(BOOT_OBJS)
 	$(CC) $(BOOT_LDFLAGS) $^ -o $@
 	$(SIZE) $@
+	@n=$$($(SIZE) -B $@ | awk 'NR == 2 { print $$1 + $$2 }'); \
+	 echo "bootloader: $$n of 4096 bytes"; \
+	 if [ "$$n" -gt 4096 ]; then echo "error: the bootloader does not fit its 4 KB sector" >&2; exit 1; fi; \
+	 if [ "$$n" -gt $(BOOT_WARN_ABOVE) ]; then \
+	     echo "warning: the bootloader has only $$((4096 - n)) bytes of its sector free (warning above $(BOOT_WARN_ABOVE))" >&2; fi
 
 $(BOOT_BUILD)/boot.bin: $(BOOT_BUILD)/boot.elf
 	$(OBJCOPY) -O binary $< $@
 
-$(BUILD)/$(PROJECT)_full.bin: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin
+$(BUILD)/$(PROJECT)_full.bin: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin tools/mkimage.py tools/fwimage.py
 	python3 tools/mkimage.py $< --full $(BOOT_BUILD)/boot.bin $@
 
 # The module must be powered from the probe, never from mains, while wired.
 # Always the whole image (bootloader + app), so the two always match. pyocd
 # erases whole 4 KB sectors: the bootloader has the first one to itself (with
 # the old 2 KB layout an app-only load wiped it, 2026-11-17). The image ends
-# below the settings sector (0x08004000), which is not touched.
+# below the settings sector (0x08004000), which is not touched; an image over 12 KB
+# would erase it, so this refuses one (tools/swd/install.sh takes it with ERASE_SETTINGS=1).
+# A debugger reset is a software reset and keeps the RAM, so the boot word pair of the
+# mailbox (0x20000BF8, 0x20000BFC) is written 0 before every reset (pyocd load resets
+# after writing; then the final reset): the flashed build starts with fresh tries
+# (docs/BOOTLOADER.md section 3). The watchdog is frozen while the core is halted
+# (DBGMCU APBFZ1 DBG_IWDG_STOP): the v2 bootloader starts it at every boot.
+PYOCD_T        = -t py32f002ax5 --pack $(PACK) -f 400000
+BOOT_WORD_ZERO := -c "write32 0x20000BF8 0" -c "write32 0x20000BFC 0"
+IWDG_FREEZE    := -c "write32 0x40015808 0x1000"
 flash flash-all: $(BUILD)/$(PROJECT)_full.bin
-	@# freeze the app's watchdog while the core is halted (DBGMCU APBFZ1 DBG_IWDG_STOP)
-	-$(PYOCD) commander -t py32f002ax5 --pack $(PACK) -f 400000 -O connect_mode=attach -c "write32 0x40015808 0x1000" >/dev/null 2>&1
-	$(PYOCD) load -t py32f002ax5 --pack $(PACK) -f 400000 --format bin --base-address 0x08000000 $<
-	$(PYOCD) reset -t py32f002ax5 --pack $(PACK) -f 400000
+	@[ "$$(stat -c %s $<)" -le 16384 ] || { \
+	    echo "$< reaches the settings sector (0x08004000), which pyocd would erase: tools/swd/install.sh ERASE_SETTINGS=1" >&2; exit 1; }
+	-$(PYOCD) commander $(PYOCD_T) -O connect_mode=attach $(IWDG_FREEZE) $(BOOT_WORD_ZERO) >/dev/null 2>&1
+	$(PYOCD) load $(PYOCD_T) --format bin --base-address 0x08000000 $<
+	$(PYOCD) commander $(PYOCD_T) -O connect_mode=attach $(IWDG_FREEZE) -c halt $(BOOT_WORD_ZERO) -c reset
 
 clean:
 	rm -rf build build-sim build-boot

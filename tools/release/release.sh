@@ -12,14 +12,20 @@
 # as green when its tests, builds and release succeeded: the optional hand-over job may fail
 # (expired token), then this script starts py32-bump itself.
 # Deploying to modules is a separate, local step: tools/ha/deploy_ota.sh <ieee | friendly_name:ieee>...
-# Usage: tools/release/release.sh            (bump FW_VERSION in src/tuya.h and add the version's
-#                                             section to CHANGELOG.md first)
+# Release rules (docs/BOOTLOADER.md section 11, checked before anything is pushed or tagged:
+# tools/release/release_check.py): FW_BUILD in src/tuya.h is the previous release tag's + 100
+# (the first one 300), the version byte is above every other release tag's, and the first release
+# over 12 KB needs an earlier ring-mover release (RING_HIGH, at most 12 KB). The bootloader's size
+# and boot sector CRC (the DP 136 value after an SWD install) are printed here and go into the
+# release notes (CI release job).
+# Usage: tools/release/release.sh            (bump FW_VERSION and FW_BUILD in src/tuya.h and add
+#                                             the version's section to CHANGELOG.md first)
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")/../.."
 PY32=patapovich/zdms16-py32
 ZTU=patapovich/tuya-zigbee-switch
 # Everything that ends up in the released files: a change here needs a new version.
-FW_PATHS=(src boot Makefile py32f002a_app.ld tools/mkimage.py tools/embed_ztu.py)
+FW_PATHS=(src boot Makefile py32f002a_app.ld tools/mkimage.py tools/embed_ztu.py tools/fwimage.py)
 
 die() { echo "$*" >&2; exit 1; }
 
@@ -35,19 +41,28 @@ trap 'rm -rf "$TMP"' EXIT
 
 # --- tests and all four builds, in fresh build dirs (objects of an earlier VERSION_BYTE
 #     build cannot mix in) ---------------------------------------------------------------------
+# A release build is never a test build or another version byte, whatever the environment says.
+unset FW_TEST VERSION_BYTE
 make test > /dev/null
 for v in "" DIAG=1 MEASURE=1 SIM=1; do
     make ${v:+"$v"} BUILD="$TMP/build${v:+-${v%=1}}" > /dev/null || die "make $v failed"
 done
 vf=$(python3 -c "import sys; d=open(sys.argv[1],'rb').read(); print(d[0xCC], d[0xCD])" "$TMP/build/zdms16_py32.img")
 read -r VB FLAGS <<< "$vf"
-[ "$FLAGS" = 0 ] || die "the normal build has image flags $FLAGS (SIM/MEASURE)"
+[ $(( FLAGS & 0x07 )) = 0 ] || die "the normal build has bench image flags $FLAGS (SIM/MEASURE/DIAG)"
 case $VB in
     191) die "version byte 0xBF (2.3.15) is reserved for the SIM bench build: pick another FW_VERSION" ;;
     255) die "version byte 0xFF: no update could ever follow it: pick another FW_VERSION" ;;
 esac
 TAG=$(printf 'v%d.%d.%d' $((VB >> 6)) $(((VB >> 4) & 3)) $((VB & 15)))
 python3 tools/changelog.py "$TAG" > /dev/null || die "CHANGELOG.md: add a short section '## ${TAG#v} (date)' for this release first"
+# Build number, version byte against the earlier release tags, the ring-mover gate.
+python3 tools/release/release_check.py --image "$TMP/build/zdms16_py32.img" --tag "$TAG" --gh-repo "$PY32" ||
+    die "release rules: see above"
+# The bootloader every module installed with this release keeps for good: record its boot sector CRC.
+python3 tools/fwimage.py notes build-boot/boot.bin "$TMP/build/zdms16_py32_full.bin" > "$TMP/bootline" ||
+    die "the bootloader of the release build: see above"
+sed 's/^/  /' "$TMP/bootline"
 limit=$(( VB < 0xBF ? 0xBF : 0xFF ))
 left=$(( limit - VB - 1 ))
 [ "$left" -ge 16 ] || printf 'warning: %s (0x%02X) leaves %d version codes before 0x%02X\n' "$TAG" "$VB" "$left" "$limit" >&2

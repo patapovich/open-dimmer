@@ -121,11 +121,16 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
   MEASURE and SIM builds with the pinned SDK; curve tables vs generator; ZTU embedding refuses
   bench, measurement and diagnostics builds; size report; artifacts.
 - **Release:** bump `FW_VERSION` in `src/tuya.h` (never 0xBF, reserved for SIM, or 0xFF; a
-  warning comes when fewer than 16 codes are left), add the version's short section to
+  warning comes when fewer than 16 codes are left) and `FW_BUILD` next to it (the previous
+  release tag's + 100, the first one 300; spare test builds are `make FW_TEST=1..99`, the version
+  byte stays; docs/BOOTLOADER.md section 2), add the version's short section to
   `CHANGELOG.md` (the release notes; `release.sh` and the release job refuse a version without
   one), commit on `main`,
   `tools/release/release.sh`: checks (main, clean, contains origin/main, tests, all four
-  builds), tags `vX.Y.Z` (must match the image); the tag's CI run publishes the release only
+  builds; `tools/release/release_check.py`: the build number, the version byte above every other
+  release tag, the ring-mover gate for the first release over 12 KB; it prints the bootloader's
+  boot sector CRC, which the release notes also carry), tags `vX.Y.Z` (must match the image);
+  the tag's CI run publishes the release only
   after the tests and builds passed (image, full image, bootloader, `secondary_mcu_image.c`,
   `SHA256SUMS`: plain file names, `sha256sum -c --ignore-missing SHA256SUMS` checks a
   download). Running `release.sh` again resumes (re-runs a failed tag run; a release counts
