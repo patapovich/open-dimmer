@@ -8,7 +8,7 @@ branch `home-dimmer`).
 
 | What | Version / place |
 |---|---|
-| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-194952ee (0x1103304c, phase 1 fixes, 2026-11-18), MCU **Open Dimmer 2.1.11** (updated by the ZTU over the UART) |
+| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-ed1016b5 (0x1103304d, carries PY32 v2.1.12), MCU **Open Dimmer 2.1.12** since 2026-11-18 (phase 2: updated by the ZTU over the UART, settings kept, health clean) |
 | Other modules | none runs Open Dimmer yet: see "Before further modules" |
 | PY32 source | this repo (github.com/patapovich/zdms16-py32) |
 | ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (carries PY32 v2.1.11); `home-dimmer_build` has the generated converter and the OTA images |
