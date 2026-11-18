@@ -12,7 +12,8 @@
 # as green when its tests, builds and release succeeded: the optional hand-over job may fail
 # (expired token), then this script starts py32-bump itself.
 # Deploying to modules is a separate, local step: tools/ha/deploy_ota.sh <ieee | friendly_name:ieee>...
-# Usage: tools/release/release.sh            (bump FW_VERSION in src/tuya.h first)
+# Usage: tools/release/release.sh            (bump FW_VERSION in src/tuya.h and add the version's
+#                                             section to CHANGELOG.md first)
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")/../.."
 PY32=patapovich/zdms16-py32
@@ -46,6 +47,7 @@ case $VB in
     255) die "version byte 0xFF: no update could ever follow it: pick another FW_VERSION" ;;
 esac
 TAG=$(printf 'v%d.%d.%d' $((VB >> 6)) $(((VB >> 4) & 3)) $((VB & 15)))
+python3 tools/changelog.py "$TAG" > /dev/null || die "CHANGELOG.md: add a short section '## ${TAG#v} (date)' for this release first"
 limit=$(( VB < 0xBF ? 0xBF : 0xFF ))
 left=$(( limit - VB - 1 ))
 [ "$left" -ge 16 ] || printf 'warning: %s (0x%02X) leaves %d version codes before 0x%02X\n' "$TAG" "$VB" "$left" "$limit" >&2

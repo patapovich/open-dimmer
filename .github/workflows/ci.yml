@@ -161,6 +161,13 @@ jobs:
       group: py32-release
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            CHANGELOG.md
+            tools/changelog.py
+          sparse-checkout-cone-mode: false
+
       - uses: actions/download-artifact@v4
         with:
           name: zdms16-py32-release-files-${{ github.sha }}
@@ -177,7 +184,12 @@ jobs:
           # The tag must name the version the image carries (FW_VERSION in src/tuya.h).
           ver=$(python3 -c "d=open('zdms16_py32.img','rb').read(); v=d[0xCC]; print(f'v{v>>6}.{(v>>4)&3}.{v&15}')")
           [ "$ver" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME but the image is $ver"; exit 1; }
-          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME" *
+          # Release notes: the short summary of this version from CHANGELOG.md (required), then
+          # GitHub's list of commits.
+          python3 ../tools/changelog.py "$GITHUB_REF_NAME" ../CHANGELOG.md > ../notes.md || {
+            echo "::error::CHANGELOG.md has no section for $GITHUB_REF_NAME"; exit 1; }
+          gh release create "$GITHUB_REF_NAME" --verify-tag --notes-file ../notes.md --generate-notes \
+              --title "$GITHUB_REF_NAME" *
 
   # Optional: a failure here (expired token) shows on the job but does not fail the run, and
   # release.sh (which knows this job by its name starting with "Hand over") then starts

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Host tests of the image tools: tools/mkimage.py (version byte rules),
 tools/embed_ztu.py (what the Zigbee module may carry) and tools/gen_curves.py
-(curve tables). Synthetic images, no toolchain needed. Run: python3 tests/test_tools.py"""
-import contextlib, importlib.util, io, os, struct, subprocess, sys, tempfile, unittest, zlib
+(curve tables), tools/changelog.py (release notes). Synthetic images, no toolchain needed. Run: python3 tests/test_tools.py"""
+import contextlib, importlib.util, io, os, re, struct, subprocess, sys, tempfile, unittest, zlib
 
 TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
 MAGIC, HDR = 0x5A445041, 0xC0
@@ -154,6 +154,31 @@ class Curves(unittest.TestCase):
             gen.main()
         self.assertIn("curve dip falls at point", str(e.exception.code))
         self.assertEqual(out.getvalue(), "")       # nothing half-written to curves.h
+
+class Changelog(unittest.TestCase):
+    def load(self):
+        spec = importlib.util.spec_from_file_location("changelog", os.path.join(TOOLS, "changelog.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_section_of_a_version(self):
+        cl = self.load()
+        text = "# Changelog\n\n## 2.1.12 (2026-11-18)\n\n- a\n- b\n\n## 2.1.1 (x)\n\n- c\n"
+        self.assertEqual(cl.section(text, "v2.1.12"), "- a\n- b")
+        self.assertEqual(cl.section(text, "2.1.1"), "- c")        # not a prefix match of 2.1.12
+        self.assertEqual(cl.section(text, "2.1.13"), "")
+
+    def test_every_tagged_version_has_notes(self):
+        """The repo's own CHANGELOG.md has a section for the version in src/tuya.h."""
+        with open(os.path.join(TOOLS, "..", "src", "tuya.h")) as f:
+            vb = int(re.search(r"#define FW_VERSION\s+(0x[0-9A-Fa-f]+)\s+/\*", f.read().split("#ifndef FW_VERSION", 1)[1]).group(1), 16)
+        version = f"{vb >> 6}.{(vb >> 4) & 3}.{vb & 15}"
+        r = subprocess.run([sys.executable, os.path.join(TOOLS, "changelog.py"), version],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(r.stdout.strip().startswith("- "))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

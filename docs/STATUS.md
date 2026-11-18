@@ -121,7 +121,9 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
   MEASURE and SIM builds with the pinned SDK; curve tables vs generator; ZTU embedding refuses
   bench, measurement and diagnostics builds; size report; artifacts.
 - **Release:** bump `FW_VERSION` in `src/tuya.h` (never 0xBF, reserved for SIM, or 0xFF; a
-  warning comes when fewer than 16 codes are left), commit on `main`,
+  warning comes when fewer than 16 codes are left), add the version's short section to
+  `CHANGELOG.md` (the release notes; `release.sh` and the release job refuse a version without
+  one), commit on `main`,
   `tools/release/release.sh`: checks (main, clean, contains origin/main, tests, all four
   builds), tags `vX.Y.Z` (must match the image); the tag's CI run publishes the release only
   after the tests and builds passed (image, full image, bootloader, `secondary_mcu_image.c`,
