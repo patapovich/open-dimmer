@@ -25,7 +25,8 @@ version in `mcu_version` (for example 2.1.11); with the stock MCU `mcu_firmware`
   from dark rises slowly from the minimum, the hold stops the moment the switch is released.
 - Gestures single / double / triple / hold / release reported to Zigbee2MQTT as `action`.
 - Update over Zigbee: 4 KB bootloader, nothing erased before the first block, the light state is
-  kept over the update, only newer images are taken.
+  kept over the update, only newer images are taken. A watchdog or fault restart keeps the
+  light state too; a power cut follows the power-on setting.
 - Health report (uptime, reset cause, zero-cross lock losses) and measurement builds that report
   statistics over Zigbee with nothing wired to the board. Note: the Zigbee firmware replaces a
   measurement build with its carried release a few seconds after mains-on, unless the build's
