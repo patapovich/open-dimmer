@@ -140,7 +140,7 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
   (= home-dimmer + branch `fork-ci`) and starts `build.yml`, whose "Update firmware files"
   commit has the OTA image. `release.sh` starts it right after the release and waits for both;
   `LOCAL_BUMP=1` does the carrying in `~/projects/tzs-diag` instead.
-- **Instant hand-over (optional):** a secret `ZTU_DISPATCH_TOKEN` in zdms16-py32 (fine-grained
+- **Instant hand-over (set up 2026-11-18, tested):** a secret `ZTU_DISPATCH_TOKEN` in zdms16-py32 (fine-grained
   PAT for `patapovich/tuya-zigbee-switch` with Actions: read and write only, no Contents
   write) makes the release's hand-over job start py32-bump itself (then
   `NO_TRIGGER=1 tools/release/release.sh` only waits). A failing hand-over (expired token) does
@@ -269,10 +269,10 @@ MCUs (2026-11-18, one at a time; no entity change). OnLevel kept across a power 
 5. Optional: zero-cross delay measurement (`docs/ZC-DELAY-MEASUREMENT.md`; the DIAG build
    declines the ZTU's update offers, so it stays until `make flash-all` over SWD).
 6. Parked: per-channel gesture action modes / detached switch type; module button gestures.
-7. Later (user): the release starts the fork's py32-bump at once: a fine-grained PAT for
-   `patapovich/tuya-zigbee-switch` (Actions: read and write only) as secret
-   `ZTU_DISPATCH_TOKEN` in this repo (the user creates and enters it). Until then the hourly
-   run or release.sh does it.
+7. Done 2026-11-18: `ZTU_DISPATCH_TOKEN` is set; a re-run of v2.1.12's hand-over job started
+   py32-bump in the fork, which saw 2.1.12 already carried and changed nothing. Releases now use
+   `NO_TRIGGER=1 tools/release/release.sh`. Renew the token before it expires (a failing
+   hand-over does not fail the release; `release.sh` without `NO_TRIGGER` still works).
 
 ## Safety rules
 
