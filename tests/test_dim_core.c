@@ -229,7 +229,7 @@ static void test_zc_follows_frequency_drift(void) {
 _Static_assert(ZC_HALF_MIN_TICKS >= 357, "edges closer than 7.14 ms (70 Hz) are never a zero cross");
 _Static_assert(ZC_HALF_MAX_TICKS <= 625, "a half cycle longer than 12.5 ms (40 Hz) is a gap");
 _Static_assert(ZC_LOCK_EDGES >= 4, "at least 4 good half cycles in a row before any output");
-_Static_assert(ZC_WINDOW_DIV >= 24, "the window that admits a zero cross is at most +-1/24");
+_Static_assert(ZC_WINDOW_DIV >= 24, "an edge is taken at most +-1/24 from where the learned half cycles put it");
 _Static_assert(ZC_HALF_MIN_TICKS / ZC_WINDOW_DIV >= 4, "the window is wider than the detector jitter");
 _Static_assert((ZC_HALF_MAX_TICKS + ZC_HALF_MAX_TICKS / 16) * 10 <= 0xFFFF, "TIM1 reload fits 16 bits");
 
@@ -240,6 +240,19 @@ static zc_tracker_t locked_at(uint16_t hp, uint16_t *t) {
     zc_tracker_edge(&z, *t);
     for (int i = 0; i < 10; i++) {
         *t = (uint16_t)(*t + hp);
+        zc_tracker_edge(&z, *t);
+    }
+    return z;
+}
+
+/* Locked onto half cycles alternating first, second, ...; the next is first. */
+static zc_tracker_t locked_alternating(uint16_t first, uint16_t second, uint16_t *t) {
+    zc_tracker_t z;
+    zc_tracker_init(&z);
+    *t = 3000;
+    zc_tracker_edge(&z, *t);
+    for (int i = 0; i < 10; i++) {
+        *t = (uint16_t)(*t + ((i & 1) ? second : first));
         zc_tracker_edge(&z, *t);
     }
     return z;
@@ -348,7 +361,162 @@ static void test_zc_noise_inside_the_window_costs_one_half_cycle(void) {
     CHECK(zc_tracker_edge(&z, (uint16_t)(t + 1000)) == 1);
     CHECK(zc_locked(&z));
     CHECK(zc_tracker_edge(&z, (uint16_t)(t + 1500)) == 1);
-    CHECK(zc_locked(&z) && z.half_period >= 497 && z.half_period <= 503);
+    CHECK(zc_locked(&z) && z.half_period == 500);   /* neither half cycle at the pulse learned */
+    CHECK(z.hp[0] == 500 && z.hp[1] == 500);
+}
+
+static void test_zc_noise_inside_the_window_does_not_move_the_window(void) {
+    /* In-window pulses (an edge, its return, then the real edge) on the same
+     * kind of half cycle for several periods: hp[] stays on the mains, so a
+     * later pulse 1.2..1.6 windows early is still ignored. When the noise
+     * moved the two kinds apart, it was taken up to 31 ticks (0.62 ms) early.
+     * Asymmetric detectors: the pulses on the longer kind (on the shorter one
+     * the next half cycle, longer by the pulse, can pass the 8 % limit). */
+    const struct { uint16_t a, b; } hz[] = { { 500, 500 }, { 417, 417 }, { 514, 486 }, { 431, 403 } };
+    for (unsigned h = 0; h < sizeof hz / sizeof hz[0]; h++) {
+        uint16_t w = (uint16_t)(hz[h].b / ZC_WINDOW_DIV);   /* from the last half cycle */
+        for (uint16_t early = ZC_BOUNCE_TICKS + 1; early <= w; early++) {
+            for (int periods = 1; periods <= 6; periods++) {
+                uint16_t     t;
+                zc_tracker_t z  = locked_alternating(hz[h].a, hz[h].b, &t);   /* next: a */
+                uint16_t     h0 = z.hp[0], h1 = z.hp[1];
+                for (int p = 0; p < periods; p++) {
+                    CHECK(zc_tracker_edge(&z, (uint16_t)(t + hz[h].a - early)) == 1);   /* taken */
+                    CHECK(zc_tracker_edge(&z, (uint16_t)(t + hz[h].a - early + 2)) == 0);
+                    t = (uint16_t)(t + hz[h].a);
+                    CHECK(zc_tracker_edge(&z, t) == 0);                              /* the real edge */
+                    t = (uint16_t)(t + hz[h].b);
+                    CHECK(zc_tracker_edge(&z, t) == 1);
+                    CHECK(zc_locked(&z));
+                }
+                CHECK(z.hp[0] == h0 && z.hp[1] == h1);
+                for (uint16_t far = (uint16_t)(w + w / 5); far <= w + (w * 3) / 5; far++) {
+                    zc_tracker_t y = z;
+                    CHECK(zc_tracker_edge(&y, (uint16_t)(t + hz[h].a - far)) == 0);
+                    CHECK(zc_locked(&y));
+                }
+            }
+        }
+    }
+}
+
+static void test_zc_late_isr_moves_the_window_by_a_quarter_of_its_delay(void) {
+    /* An ISR held back by d (inside the window): its half cycle is d long, the
+     * next d short, so the kinds move d/4 apart. In the periods after it a
+     * pulse is taken at most window + d/4 (rounded) before the real edge. */
+    for (uint16_t d = 1; d <= 500 / ZC_WINDOW_DIV; d++) {
+        uint16_t q   = (uint16_t)((d + 2) / 4);
+        uint16_t lim = (uint16_t)((500 + q) / ZC_WINDOW_DIV + q);   /* the window of the longer kind */
+        for (int after = 0; after < 8; after++) {
+            for (uint16_t early = (uint16_t)(lim - 3); early <= lim + 3; early++) {
+                uint16_t     t;
+                zc_tracker_t z = locked_at(500, &t);
+                CHECK(zc_tracker_edge(&z, (uint16_t)(t + 500 + d)) == 1);   /* late ISR */
+                t = (uint16_t)(t + 500);
+                for (int i = 0; i <= after; i++) {
+                    t = (uint16_t)(t + 500);
+                    CHECK(zc_tracker_edge(&z, t) == 1);
+                }
+                int taken = zc_tracker_edge(&z, (uint16_t)(t + 500 - early));
+                CHECK(zc_locked(&z));
+                CHECK(!taken || early <= lim);
+            }
+        }
+    }
+}
+
+static void test_zc_extra_edge_limits(void) {
+    /* An edge up to ZC_BOUNCE_TICKS after the one taken is its bounce; from
+     * there to ZC_SUSPECT_TICKS it may be the real edge after a noise pulse:
+     * acquiring, the count starts again from it. Later ones are noise after
+     * the zero cross. */
+    _Static_assert(ZC_BOUNCE_TICKS == 5, "bounce: up to 0.1 ms after the edge");
+    _Static_assert(ZC_SUSPECT_TICKS == 52, "suspect: up to 1/12 of a 40 Hz half cycle");
+    const struct { uint16_t extra; uint8_t restarts; } k[] = {
+        { 1, 0 }, { 5, 0 }, { 6, 1 }, { 30, 1 }, { 52, 1 }, { 53, 0 }, { 356, 0 },
+    };
+    for (unsigned i = 0; i < sizeof k / sizeof k[0]; i++) {
+        zc_tracker_t z;
+        zc_tracker_init(&z);
+        uint16_t t = 100;
+        zc_tracker_edge(&z, t);
+        for (int e = 1; e <= 3; e++) {
+            t = (uint16_t)(t + 500);
+            CHECK(zc_tracker_edge(&z, t) == 1);
+        }
+        CHECK(zc_tracker_edge(&z, (uint16_t)(t + k[i].extra)) == 0);
+        CHECK(z.good == (k[i].restarts ? 0 : 3));
+        CHECK(z.last == (uint16_t)(t + k[i].extra) || !k[i].restarts);
+        /* from the restart, 4 good half cycles again; else the next completes the lock */
+        uint16_t from = k[i].restarts ? (uint16_t)(t + k[i].extra) : t;
+        for (int e = 1; e <= (k[i].restarts ? 4 : 1); e++) {
+            CHECK(!zc_locked(&z));
+            CHECK(zc_tracker_edge(&z, (uint16_t)(from + 500 * e)) == 1);
+        }
+        CHECK(zc_locked(&z));
+    }
+}
+
+static void test_zc_pulse_just_before_the_lock_completing_edge_restarts_the_count(void) {
+    /* A pulse 0.2 ms before a real edge while acquiring: the real edge right
+     * after it starts the count again, from itself, so a pulse cannot leave a
+     * wrong first sample behind for the lock. On the 4th half cycle it
+     * completes the lock (it cannot be told from the real edge, and it is
+     * inside the window); the real edge after it then undoes what it taught. */
+    for (int at = 1; at <= 4; at++) {
+        zc_tracker_t z;
+        zc_tracker_init(&z);
+        uint16_t t = 0;
+        zc_tracker_edge(&z, t);
+        for (int e = 1; e < at; e++) {
+            t = (uint16_t)(t + 500);
+            CHECK(zc_tracker_edge(&z, t) == 1);
+        }
+        CHECK(zc_tracker_edge(&z, (uint16_t)(t + 490)) == 1);
+        CHECK(zc_locked(&z) == (at == 4));
+        CHECK(zc_tracker_edge(&z, (uint16_t)(t + 492)) == 0);
+        t = (uint16_t)(t + 500);
+        CHECK(zc_tracker_edge(&z, t) == 0);
+        if (at == 4) {
+            CHECK(zc_locked(&z) && z.hp[0] == 500 && z.hp[1] == 500);
+            continue;
+        }
+        CHECK(z.good == 0 && z.last == t);
+        for (int e = 1; e <= 4; e++) {
+            CHECK(!zc_locked(&z));
+            t = (uint16_t)(t + 500);
+            CHECK(zc_tracker_edge(&z, t) == 1);
+        }
+        CHECK(zc_locked(&z) && z.hp[0] == 500 && z.hp[1] == 500);
+    }
+}
+
+static void test_zc_bounce_does_not_stop_the_learning(void) {
+    /* an edge's own bounce (up to 0.1 ms after it) is not noise: the drift is followed */
+    zc_tracker_t z;
+    zc_tracker_init(&z);
+    uint16_t t = 0;
+    zc_tracker_edge(&z, t);
+    for (int i = 0; i < 60; i++) {
+        t = (uint16_t)(t + (i < 20 ? 500 : 505));
+        CHECK(zc_tracker_edge(&z, t) == 1);
+        CHECK(zc_tracker_edge(&z, (uint16_t)(t + ZC_BOUNCE_TICKS)) == 0);
+    }
+    CHECK(zc_locked(&z) && z.hp[0] >= 504 && z.hp[1] >= 504);
+}
+
+static void test_zc_extra_edge_after_every_zero_cross_never_locks(void) {
+    /* a detector that chatters 0.12..1 ms after every edge: never locked (dark) */
+    zc_tracker_t z;
+    zc_tracker_init(&z);
+    uint16_t t = 0;
+    zc_tracker_edge(&z, t);
+    for (int i = 0; i < 400; i++) {
+        t = (uint16_t)(t + 500);
+        zc_tracker_edge(&z, t);
+        zc_tracker_edge(&z, (uint16_t)(t + ZC_BOUNCE_TICKS + 1));
+        CHECK(!zc_locked(&z));
+    }
 }
 
 static void test_zc_half_period_never_below_the_minimum(void) {
@@ -417,19 +585,6 @@ static void test_zc_asymmetric_detector(void) {
         zc_tracker_edge(&z, t);
         CHECK(!zc_locked(&z));
     }
-}
-
-/* Locked onto half cycles alternating first, second, ...; the next is first. */
-static zc_tracker_t locked_alternating(uint16_t first, uint16_t second, uint16_t *t) {
-    zc_tracker_t z;
-    zc_tracker_init(&z);
-    *t = 3000;
-    zc_tracker_edge(&z, *t);
-    for (int i = 0; i < 10; i++) {
-        *t = (uint16_t)(*t + ((i & 1) ? second : first));
-        zc_tracker_edge(&z, *t);
-    }
-    return z;
 }
 
 static void test_zc_kinds_at_the_8_percent_limit(void) {
@@ -971,6 +1126,12 @@ int main(void) {
     test_zc_noise_on_the_lock_completing_edge();
     test_zc_noise_train_near_the_edge_does_not_capture_a_lock();
     test_zc_noise_inside_the_window_costs_one_half_cycle();
+    test_zc_noise_inside_the_window_does_not_move_the_window();
+    test_zc_late_isr_moves_the_window_by_a_quarter_of_its_delay();
+    test_zc_extra_edge_limits();
+    test_zc_pulse_just_before_the_lock_completing_edge_restarts_the_count();
+    test_zc_bounce_does_not_stop_the_learning();
+    test_zc_extra_edge_after_every_zero_cross_never_locks();
     test_zc_half_period_never_below_the_minimum();
     test_zc_late_edge_inside_the_gap_limit_relocks();
     test_zc_asymmetric_detector();

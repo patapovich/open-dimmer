@@ -5,14 +5,15 @@
  * Mains safety properties checked on 50/60 Hz edge trains with jitter,
  * asymmetric detectors, noise pulses, late ISRs and lost edges:
  *   - every TIM1 update event (UG) with a non-zero compare lands at a real
- *     zero-cross edge (within the tracker's window, twice that under random
- *     noise), and only while the tracker is locked;
+ *     zero-cross edge (within the tracker's window; under random noise the
+ *     window plus ZC_BOUNCE_TICKS, 0.1 ms), and only while the tracker is
+ *     locked;
  *   - the compare preloads are 0 after every ISR (a wrap loads gates-off);
  *   - every compare is below the reload (the gate turns off within the period);
  *   - a lost lock leaves the channels dark until the fade-in after a relock.
  * Not covered, because timing alone cannot tell them from the mains: a noise
- * train at a fixed phase from power-up, or random noise in nearly every half
- * cycle while the lock is being acquired.
+ * train at a fixed phase from power-up, or noise inside the window in
+ * consecutive half cycles (each moves the reference by up to a window).
  * phase.c is compiled with its fader setters renamed (Makefile FADER_HOOKS):
  * the hooks here check that the main loop changes a fader with interrupts off. */
 #define _DEFAULT_SOURCE
@@ -501,12 +502,20 @@ static long tol_for(int hz, int jitter, int width) {
     return (hz == 60 ? 417 : 500) / ZC_WINDOW_DIV + 2 * jitter + width + 1;
 }
 
-/* Under random noise twice the window (0.83 ms at 50 Hz, ~85 V): a pulse
- * accepted inside the window during the lock-up can leave the timing of its
- * kind of half cycle off by up to the window for a while. The old tracker
- * turned the gates on mid cycle here (up to ~250 V). */
+/* Under random noise the window plus ZC_BOUNCE_TICKS (0.5 ms at 50 Hz, ~50 V
+ * at 230 V). A pulse less than 0.1 ms before the real edge cannot be told from
+ * it (the real edge then looks like its bounce) and can shift the timing by
+ * that much, at the lock-up or later. A pulse further inside the window moves
+ * nothing: the real edge right after it gives it away. (Before that, noise
+ * pulled the two kinds of half cycle apart and this was twice the window,
+ * while locked too; the first tracker turned the gates on mid cycle here, up
+ * to ~250 V.) A late ISR moves the two kinds apart by a quarter of its delay
+ * for a few periods; with the late ISRs of test_everything_at_once the runs
+ * stay inside this bound. The noise in these trains is never in two half
+ * cycles in a row: in consecutive half cycles, noise inside the window moves
+ * the edge taken by up to a window each time. */
 static long tol_noise(int hz, int jitter, int width) {
-    return 2 * ((hz == 60 ? 417 : 500) / ZC_WINDOW_DIV) + 2 * jitter + width + 1;
+    return tol_for(hz, jitter, width) + ZC_BOUNCE_TICKS;
 }
 
 static void test_clean_50_and_60_hz_lock_and_drive(void) {
