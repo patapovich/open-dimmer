@@ -21,20 +21,25 @@ branch `home-dimmer`).
 Bootloader 4 KB @0x08000000 (2 136 bytes used), app 12 KB @0x08001000 (header at +0xC0),
 settings 4 KB @0x08004000 (32-page ring, record v2 "ZDS2" 40 bytes; v1 "ZDS1" 20 bytes still
 read). App 2.1.11: 11 628 bytes (660 bytes free). DIAG / MEASURE builds 11 972 / 11 988 bytes
-(health report, raw timing and the pin scan compiled out there; ~300 bytes left). Since then
-(same behaviour) 928 bytes less in every build: own byte-loop mem* (src/libc_min.c) instead of
-newlib's, no signed division code (DP and curve maths unsigned): app 10 700, DIAG 11 044,
-MEASURE 11 060, SIM 10 744 bytes. CI warns when a build has under 512 bytes free. Protocol,
-store and health fixes of review 2026-11-18 (items 17, 29, 30, 33, 37, 38, 39, and parts of 7:
-the MCU's start burst check, 18: the app declines 0xBF / 0xFF offers, 40: flash SR flags in the
-app (the bootloader takes them in phase 3), 44: store, flash driver, protocol, UART and health
-harnesses): app 10 852, DIAG 10 784, MEASURE 10 792, SIM 10 892 bytes (DIAG / MEASURE decline
-every update, so the update path is compiled out there); the bootloader is unchanged (2 136
-bytes, byte-identical). Still open of those items: 18 the SIM build's guard (PA4 pull-up and
-EXTI, shut down from the ISR, virtual edges only after PA4 is static), `make flash` refusing
-SIM images unless ALLOW_SIM=1, the note that a unit stuck on SIM needs a 3.x image or SWD; 40
-switch_type clamped on load, the 60 Hz comment, the INSTALL line that Open Dimmer needs the
-fork's ZTU; 44 dimmer.c and controls.c harnesses. ZTU side: also refuse the DIAG header flag
+(health report, raw timing and the pin scan compiled out there; ~300 bytes left).
+
+App 2.1.12 (phase 2 of the fix plan below): 11 472 bytes (816 bytes free); DIAG / MEASURE
+11 364 / 11 376 bytes (~900 left: they decline every update, so the update path is compiled out
+there); SIM 11 692 bytes. The flash savings paid for the phase 2 fixes: 928 bytes less in every
+build with the same behaviour (own byte-loop mem* in src/libc_min.c instead of newlib's, no
+signed division code). CI warns when a build has under 512 bytes free. The bootloader is
+unchanged (2 136 bytes, byte-identical to the released one).
+
+Review 2026-11-18 items done in phase 2: 7 (the MCU's start burst check), 12 and 25 (zero-cross
+windows, phase.c on the PC), 13 (watchdog and fault restore), 14, 17, 29, 30, 32 (UART above
+the zero cross), 33, 34, 35, 36, 37, 38, 39, 44 (host harnesses for the store, flash driver,
+protocol, UART, health, dimmer.c and controls.c), 50, and parts of 18 (the SIM build's guard:
+PA4 pull-up and EXTI, shut down from the ISR, virtual edges only after PA4 is static; the app
+declines 0xBF / 0xFF offers), 40 (flash SR flags in the app, the bootloader takes them in phase
+3; switch_type clamped on load) and 59 (the savings above, the CI warning). Still open of
+those: 18 `make flash` refusing SIM images unless ALLOW_SIM=1, the note that a unit stuck on SIM
+needs a 3.x image or SWD; 40 the 60 Hz comment, the INSTALL line that Open Dimmer needs the
+fork's ZTU; 59 register-level UART and clock init. ZTU side: also refuse the DIAG header flag
 0x04 (tools/embed_ztu.py already does).
 
 ## DPs (Open Dimmer; stock ones 1..14 unchanged)
