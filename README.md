@@ -62,8 +62,10 @@ Needs `arm-none-eabi-gcc` and the PY32F0 SDK from
 [IOsetting/py32f0-template](https://github.com/IOsetting/py32f0-template) (CI pins the commit).
 
 ```
-make test                                  # host unit tests
+make test                                  # host unit tests, the bootloader harness included
+make test-boot                             # the bootloader harness alone (tests/boot)
 make SDK=<py32f0-template>/Libraries       # build/zdms16_py32.img (+ bootloader, full image)
+make check-boot                            # the bootloader's layout (boot_id, write range, size)
 make DIAG=1 | MEASURE=1 | SIM=1            # diagnostics / measurement / bench builds
 make flash-all                             # SWD (pyOCD), board off the mains
 ```
@@ -79,7 +81,7 @@ picks up and builds into its OTA image (`tools/release/release.sh`, see docs/STA
 |---|---|
 | `src/` | firmware (`dim_core`, `input_core`, `gesture_core` are hardware-free and unit tested) |
 | `boot/` | bootloader |
-| `tests/` | host tests |
+| `tests/` | host tests; `tests/boot/` runs the real bootloader against models of the chip and the ZTU |
 | `tools/` | curve generator, image tools, SWD helpers (`tools/swd`), HA / Z2M helpers (`tools/ha`) |
 | `docs/` | status, review, measurement notes, analysis of the stock firmware |
 

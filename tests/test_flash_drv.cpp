@@ -1,11 +1,11 @@
 /* Host test of src/flash_drv.c (the settings writes of the app, and the
- * bootloader's page writes) against the register model in
- * tests/host/flash_model.hpp. Built as C++ so that every SR / CR / KEYR access
- * goes through the model; the page and the factory timing words are memory
- * mapped at their chip addresses. Built twice: as the app has it, and with
- * BOOTLOADER, the driver the bootloader keeps until fix plan phase 3 (a stale
- * flag or OPTVERR fails its first attempt; boot.c tries every page twice).
- * Run: make test */
+ * bootloader's page writes: one driver since the v2 bootloader) against the
+ * register model in tests/host/flash_model.hpp. Built as C++ so that every
+ * SR / CR / KEYR access goes through the model; the page and the factory
+ * timing words are memory mapped at their chip addresses. The write range
+ * (_flash_write_start/_end) is linked as the app's settings region,
+ * 0x08004000..0x08005000; nothing outside it is mapped, so a guard that let a
+ * write through would crash the test. Run: make test */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,14 +67,6 @@ static void test_stale_flags_do_not_fail_a_write(void) {
     model_reset();
     host_flash.sr = FLASH_SR_WRPERR | FLASH_SR_OPTVERR | FLASH_SR_EOP;
     fill(1);
-#ifdef BOOTLOADER
-    /* Shipped bootloader driver: the first attempt fails before any erase
-     * and clears the flags, so boot.c's second attempt writes the page. */
-    CHECK(flash_write_page(PAGE_ADDR, g_src) == 0);
-    CHECK(host_flash.erases == 0 && host_flash.programs == 0);
-    CHECK(host_flash.sr == 0);
-    check_idle_and_locked();
-#endif
     CHECK(flash_write_page(PAGE_ADDR, g_src) == 1);
     CHECK(memcmp(page(), g_src, FLASH_PAGE_BYTES) == 0);
     CHECK(host_flash.erases == 1 && host_flash.programs == 1);
@@ -110,13 +102,6 @@ static void test_optverr_is_not_a_write_error(void) {
     model_reset();
     host_flash.program_raises = FLASH_SR_OPTVERR;
     fill(4);
-#ifdef BOOTLOADER
-    /* Shipped bootloader driver: counted as an error once; the page was
-     * programmed, so the second attempt finds it right and erases nothing. */
-    CHECK(flash_write_page(PAGE_ADDR, g_src) == 0);
-    CHECK(host_flash.erases == 1 && host_flash.programs == 1);
-    check_idle_and_locked();
-#endif
     CHECK(flash_write_page(PAGE_ADDR, g_src) == 1);
     CHECK(memcmp(page(), g_src, FLASH_PAGE_BYTES) == 0);
     CHECK(host_flash.erases == 1 && host_flash.programs == 1);
@@ -156,6 +141,65 @@ static void test_timing_from_the_factory_words(void) {
     CHECK(host_flash_regs_inst.PRETPE == 0x3FFFu);
 }
 
+/* The write range of the linker script: outside it (or misaligned) the
+ * driver refuses before it reads the page or touches the controller. */
+static void test_write_range_guard(void) {
+    static const uint32_t refused[] = {
+        SETTINGS - FLASH_PAGE_BYTES,             /* the page below the range */
+        0x08000000u,                             /* the bootloader's sector */
+        SETTINGS + 4096u,                        /* the range's end */
+        SETTINGS + 0x84u,                        /* not page aligned */
+        SETTINGS + 4096u - 4u,                   /* would run past the end */
+        0xFFFFFF80u,                             /* addr + 128 would wrap */
+    };
+    fill(7);
+    for (unsigned k = 0; k < sizeof(refused) / sizeof(refused[0]); k++) {
+        model_reset();
+        CHECK(flash_write_page(refused[k], g_src) == 0);
+        CHECK(host_flash.unlocks == 0 && host_flash.sr_clears == 0 && host_flash.erases == 0 &&
+              host_flash.sr_reads == 0);
+        check_idle_and_locked();
+    }
+    /* The first and the last page of the range are written. */
+    model_reset();
+    CHECK(flash_write_page(SETTINGS, g_src) == 1);
+    CHECK(memcmp((const void *)(uintptr_t)SETTINGS, g_src, FLASH_PAGE_BYTES) == 0);
+    model_reset();
+    CHECK(flash_write_page(SETTINGS + 4096u - FLASH_PAGE_BYTES, g_src) == 1);
+    CHECK(memcmp((const void *)(uintptr_t)(SETTINGS + 4096u - FLASH_PAGE_BYTES), g_src, FLASH_PAGE_BYTES) == 0);
+}
+
+/* A controller that never finishes: every busy wait gives up after its bound
+ * (~50 ms at ~8 cycles a pass), the write fails, and the controller is left
+ * locked with PER and PG clear. Before, the wait was ~0.67 s, which outlasts
+ * the bootloader's ~1 s watchdog with the second try. */
+static void test_busy_never_clears(void) {
+    model_reset();
+    host_flash.bsy_stuck = 1;                    /* busy from the start */
+    fill(8);
+    CHECK(flash_write_page(PAGE_ADDR, g_src) == 0);
+    CHECK(host_flash.erases == 0 && host_flash.programs == 0);
+    CHECK(host_flash.sr_reads >= 140000u && host_flash.sr_reads <= 150002u);
+    check_idle_and_locked();
+
+    model_reset();                               /* the erase starts, then never ends */
+    host_flash.erase_ns = 0xFFFFFFFFu;
+    host_flash.poll_ns  = 1;
+    CHECK(flash_write_page(PAGE_ADDR, g_src) == 0);
+    CHECK(host_flash.erases == 1 && host_flash.programs == 0);
+    CHECK(host_flash.sr_reads <= 2u * 150002u);
+    check_idle_and_locked();
+
+    model_reset();                               /* a real erase and program time is waited out */
+    host_flash.erase_ns   = 3500000u;
+    host_flash.program_ns = 1000000u;
+    host_flash.poll_ns    = 333u;
+    CHECK(flash_write_page(PAGE_ADDR, g_src) == 1);
+    CHECK(memcmp(page(), g_src, FLASH_PAGE_BYTES) == 0);
+    CHECK(host_flash.now_ns >= 4500000u && host_flash.now_ns < 4700000u);
+    check_idle_and_locked();
+}
+
 static void test_crc32_is_zlibs(void) {
     const uint8_t *s = (const uint8_t *)"123456789";
     CHECK(crc32_update(0, s, 9) == 0xCBF43926u);
@@ -172,12 +216,10 @@ int main(void) {
     test_optverr_is_not_a_write_error();
     test_identical_page_is_left_alone();
     test_timing_from_the_factory_words();
+    test_write_range_guard();
+    test_busy_never_clears();
     test_crc32_is_zlibs();
-#ifdef BOOTLOADER
-#define NAME "test_flash_drv (BOOTLOADER)"
-#else
 #define NAME "test_flash_drv"
-#endif
     if (g_failures) {
         printf(NAME ": %d FAILED\n", g_failures);
         return 1;

@@ -21,6 +21,11 @@ ENTRY(Reset_Handler)
 _settings_start = ORIGIN(SETTINGS);
 _settings_end   = ORIGIN(SETTINGS) + LENGTH(SETTINGS);
 
+/* What src/flash_drv.c lets the bootloader write: the app area up to BOOT_APP_MAX (14 KB,
+ * src/ota_proto.h), never sector 0 and never the top 2 KB of the settings ring. */
+_flash_write_start = 0x08001000;
+_flash_write_end   = 0x08004800;
+
 /* Highest address of the user mode stack */
 _estack = ORIGIN(RAM) + LENGTH(RAM);    /* end of RAM */
 /*
@@ -54,6 +59,13 @@ SECTIONS
     . = ALIGN(4);
     KEEP(*(.isr_vector)) /* Startup code */
     . = ALIGN(4);
+  } >FLASH
+
+  /* boot_id_t (src/ota_proto.h) right after the 4-word vector table, at 0x08000010: the app
+   * reads it there. Its own section, so boot.bin stays contiguous. */
+  .boot_id :
+  {
+    KEEP(*(.boot_id))
   } >FLASH
 
   /* The program code and other data goes into FLASH */
@@ -166,4 +178,7 @@ SECTIONS
   .ARM.attributes 0 : { *(.ARM.attributes) }
 }
 
-
+ASSERT(ADDR(.boot_id) == 0x08000010 && SIZEOF(.boot_id) == 16 && k_boot_id == 0x08000010,
+       "boot_id_t must sit right after the 4-word vector table")
+ASSERT(_flash_write_start == ORIGIN(FLASH) + LENGTH(FLASH) && _flash_write_end == 0x08001000 + 0x3800,
+       "the bootloader writes the app area 0x08001000..0x08004800 only")

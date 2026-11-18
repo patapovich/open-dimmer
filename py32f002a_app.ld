@@ -21,6 +21,9 @@ ENTRY(Reset_Handler)
 
 _settings_start = ORIGIN(SETTINGS);
 _settings_end   = ORIGIN(SETTINGS) + LENGTH(SETTINGS);
+/* What src/flash_drv.c lets the app write: its settings ring, nothing else. */
+_flash_write_start = _settings_start;
+_flash_write_end   = _settings_end;
 
 /* Highest address of the user mode stack */
 _estack = ORIGIN(RAM) + LENGTH(RAM);    /* end of RAM */

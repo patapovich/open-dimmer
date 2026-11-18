@@ -44,13 +44,15 @@ LDFLAGS  := $(ARCH) -T$(LDSCRIPT) -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(PROJECT)
 
 OBJS     := $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o))) $(addprefix $(BUILD)/,$(notdir $(ASRCS:.s=.o)))
 
-# Bootloader (4 KB at 0x08000000): the same for every app build. BOOTLOADER keeps the
-# shared src/flash_drv.c as the bootloader was released with (boot.bin byte-identical) until
-# the bootloader batch (fix plan phase 3) takes the app's flash driver fixes in.
+# Bootloader v2 (4 KB at 0x08000000, docs/BOOTLOADER.md): the same for every app build, and
+# frozen once installed, so it builds without a single warning. It shares src/flash_drv.c with
+# the app (one driver; the linker script sets what each may write). Its data stays in common
+# sections (-fno-data-sections): all of it is used, and GCC then reaches the statics from one
+# anchor instead of a literal per variable (-132 bytes).
 BOOT_BUILD := build-boot
 BOOT_SRCS  := boot/boot.c src/flash_drv.c
 BOOT_OBJS  := $(addprefix $(BOOT_BUILD)/,$(notdir $(BOOT_SRCS:.c=.o)))
-BOOT_CFLAGS := $(CFLAGS) -DBOOTLOADER -ffreestanding -fno-tree-loop-distribute-patterns
+BOOT_CFLAGS := $(CFLAGS) -Werror -fno-data-sections -ffreestanding -fno-tree-loop-distribute-patterns
 BOOT_LDFLAGS := $(ARCH) -Tboot/boot.ld -Wl,--gc-sections -Wl,-Map=$(BOOT_BUILD)/boot.map -nostdlib -lgcc
 
 vpath %.c $(sort $(dir $(SRCS) $(BOOT_SRCS)))
@@ -91,6 +93,15 @@ $(BOOT_BUILD)/boot.elf: $(BOOT_OBJS)
 
 $(BOOT_BUILD)/boot.bin: $(BOOT_BUILD)/boot.elf
 	$(OBJCOPY) -O binary $< $@
+	@n=$$(stat -c %s $@); echo "bootloader: $$n of 4096 bytes"; \
+	 if [ $$n -gt 3584 ]; then echo "warning: the bootloader has only $$((4096 - n)) bytes left"; fi
+
+# The bootloader's layout as the app and the tools rely on it (docs/BOOTLOADER.md section 11):
+# boot_id_t at 0x08000010 with its content, the write range of boot.ld, the size, and RAM below
+# the mailbox with 512 bytes of stack (tools/check_boot.sh). boot.ld asserts the first two at
+# link time too.
+check-boot: $(BOOT_BUILD)/boot.bin
+	sh tools/check_boot.sh $(BOOT_BUILD)/boot.elf $(BOOT_BUILD)/boot.bin
 
 $(BUILD)/$(PROJECT)_full.bin: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin
 	python3 tools/mkimage.py $< --full $(BOOT_BUILD)/boot.bin $@
@@ -112,7 +123,7 @@ clean:
 # Header dependencies (an object is rebuilt when a header it includes changes)
 -include $(OBJS:.o=.d) $(BOOT_OBJS:.o=.d)
 
-.PHONY: all flash flash-all clean
+.PHONY: all flash flash-all clean check-boot
 
 # phase.c on the PC (tests/test_phase.c) against fake registers (tests/fake), once per
 # build variant. Its fader setters are renamed to hooks that check the interrupts are off.
@@ -156,13 +167,11 @@ test:
 	$(BUILD)/host/test_controls
 	cc $(HOST_CFLAGS) tests/test_store.c src/store.c -o $(BUILD)/host/test_store
 	$(BUILD)/host/test_store
-	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -Itests/host -Isrc \
-	   -x c++ src/flash_drv.c tests/test_flash_drv.cpp -o $(BUILD)/host/test_flash_drv
+	@# the write range linked as the app's settings region (absolute symbols: no PIE)
+	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -fno-pie -no-pie -Itests/host \
+	   -Isrc -x c++ src/flash_drv.c tests/test_flash_drv.cpp -o $(BUILD)/host/test_flash_drv \
+	   -Wl,--defsym,_flash_write_start=0x08004000 -Wl,--defsym,_flash_write_end=0x08005000
 	$(BUILD)/host/test_flash_drv
-	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -Itests/host -Isrc \
-	   -DBOOTLOADER -x c++ src/flash_drv.c tests/test_flash_drv.cpp \
-	   -o $(BUILD)/host/test_flash_drv_boot
-	$(BUILD)/host/test_flash_drv_boot
 	@# ota_proto.h v2 (shared with the bootloaders and the ZTU): with the host mailbox and with the
 	@# chip's address
 	cc $(HOST_CFLAGS) tests/test_ota_proto.c -o $(BUILD)/host/test_ota_proto
@@ -183,5 +192,31 @@ test:
 	   -o $(BUILD)/host/test_contact_burst
 	$(BUILD)/host/test_contact_burst
 	python3 tests/test_tools.py
+	$(MAKE) --no-print-directory test-boot
 
-.PHONY: test
+# The v2 bootloader on the PC (docs/BOOTLOADER.md section 11): boot/boot.c unmodified against
+# the hook device header tests/boot/fake, the models in tests/boot/harness.c, synthetic images
+# from tests/boot/mkimages.py. Twice: with a flash model (power cuts, pages that never verify),
+# and with the real src/flash_drv.c against tests/host/flash_model.hpp (C++), linked with
+# boot.ld's write range. Plain cc: no ARM toolchain, no zlib. Fixed mappings at the chip's
+# addresses need Linux >= 4.17 (MAP_FIXED_NOREPLACE) and absolute symbols a non-PIE link.
+BOOT_HOST      := $(BUILD)/host/boot
+BOOT_HOST_CC   := cc -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -fno-pie -O1 -g
+BOOT_RANGE     := -Wl,--defsym,_flash_write_start=0x08001000 -Wl,--defsym,_flash_write_end=0x08004800
+test-boot:
+	mkdir -p $(BOOT_HOST)
+	python3 tests/boot/mkimages.py $(BOOT_HOST)/img
+	$(BOOT_HOST_CC) -Itests/boot/fake -Isrc -Dmain=boot_main -c boot/boot.c -o $(BOOT_HOST)/boot.o
+	$(BOOT_HOST_CC) -Itests/boot/fake -Isrc -c tests/boot/harness.c -o $(BOOT_HOST)/harness.o
+	$(BOOT_HOST_CC) -no-pie $(BOOT_HOST)/harness.o $(BOOT_HOST)/boot.o -o $(BOOT_HOST)/harness
+	$(BOOT_HOST_CC) -Itests/boot/fake -Isrc -DREAL_FLASH_DRV -c tests/boot/harness.c -o $(BOOT_HOST)/harness_drv.o
+	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -fno-pie -O1 -g -Itests/host \
+	   -Isrc -Dcrc32_update=drv_crc32_update -x c++ -c src/flash_drv.c -o $(BOOT_HOST)/flash_drv.o
+	c++ -std=c++11 -Wall -Wextra -Werror -fno-pie -O1 -g -Itests/host -Isrc -c tests/boot/drv_model.cpp \
+	   -o $(BOOT_HOST)/drv_model.o
+	c++ -no-pie $(BOOT_HOST)/harness_drv.o $(BOOT_HOST)/boot.o $(BOOT_HOST)/flash_drv.o \
+	   $(BOOT_HOST)/drv_model.o $(BOOT_RANGE) -o $(BOOT_HOST)/harness_drv
+	$(BOOT_HOST)/harness_drv $(BOOT_HOST)/img
+	$(BOOT_HOST)/harness $(BOOT_HOST)/img
+
+.PHONY: test test-boot

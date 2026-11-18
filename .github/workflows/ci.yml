@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Dimming, input and gesture logic, settings store, flash driver, protocol, UART, health, image tools (PC build)
+      - name: Dimming, input and gesture logic, settings store, flash driver, protocol, UART, health, image tools, bootloader harness (PC build)
         run: make test
 
   build:
@@ -63,6 +63,9 @@ jobs:
             make SDK="$PWD/sdk/Libraries" $v
             echo "::endgroup::"
           done
+
+      - name: Bootloader layout (boot_id at 0x08000010, write range, size, RAM)
+        run: make SDK="$PWD/sdk/Libraries" check-boot
 
       - name: Size report (a warning, not a failure, when a build has little room left)
         env:
