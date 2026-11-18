@@ -20,6 +20,13 @@ After that, every update goes over Zigbee.
 > fork's Zigbee firmware (section 0): it does not answer the product query (0x01) that the stock
 > Zigbee firmware needs.
 
+> **Zigbee side first.** Open Dimmer under the stock Zigbee firmware is not supported, but safe:
+> the light works from the wall switch and the module button, Zigbee control may not work, the
+> MCU gets no updates, and every power-up takes ~3 s before the light reacts. If it happens (an
+> MCU installed before section 0, or the Zigbee firmware put back to stock), do not re-pair or
+> reset the module (that can lose the name the conversion needs): convert the Zigbee firmware
+> over the air first (section 0). Then everything below applies.
+
 ## What you need
 
 - A debug probe with SWD and a 3.3 V output to power the module. Tested: a Raspberry Pi Pico /
@@ -337,10 +344,15 @@ curl -fsSLO https://github.com/patapovich/zdms16-py32/releases/latest/download/z
 curl -fsSLO https://github.com/patapovich/zdms16-py32/releases/latest/download/SHA256SUMS
 sed 's|  .*/|  |' SHA256SUMS | sha256sum -c --ignore-missing
 .venv/bin/pyocd commander -t py32f002ax5 --pack pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack -f 400000 \
-    -O connect_mode=attach -c "write32 0x40015808 0x1000"
+    -O connect_mode=attach -O resume_on_disconnect=false -c "write32 0x40015808 0x1000" \
+    -c "write32 0x20000BF8 0" -c "write32 0x20000BFC 0"
 .venv/bin/pyocd load -t py32f002ax5 --pack pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack -f 400000 \
     --format bin --base-address 0x08000000 zdms16_py32_full.bin
 ```
+
+The two `write32 0x20000BF8 / 0x20000BFC` clear the v2 bootloader's boot word in RAM: a debugger
+reset keeps the RAM, and the new firmware should start with a fresh try counter (as `make
+flash-all` and `install.sh` do).
 
 `FREQ=400000 IMAGE=<file> fw/tools/swd/install.sh` does the same and also reads the flash back
 and compares.
@@ -353,3 +365,57 @@ zero cross and does not follow the real one.
 The Zigbee firmware carries Open Dimmer and updates the MCU when it runs an older version of
 Open Dimmer (never the stock firmware). Update the Zigbee firmware over the air as usual;
 the MCU follows a few seconds after the module restarts, and the light comes back as it was.
+From 2.1.13 on every image has a build number (2.1.13 is build 300), and a Zigbee firmware that
+knows build numbers offers by build; older ones offer by version.
+
+## Bootloader v2 (from 2.1.13)
+
+The bootloader is the small part of the firmware in the PY32's first 4 KB that installs the
+updates. It is written only over SWD, with the full image, and then stays on the module for
+good. A full image from 2.1.13 on has bootloader **v2**; modules installed with 2.1.12 or older
+have v1.
+
+- **v1 to v2.** A module on v1 takes every app update over Zigbee as before (2.1.13 included),
+  but none of the v2 escape paths below. To get v2, re-flash the module once over SWD with the
+  release's full image, off the mains as in section 1: `FREQ=400000 IMAGE=release
+  tools/swd/install.sh`. On a module that already runs Open Dimmer this only re-flashes; the
+  settings in the last 4 KB sector stay. An image over 12 KB would erase them (pyOCD erases
+  whole 4 KB sectors): `install.sh` refuses one unless `ERASE_SETTINGS=1` is given, and `make
+  flash-all` always refuses one.
+- **Check.** DP 136 in the health report (logged by the Zigbee firmware's MCU link log) is the
+  CRC-32 of the bootloader sector: the value the release notes give for the release's
+  bootloader (the released v1: 0xEAC45031). The Zigbee firmware's link log also shows the
+  bootloader version (2) in the MCU's update requests.
+
+What v2 does by itself:
+
+- **At power-on** it asks the Zigbee firmware for the image it carries and installs it if its
+  build is newer than the installed one, even if the installed app cannot take updates. The light
+  comes when the Zigbee firmware answers (within ~1.5 s after the power came, by the Zigbee
+  firmware's own rule), or after 3 s without an answer.
+- **After 3 starts in a row that never confirmed themselves** (an app that crashes or hangs, or
+  cannot talk to the Zigbee firmware for its first 30 s) it listens for 30 s before each further
+  start and installs any other image the Zigbee firmware carries, older ones too. The light then
+  takes the power-on setting.
+- **Link watchdog** (from 2.1.13, needs v2): if the app hears nothing from the Zigbee firmware
+  for 30 min while every channel is off, it restarts once (at most every ~4 h) and the
+  bootloader checks for a newer build. The light state stays; the wall switch is not read for
+  up to ~3 s.
+
+### Button rescue (v2)
+
+The module button can force such a 30 s window, for example to go back to an older image that
+the Zigbee firmware carries. The module stays in its insulated case on the mains: press the
+button through the case, never open the case while the mains is connected (see "Mains voltage"
+above).
+
+1. Switch the power to the module off.
+2. Press the module button through the case and keep it pressed.
+3. Switch the power on. When the LED lights, let go within 5 s.
+4. The LED blinks slowly while the module waits for an image and fast while it writes one. If
+   the Zigbee firmware carries an image other than the installed one, it is installed and the
+   light starts with the power-on setting. With the same image the light starts after ~30 s.
+
+Held for more than 5 s, the button counts as stuck: the module starts normally after ~5 s and
+installs nothing. A press held on into the running app does not start a rejoin: the app does
+not take a module-button hold that began in its first 10 s after a power-up as one.

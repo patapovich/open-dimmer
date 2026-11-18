@@ -1,4 +1,4 @@
-# Open Dimmer: status (2026-11-18)
+# Open Dimmer: status (2026-11-19)
 
 Open Dimmer is open-source firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2,
 updated over Zigbee by the fork's Zigbee (ZTU) firmware (`patapovich/tuya-zigbee-switch`,
@@ -11,7 +11,7 @@ branch `home-dimmer`).
 | Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-ed1016b5 (0x1103304d, carries PY32 v2.1.12), MCU **Open Dimmer 2.1.12** since 2026-11-18 (phase 2: updated by the ZTU over the UART, settings kept, health clean) |
 | Other modules | none runs Open Dimmer yet: see "Before further modules" |
 | PY32 source | this repo (github.com/patapovich/zdms16-py32) |
-| ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (carries PY32 v2.1.11); `home-dimmer_build` has the generated converter and the OTA images |
+| ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (carries PY32 v2.1.12; the phase-3 ZTU is not released yet); `home-dimmer_build` has the generated converter and the OTA images |
 | SWD tools | `tools/swd/install.sh` (one-contact install, docs/INSTALL.md; untested on a stock module yet), the single steps beside it (`.venv` and `pack/` next to the clone, see docs/INSTALL.md) |
 | HA / Z2M helpers | `tools/ha/` (see its README): expose dump and configure check with the real zhc, websocket client, OTA deploy |
 | Docs | `docs/INSTALL.md`, `docs/REVIEW-2026-11-17.md`, `docs/ZC-DELAY-MEASUREMENT.md`, `docs/stock-firmware-analysis.md` |
@@ -30,12 +30,14 @@ build with the same behaviour (own byte-loop mem* in src/libc_min.c instead of n
 signed division code). CI warns when a build has under 512 bytes free. The bootloader is
 unchanged (2 136 bytes, byte-identical to the released one).
 
-App side of bootloader v2 with the link watchdog (release R, not released yet; docs/BOOTLOADER.md
-section 9): 12 088 bytes (200 free, so CI warns), +616 on 2.1.12 and ~170 above the design's
-estimate; DIAG / MEASURE / SIM 11 700 / 11 712 / 11 740 (the link watchdog and the confirmation
-paths are compiled out there). The shared flash driver's range guard (section 9 item 7) adds
-~20-36 bytes more. The Zigbee firmware's OTA file must be measured with this image (section 12:
-~460 bytes more than the 11 628-byte app it was measured with).
+Phase 3 (bootloader v2, release R = 2.1.13, build 300; integrated, not released yet): app
+12 120 bytes (168 bytes free of 12 KB, so CI warns; +648 on 2.1.12, the range guard of the
+shared flash driver included); DIAG / MEASURE / SIM 11 732 / 11 744 / 11 772 (the link
+watchdog and the confirmation are compiled out of the bench builds). Bootloader v2 3 356 of
+4 096 bytes (740 free; the design's prototype 3 252), boot sector CRC-32 0xA4D57FB4 for this
+build (the release notes give the released value). The Zigbee firmware's OTA file with this app
+carried (phase-3 ZTU, ZDMS16-2 build): 211 938 bytes, 1 054 below the 0x34000 limit; the next
+app growth must be measured against it (docs/BOOTLOADER.md section 12).
 
 Review 2026-11-18 items done in phase 2: 7 (the MCU's start burst check), 12 and 25 (zero-cross
 windows, phase.c on the PC), 13 (watchdog and fault restore), 14, 17, 29, 30, 32 (UART above
@@ -125,9 +127,12 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
 
 - **CI** (`.github/workflows/ci.yml`, every push / PR, read-only token): host tests (C logic,
   the settings store, the flash driver against a register model, the serial protocol, UART
-  receive, health report, the MCU's start burst size, and the image tools); normal, DIAG,
-  MEASURE and SIM builds with the pinned SDK; curve tables vs generator; ZTU embedding refuses
-  bench, measurement and diagnostics builds; size report; artifacts.
+  receive, health report, the MCU's start burst size, the image, install and release tools, the
+  build number rules, and `make test-boot`: the bootloader against its models); normal, DIAG,
+  MEASURE and SIM builds with the pinned SDK; the bootloader's layout (`make check-boot`,
+  `tools/check_elf.py`) and each image's header flags and build (`tools/check_app.py`); curve
+  tables vs generator; ZTU embedding refuses bench, measurement and diagnostics builds; size
+  report (with the bootloader and its boot sector CRC); artifacts.
 - **Release:** bump `FW_VERSION` in `src/tuya.h` (never 0xBF, reserved for SIM, or 0xFF; a
   warning comes when fewer than 16 codes are left) and `FW_BUILD` next to it (the previous
   release tag's + 100, the first one 300; spare test builds are `make FW_TEST=1..99`, below the
@@ -224,7 +229,14 @@ version's own update path is proven.
    it for a day: `mcu_firmware` still shows "Tuya (stock)" and `mcu_version` the stock version,
    no expose or entity changes, lights, wall switch and OnLevel work. Then the other modules,
    one at a time. A ZTU build from before the Open Dimmer support has no identity check and no
-   MCU updates: never put an Open Dimmer MCU under one.
+   MCU updates, and the stock Tuya ZTU none either (Open Dimmer under it is not supported, but
+   safe: docs/BOOTLOADER.md section 15): never put an Open Dimmer MCU under one.
+   Per module, also a UART-level check from the fork's link diagnostics (counters 0xff40, log
+   0xff41..0xff45, `helper_scripts/decode_mcu_diag.py`), decoded and saved before and after its
+   OTA: `mcu_version` reads the stock version before; after it, TX_CMD entries only 0x0B, 0x28
+   and the expected DP writes (no 0xA0..0xA3), RX_DP for DPs 3, 4, 5 and 14 after the first
+   contact, the min / max entities as before, `rx_bad` and `tx_timeout` not growing over a day.
+   Then one ZTU restart with the light on (a config re-write): light state and level unchanged.
 3. The bootloader changes of the fix plan (phase 3) are released, and the spare runs exactly
    that release's full image (re-flashed with `install.sh`) for a while, including an OTA from it.
 4. Then the MCU, one module at a time, as in docs/INSTALL.md: write the settings down, install,
@@ -243,16 +255,12 @@ the fork. Fix plan, in phases:
 1. ZTU + converter batch: one ZTU release, OTA to the spare first, then one module with its
    stock MCU.
 2. PY32 app batch (OTA to the spare; the flash savings first).
-3. Bootloader batch (SWD, frozen per unit: most test effort). It also takes the flash driver's
-   SR-flag fix of phase 2 (item 40): `src/flash_drv.c` keeps the bootloader's old behaviour
-   under `BOOTLOADER`, so `boot.bin` (what every `make flash-all` and `install.sh` writes) stays
-   byte-identical to the one before phase 2 until this batch drops that and tests it on the
-   spare. Flash layout decided for it (2026-11-18): the bootloader stays in its own 4 KB
-   sector (2 136 B now, ~2.3–2.4 KB with the rescue paths; the sector stays write-protectable);
-   it accepts an app of up to ~14 KB (its own limit, not the app's `APP_MAX_SIZE`), so the app
-   can later grow into half of the settings area; the settings ring may shrink from 4 KB to
-   2 KB (32 → 16 pages, the app moves its records itself); the app checks an update offer
-   against its own `_settings_start`, so an image can never overwrite the settings.
+3. Bootloader batch (SWD, frozen per unit: most test effort): bootloader v2 as designed in
+   docs/BOOTLOADER.md (alone in its 4 KB sector, apps up to 14 KB, power-on probe, rescue by a
+   try counter and by the module button, the link-watchdog hook; the flash driver shared with
+   the app without the old `BOOTLOADER` shim), the app side (build numbers, confirmation, the
+   link watchdog, DP 136 / 137), the tools (image rules, `install.sh`, release checks) and the
+   phase-3 ZTU in the fork. State below ("Phase 3").
 4. Hardware verification on the spare (the gate above).
 5. Migration of further modules (the order above).
 
@@ -262,6 +270,49 @@ took 2.1.11 by itself; On to a lit channel keeps its level, OnLevel from off, ge
 change-only after a Reconfigure) and on the further modules with their stock
 MCUs (2026-11-18, one at a time; no entity change). OnLevel kept across a power cycle
 (checked on the spare). Phase 2 is released as Open Dimmer 2.1.12 (on the spare).
+
+## Phase 3 (bootloader v2)
+
+Implemented and integrated, tested on the PC only; nothing of it has run on hardware.
+
+- Host tests: `make test` (with `make test-boot`, the real `boot/boot.c` against flash, RAM,
+  UART, watchdog and ZTU models: probe, rescue, button, link probe, power cuts at every page,
+  noise, fuzz, stock Tuya ZTU), the app's offer, identity, confirmation and link watchdog tests,
+  the image and release tools. The fork's stub tests of the phase-3 ZTU pass with release R's
+  app carried, including the factory MCU gate (the UART towards a stock MCU equals phase 1's).
+- Co-simulation (not in the repo): the real v2 and v1 bootloaders and the real apps (R, test
+  builds, 2.1.12) against the phase-3 ZTU stub: updates from 2.1.12 under v1 and v2, offers by
+  build, probe, counter and button rescue, the link watchdog (with its times cut), the stock
+  Tuya ZTU model, and a fuzz of 200 seeds (Zigbee commands, wall switch, resets, power cuts,
+  ZTU restarts with other images): no difference between the ZTU's and the MCU's state, no
+  bootloader rule broken.
+
+Still to do, in this order (docs/BOOTLOADER.md section 14):
+1. Release R; record its boot sector CRC (release notes).
+2. The phase-3 ZTU release carrying R's app, spare first (the spare takes R under v1 by the
+   version byte), then the other modules' ZTUs one at a time with their stock MCUs, each with
+   the per-module check of migration step 2.
+3. Spare: `IMAGE=<R's zdms16_py32_full.bin> tools/swd/install.sh` (also the first run of the
+   re-flash path), then the bench tests B1..B11 of docs/BOOTLOADER.md section 14 on the spare,
+   with the mains rules (the case closed on mains, the button pressed through it). None has run
+   yet. B8 (the reset flags) decides whether the cold / warm reading of the bootloader holds on
+   the chip; B2 checks the ZTU's 1.5 s answer time; B10 is the 1-2 week trial.
+4. Only then further modules (the migration order above).
+
+**Per ZTU release (contract check).** The frozen bootloader relies on the ZTU contract
+(docs/BOOTLOADER.md section 10, `src/ota_proto.h`): every ZTU release that carries an image runs
+the fork's contract tests, and on the spare B2 (20+ power cycles: DP 137 probe time at most
+1500 ms each, the light at probe time + ~50 ms) right after its OTA. A ZTU release that misses
+the contract is fixed before it goes to any further module; the bootloader's 3 s window stays.
+
+**DP 136 / 137 (health report, every 2 min).** DP 136 must equal the boot sector CRC of the
+release the module was installed with (the released v1: 0xEAC45031); anything else means the
+bootloader sector changed. DP 137 is the boot word at the start of the run: bits 3..0 the tries
+(1 at every start under a working ZTU, before the run confirmed), bit 6 LINK (a link-watchdog
+restart since the power-up: should stay clear under a working ZTU), bits 11..8 RESCUE, BUTTON,
+WRITTEN, STUCK since the power-up, bits 23..12 the probe's answer time in ms (0: no answer). 0
+under the v1 bootloader. Watch for RESCUE, LINK or STUCK, a probe time above 1500 ms, and DP 131
+resets that are not explained.
 
 ## Open (for the next session)
 

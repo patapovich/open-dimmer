@@ -3,10 +3,11 @@
 Status: design, 2026-11-18, revised the same day after an adversarial review of this design
 (three reviewers), again after two factory-firmware compatibility reviews (section 15), and
 once more with the user's decisions of the same day (the link-watchdog hook among them).
-Every finding, decision and its resolution is in section 16. Of all this only the shared
-interface `src/ota_proto.h` v2 is implemented (with `tests/test_ota_proto.c`); the old
-bootloader and the app use its renamed constants without any change of behaviour. Code
-references are to this repo at 421685a and to the fork `patapovich/tuya-zigbee-switch`,
+Every finding, decision and its resolution is in section 16. Implemented and integrated on
+2026-11-19 (bootloader, app side, tools; release R = 2.1.13, build 300), tested on the PC only:
+the readings the implementation took where this text left a choice are listed in section 17.
+Nothing of it has run on hardware yet (bench tests, section 14). The code references below are
+the design's: to this repo at 421685a and to the fork `patapovich/tuya-zigbee-switch`,
 branch `home-dimmer` at 51f5c95a (paths under `src/zigbee/` there are marked "fork").
 Addresses marked "stock ZTU" are in the public dump of the `_TZE284_jtbgusdc` ZTU (sha256
 f4afb7a8..., named in `docs/stock-firmware-analysis.md`), and "WiFi 1.0.3" ones in the WiFi PY32
@@ -931,11 +932,11 @@ already be in release R's app.
 "new" came with the review; estimated ~60 bytes together, plus ~20 for the stock-ZTU
 confirmation and ~80 for the link watchdog (item 11; estimates).
 
-*Implemented* (items 1-6, 8, 9 and 11; item 7's range guard still to come with the shared
-flash driver, ~20-36 bytes): 12 088 bytes, +616 on 2.1.12 and ~170 above the estimates (200
-bytes free of 12 KB; DIAG / MEASURE / SIM 11 700 / 11 712 / 11 740). The largest parts: the
-confirmation and link watchdog pass 176, the boot_id / sector CRC / word read 108, the input
-condition 76, the shared planned restart 48, the dark check 44.
+*Implemented* (items 1-11): 12 120 bytes in release R, +648 on 2.1.12 and ~200 above the
+estimates (168 bytes free of 12 KB; DIAG / MEASURE / SIM 11 732 / 11 744 / 11 772). Before the
+shared flash driver's range guard (item 7) it was 12 088. The largest parts: the confirmation
+and link watchdog pass 176, the boot_id / sector CRC / word read 108, the input condition 76,
+the shared planned restart 48, the dark check 44.
 
 1. **Header.** `{ APP_MAGIC, 0, 0, FW_VERSION, APP_FLAG_CONFIRMS | (RING_HIGH ? APP_FLAG_RING_HIGH
    : 0) | bench flags, FW_BUILD }` (`src/main.c:27-30`). `FW_BUILD` sits in `src/tuya.h`; `make
@@ -1346,9 +1347,9 @@ of them, a 14 KB app ~2 700, before any phase-3 ZTU code. So within this design 
 1), and CI prints the ZTU OTA size with each new carried image. The frozen bootloader can never
 take a compressed image, so this limit does not move from the MCU side.
 
-The implemented release-R app (section 9) is 12 088 bytes, ~460 more than the 11 628-byte app
-of that measurement (plus ~20-36 for the range guard), which leaves ~950 bytes of the OTA slot
-before any phase-3 ZTU code. The phase-3 ZTU build is measured against 0x34000 with that image.
+The implemented release-R app (section 9) is 12 120 bytes. *Measured* with it carried, the
+phase-3 ZTU's ZDMS16-2 OTA file is 211 938 bytes: 1 054 bytes below 0x34000. The implemented
+bootloader is 3 356 bytes (740 free), 104 more than the prototype.
 
 ---
 
@@ -1793,3 +1794,63 @@ Readings this document chose where U4 left the details open, each on the safe si
 | "Frame or answer from the ZTU" | Any well-formed frame (header, length, checksum), any command; noise bytes do not count. | Covers own ZTUs (0x20 answers every 30 s; contract item 8 added) and the stock ZTU (0x01 every 1 s), so the watchdog never fires under a working ZTU of either kind. |
 | "Unresponsive for at most ~3 s" | Holds when nothing newer is carried (*measured* 3.12 s when the ZTU does not answer 0xA1, 0.05 s when it does). When a newer build is carried, its install adds ~2.5 s (64-byte blocks), as after a power cut. | Installing a fix is the point of the hook; it happens only while the light is off. |
 | Request byte 7 | `OTA_MODE_LINK` (6) instead of 3, also for the update it starts. | The ZTU log can tell a link probe from a power-on probe (R2-2's purpose); every ZTU serves it by contract item 1. |
+
+---
+
+## 17. Implementation readings (2026-11-19)
+
+Where this text left a choice, the implementation took the safe reading below. Each one is
+pinned by a host test (`make test`, `make test-boot`, or the fork's stub tests).
+
+**Bootloader (`boot/boot.c`).**
+- The LED blinks fast once a block is taken, also in a probe- or link-started update (the
+  section 4 table and B7); "the LED stays off" in section 5 is the listening phase. The LED is
+  switched off before the jump.
+- A header answer is taken only if the carried header's size and CRC equal the block header's
+  (contract item 1). CRC 0 is refused in every mode (in a rescue window a pinned 0 would mean
+  "not pinned" and the window would never end).
+- The probe refuses builds above `OTA_BUILD_MAX`, and compares with the build installed at this
+  boot as the request carries it, not the live header (which may hold a half-written image).
+- Asked mode takes only the mailbox CRC; asked with an invalid app is NO_APP (any image).
+- The boot word, with bit 7 cleared and the run's info bits, is stored right after the mode
+  decision, so a reset during the run never replays a link request. Bits 5..4 are passed
+  through.
+- After a give-up the run switches to NO_APP and keeps its request pace (501 ms over 1 h). A
+  taken header counts as progress (section 8). A block that reaches past the image end is a
+  stray, so a ZTU that ignores `max_len` never completes an update (contract item 1).
+- The HSIRDY wait is bounded too. A byte that cannot start a frame is dropped at once; a too
+  long length rescans from the next byte.
+- `g_boot` (SWD state) keeps v1's first 28 bytes for `tools/ota_swd_emu.py` and adds the build
+  (0x1C) and the mode (0x1E).
+
+**App.**
+- DP 137 is 0 when the boot word is not valid (v1, random RAM, a torn pair).
+- Link watchdog "no input pressed": the button, momentary and state switches open, no input
+  event waiting, no change being debounced; a toggle switch resting closed does not block it.
+  "Dark": both channels off and the fader output 0. "A frame": what the app's parser takes
+  (55 AA 02, at most 96 data bytes, checksum). The silence is `now -` the last frame's time;
+  only the 4 h flag is sticky.
+- The app's watchdog start has bounded waits like the bootloader's.
+- The confirmation is idempotent (it writes only while tries != 0); a well-formed 0x01 is cmd
+  0x01 with length 0.
+- The late-press rule's cold start is the app's power-on rule (`DIMMER_COLD_START`), measured
+  from the app's start.
+- `make FW_PREV=1 FW_TEST=n` builds below the release (B3, B11), and `LINK_WDG_TEST=1` builds
+  only there. The Makefile and `src/tuya.h` refuse every other combination, with the same words.
+
+**Tools.** `mkimage.py` and `embed_ztu.py` refuse more than section 11 lists, all on the safe
+side (version byte < 0x80, vectors the bootloader would not start, a build that is not a
+release build or release + n with `--test n`, reserved flags, mismatched flags).
+`install.sh` clears the boot word before every reset its tools issue (pyOCD `load` resets after
+each write), writes `DBG_IWDG_STOP` right after the halt, reads WRPR at every attach and clears
+a set WRP before writing; `make flash` also refuses an image over 12 KB. The ring-mover gate of
+`release.sh` reads the earlier releases' RING_HIGH from their released images.
+
+**ZTU (fork, phase 3).** The 2 ms burst gate is code for every board, towards MCUs not
+identified as Open Dimmer only, and a burst also ends at an MCU answer. The dump retry is timed
+from the first contact. Block requests are logged once per run as BOOT_REQUEST, not per frame.
+A request shorter than 16 bytes is recorded as a v1 bootloader. `send_frame` refuses frames
+over 29 bytes.
+
+**Release R.** Version byte 0x9D (2.1.13): the smallest step above 2.1.12, which keeps the
+version space (item 31); build 300.
