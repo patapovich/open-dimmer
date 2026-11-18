@@ -35,15 +35,39 @@ After that, every update goes over Zigbee.
   - otherwise a 2.0 mm 4-pin **spring-loaded (pogo) connector** pressed down with a small clamp or
     a printed jig.
   Holding wires by hand works but makes the attach unreliable.
-- Linux with OpenOCD 0.12 and Python 3. Tools are expected in `~/projects/zdms16-py32`:
+- Linux with OpenOCD (0.12 used) and Python 3, plus the tools the scripts call:
 
   ```
-  mkdir -p ~/projects/zdms16-py32 && cd ~/projects/zdms16-py32
-  git clone https://github.com/patapovich/zdms16-py32 fw
-  git clone https://github.com/IOsetting/py32f0-template ~/projects/py32f0-template
-  python3 -m venv .venv && .venv/bin/pip install pyocd        # used: pyOCD 0.46
-  fw/tools/swd/make_opt_pack.sh                               # pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack
+  sudo apt install openocd python3-venv git zip unzip curl
+  sudo apt install make gcc-arm-none-eabi libnewlib-arm-none-eabi   # only to build it yourself
   ```
+
+  A work directory holds the clone (it must be called `fw`), the Python environment `.venv` and
+  the option-byte pack `pack/`; the SDK sits beside it. The SDK commit is the one CI builds
+  with, and pyOCD is the version every step here was run with:
+
+  ```
+  mkdir -p ~/projects/zdms16-py32 && cd ~/projects/zdms16-py32       # the work directory
+  git clone https://github.com/patapovich/zdms16-py32 fw
+  git clone https://github.com/IOsetting/py32f0-template ../py32f0-template
+  git -C ../py32f0-template checkout 009bdec7ed77c9b782a258c064c227e15ec19498
+  python3 -m venv .venv && .venv/bin/pip install pyocd==0.46.1
+  fw/tools/swd/make_opt_pack.sh "$PWD/../py32f0-template" "$PWD/pack"
+  .venv/bin/pyocd list                                               # the probe must show up
+  ```
+
+  `tools/swd/install.sh` and `rdp0_unlock.sh` find `.venv` and `pack/` next to `fw` wherever the
+  work directory is. The Makefile defaults to the paths above (`~/projects/zdms16-py32` and
+  `~/projects/py32f0-template`); elsewhere give them to `make`:
+
+  ```
+  make SDK=<template>/Libraries PYOCD=<work>/.venv/bin/pyocd \
+       PACK=<work>/pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack ...
+  ```
+
+  If `pyocd list` shows no probe or a permission error, the probe needs a udev rule (the
+  openocd package brings rules for the common ones). The commands below run in the work
+  directory or in `fw`.
 
 ## 0. Zigbee side first
 
@@ -80,8 +104,8 @@ over the air from the stock firmware, no opening needed:
 With the module off the mains and the clip wired to the probe:
 
 ```
-cd ~/projects/zdms16-py32/fw
-IMAGE=release tools/swd/install.sh          # or build first and leave IMAGE out
+cd fw
+IMAGE=release FREQ=400000 tools/swd/install.sh     # or build first and leave IMAGE out
 ```
 
 When it beeps and says so, press the clip onto CN2 and hold it until **DONE** (about
@@ -130,7 +154,7 @@ cycle while the script runs.
 ### Remove the read protection (erases the stock firmware)
 
 ```
-fw/tools/swd/rdp0_unlock.sh
+fw/tools/swd/rdp0_unlock.sh          # in the work directory
 ```
 
 The script keeps trying to attach for 90 s. **Power-cycle the module's VCC while it runs.** The
@@ -148,7 +172,6 @@ instead of the stock firmware (see `tools/swd/dump_py32.sh`).
 BOR at 2.5 V makes the MCU reset cleanly when the supply sags, instead of running on undefined:
 
 ```
-cd ~/projects/zdms16-py32
 .venv/bin/pyocd load -t py32f002ax5 --pack pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack -f 400000 \
     -O connect_mode=attach --base-address 0x1FFF0E80 fw/tools/swd/ob_bor25.bin
 ```
@@ -159,17 +182,24 @@ the module afterwards. `read32 0x40022020` in `pyocd commander` shows OPTR `0x..
 ### Flash the firmware
 
 ```
-cd ~/projects/zdms16-py32/fw
+cd fw
 make flash-all                      # builds and writes bootloader + app (full image)
 ```
 
-or, with a release file:
+or, with a release file
+(`https://github.com/patapovich/zdms16-py32/releases/latest/download/zdms16_py32_full.bin`),
+in the work directory; the first command stops the firmware's watchdog while the core is halted
+(as `make flash-all` and `install.sh` do), which a re-flash of a running module needs:
 
 ```
-cd ~/projects/zdms16-py32
+.venv/bin/pyocd commander -t py32f002ax5 --pack pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack -f 400000 \
+    -O connect_mode=attach -c "write32 0x40015808 0x1000"
 .venv/bin/pyocd load -t py32f002ax5 --pack pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack -f 400000 \
     --format bin --base-address 0x08000000 zdms16_py32_full.bin
 ```
+
+`FREQ=400000 IMAGE=<file> fw/tools/swd/install.sh` does the same and also reads the flash back
+and compares.
 
 Never flash a `SIM=1` build to a module that will go back on the mains: it simulates the
 zero cross and does not follow the real one.
