@@ -82,7 +82,22 @@ over the air from the stock firmware, no opening needed:
    and [external converters](https://github.com/romasku/tuya-zigbee-switch/blob/main/docs/updating.md#quirks--converters--extensions),
    but take the fork's files (only the fork has the ZDMS16-2 with the MCU firmware):
    - OTA index (`ota.zigbee_ota_override_index_location`):
-     `https://raw.githubusercontent.com/patapovich/tuya-zigbee-switch/home-dimmer_build/zigbee2mqtt/ota/index_router.json`
+     `https://raw.githubusercontent.com/patapovich/tuya-zigbee-switch/home-dimmer_build/zigbee2mqtt/ota/index_router.json`.
+     It lists only the ZDMS16-2 (the update and the conversion from stock), and Zigbee2MQTT takes
+     only one override index. If other devices of yours run tuya-zigbee-switch firmware, this
+     index alone stops their updates and conversions. Merge upstream's index and the fork's into a
+     local file instead: run this in the Zigbee2MQTT data directory (next to
+     `configuration.yaml`), set the option to `index_router.json`, and run it again to pick up new
+     releases. Upstream entries for the fork's devices are dropped, all others are kept.
+
+     ```
+     jq -s '(.[1] | map(.manufacturerName[]?)) as $m
+            | [.[0][] | select(any(.manufacturerName[]?; IN($m[])) | not)] + .[1]' \
+       <(curl -fsSL https://raw.githubusercontent.com/romasku/tuya-zigbee-switch/refs/heads/main/zigbee2mqtt/ota/index_router.json) \
+       <(curl -fsSL https://raw.githubusercontent.com/patapovich/tuya-zigbee-switch/refs/heads/home-dimmer_build/zigbee2mqtt/ota/index_router.json) \
+       > index_router.json
+     ```
+
    - converters (`switch_custom.js`, and `tuya_with_ota.js` for the stock module):
      [zigbee2mqtt/converters](https://github.com/patapovich/tuya-zigbee-switch/tree/home-dimmer_build/zigbee2mqtt/converters)
    - images, if you install them by hand:
