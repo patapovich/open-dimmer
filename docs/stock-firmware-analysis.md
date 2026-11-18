@@ -2,7 +2,9 @@
 
 Source: elektroda topic4066696 (PCB MK-WC1H16A-A V1.1 20230823, same board as ZDMS16 with the radio
 module swapped). Dump: mainflash.bin (20 KB, all used), optionbytes.bin. Disassembled with capstone
-(Thumb, base 0x08000000). Durable copies: ~/projects/zdms16-py32/ref/ (wifi_dms16w1_mainflash.bin, optionbytes, stock ZTU, re-scripts/).
+(Thumb, base 0x08000000). Copies of the dump, the option bytes, the stock ZTU image and the
+analysis scripts are kept outside the repo; the dumps are public (see "How the WiFi PY32 dump
+was made").
 
 ## Option bytes
 - OPTR = 0xBEAA (complement 0x4155): RDP = 0xAA → level 0, no readout protection.
@@ -68,7 +70,8 @@ Timers TIM1 and TIM16 are used heavily (phase-angle control); USART1 once.
   0x0C notify (PID 8, version 1, size 4, checksum 4), 0x0D MCU pulls blocks (PID, version,
   offset 4, size ≤ 50), 0x0E result. Cheap probe: send 0x0B from our ZTU firmware on the
   spare module and log the answer. Definitive: read the Zigbee PY32 over SWD on the bench.
-- Stock ZTU image of _TZE284_jtbgusdc is in the session scratchpad (dl-py32/ztu.bin, 1 MB).
+- Stock ZTU image of _TZE284_jtbgusdc: the public 1 MB dump (see "How the WiFi PY32 dump was
+  made").
 
 ## 0x0B probe on the Zigbee unit (spare <spare IEEE>, fw 1.1.3-e616064b, 2026-11-16 23:13)
 - Diag control 0x8B sent 0x0B with no data; the MCU answered 0x0B in 3 ms with data 0x47
@@ -80,9 +83,9 @@ Timers TIM1 and TIM16 are used heavily (phase-angle control); USART1 once.
   the dimmer in its loader. Read the Zigbee PY32 over SWD first to see the loader and the
   image format it expects.
 
-## Stock ZTU firmware (_TZE284_jtbgusdc, dl-py32/ztu.bin) — MCU OTA path, 2026-11-16
-Disassembled with tc32-elf-objdump (toolchain from the project's tools.mk, installed in
-~/tools/tc32). Layout: Tuya bootloader 0x0–0x6A0C, app at 0x8000 (KNLT, 0x42214 bytes).
+## Stock ZTU firmware (_TZE284_jtbgusdc, the 1 MB dump) — MCU OTA path, 2026-11-16
+Disassembled with tc32-elf-objdump (the Telink toolchain from the fork's tools.mk). Layout:
+Tuya bootloader 0x0–0x6A0C, app at 0x8000 (KNLT, 0x42214 bytes).
 - UART RX dispatcher 0x0000C858, jump table 0x48808 (cmd 1..0x3A): handles MCU→module
   0x01, 0x03, 0x05, 0x06, 0x08, **0x0B, 0x0D, 0x0E**, 0x20, 0x24, 0x25, 0x26, 0x27, 0x29,
   0x2C, 0x36, 0x37, 0x38, 0x3A. No handler for the MCU's 0x0C reply.
@@ -170,7 +173,7 @@ Dimming engine (for an own PY32 firmware):
 - BOOT0 = PY32 pin 5 (pin row 1 VSS, 2 SWD, 3 SWC, 4 PB3, 5 BOOT0).
 - WiFi build main(): HAL init, clock, HAL_Delay(1500), then GPIO init (0x08003B24) that turns
   PA13/PA14 into outputs → SWD attach + halt within ~1.5 s of power-up works without BOOT0
-  (~/projects/zdms16-py32/dump_py32_powerup.sh; BOOT0 variant dump_py32.sh).
+  (`tools/swd/dump_py32_powerup.sh`; BOOT0 variant `tools/swd/dump_py32.sh`).
 
 ## SWD read of the Zigbee PY32 (spare, fw 1.1.3-c28a892e, 2026-11-17)
 - Pico/uPesy RP2040 (not pin-compatible with a Pico) + debugprobe + OpenOCD; CN2 pads SWD/SWC/GND/VCC.
@@ -179,8 +182,8 @@ Dimming engine (for an own PY32 firmware):
   (WiFi dump RDP = 0xAA = level 0, open). So MAIN FLASH 0x08000000 is unreadable: every read failed
   ("Failed to read memory at 0x08000000"); system ROM, option bytes, UID, factory config read fine.
 - Consequence: the Zigbee PY32's own firmware can NOT be dumped; clearing RDP mass-erases the flash.
-  Use the WiFi dump (dl-py32/mainflash.bin) as the reference for an own PY32 firmware.
-- Saved: ~/projects/zdms16-py32/dump-spare-diag-132126/{systemrom_1FFF0000_3584B,optionbytes_1FFF0E80_128B,uid_1FFF0E00_128B,factoryconfig_1FFF0F00_128B}.bin.
+  Use the WiFi dump (mainflash.bin) as the reference for an own PY32 firmware.
+- Saved outside the repo: system ROM (3584 B), option bytes, UID and factory config (128 B each).
 
 ## Power stage from the elektroda photos (WiFi DMS16-W1 board MK-WC1H16A-A V1.1, read 2026-11-17)
 - Top: Q1 = NCE ...T260K N-MOSFET in DPAK (tab = drain towards the terminal block, left lead = gate,

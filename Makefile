@@ -5,13 +5,20 @@ SDK      ?= $(HOME)/projects/py32f0-template/Libraries
 PACK     ?= $(HOME)/projects/zdms16-py32/pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack
 PYOCD    ?= $(HOME)/projects/zdms16-py32/.venv/bin/pyocd
 PROJECT  := zdms16_py32
-# make VERSION_BYTE=0x81 BUILD=build-x: another version byte (tests of updates)
+# make VERSION_BYTE=0x81 BUILD=build-x: another version byte (tests of updates). Use a new
+# BUILD directory: a change of flags alone does not rebuild the objects.
 # make SIM=1: virtual 50 Hz zero cross from TIM16 instead of PA4 (bench, no mains)
 SIM      ?= 0
 # make MEASURE=1: measurement build, outputs always off, zero-cross / input statistics
-# reported every 10 s (version 2.0.15 so the module never replaces it)
+# reported every 10 s (version 2.0.15 by default)
 MEASURE  ?= 0
-# make DIAG=1: normal outputs, the same statistics reported every 10 s (2.0.14)
+# make DIAG=1: normal outputs, the same statistics reported every 10 s (2.0.14 by default)
+# MEASURE / DIAG with their default versions do NOT stay: the module's Zigbee firmware offers
+# its carried release (2.1.x) to any older own MCU, they accept it, and they are replaced a few
+# seconds after mains-on. Until they decline updates, give them a version byte at least the
+# carried one: make DIAG=1 VERSION_BYTE=0x9B BUILD=build-diag-9b (0x9B = 2.1.11, holds while
+# the Zigbee firmware carries 2.1.11 or older). Back: make flash-all over SWD, or a Zigbee
+# firmware that carries a newer version.
 DIAG     ?= 0
 BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)
 
@@ -38,7 +45,7 @@ LDFLAGS  := $(ARCH) -T$(LDSCRIPT) -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(PROJECT)
 
 OBJS     := $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o))) $(addprefix $(BUILD)/,$(notdir $(ASRCS:.s=.o)))
 
-# Bootloader (2 KB at 0x08000000): the same for every app build
+# Bootloader (4 KB at 0x08000000): the same for every app build
 BOOT_BUILD := build-boot
 BOOT_SRCS  := boot/boot.c src/flash_drv.c
 BOOT_OBJS  := $(addprefix $(BOOT_BUILD)/,$(notdir $(BOOT_SRCS:.c=.o)))
@@ -88,9 +95,10 @@ $(BUILD)/$(PROJECT)_full.bin: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin
 	python3 tools/mkimage.py $< --full $(BOOT_BUILD)/boot.bin $@
 
 # The module must be powered from the probe, never from mains, while wired.
-# Always the whole image (bootloader + app): pyocd erases 4 KB sectors and the
-# app shares the first one with the bootloader, so an app-only load wipes the
-# bootloader (seen 2026-11-17). The settings sector (0x08004000) is not touched.
+# Always the whole image (bootloader + app), so the two always match. pyocd
+# erases whole 4 KB sectors: the bootloader has the first one to itself (with
+# the old 2 KB layout an app-only load wiped it, 2026-11-17). The image ends
+# below the settings sector (0x08004000), which is not touched.
 flash flash-all: $(BUILD)/$(PROJECT)_full.bin
 	@# freeze the app's watchdog while the core is halted (DBGMCU APBFZ1 DBG_IWDG_STOP)
 	-$(PYOCD) commander -t py32f002ax5 --pack $(PACK) -f 400000 -O connect_mode=attach -c "write32 0x40015808 0x1000" >/dev/null 2>&1

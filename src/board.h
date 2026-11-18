@@ -1,5 +1,5 @@
 /* AVATTO ZDMS16-2 board, PY32F002A (TSSOP20). Pin map from the analysis of the
- * stock firmware of the twin WiFi board (DMS16-W1), see zdms16-py32-analysis.md. */
+ * stock firmware of the twin WiFi board (DMS16-W1), see docs/stock-firmware-analysis.md. */
 #ifndef BOARD_H
 #define BOARD_H
 

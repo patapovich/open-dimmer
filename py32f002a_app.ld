@@ -3,7 +3,7 @@
 **
 **  File        : LinkerScript.ld
 **
-**  Abstract    : Linker script for PY32F002A series (zdms16 app: 16 KB code +
+**  Abstract    : Linker script for PY32F002A series (zdms16 app: 12 KB code +
 **                4 KB settings sector, .RamFunc copied to RAM with .data;
 **                app at 0x08001000 behind the bootloader, header at +0xC0)
 **                Set heap size, stack size and stack location according

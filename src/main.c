@@ -1,8 +1,9 @@
 /* Own firmware for the PY32F002A of the AVATTO ZDMS16-2.
  * Step 4: phase-angle output (TIM1) on zero crosses; with SIM_ZC=1 a virtual
  * 50 Hz zero cross drives it without mains. Tuya MCU protocol towards the Zigbee
- * module, settings kept in flash, wall switch inputs and the module button; the LED shows channel 1 (on/off), or blinks while the module is not on a
- * network. */
+ * module, settings kept in flash, wall switch inputs and the module button; the
+ * LED is lit while any channel is on, and blinks while the module is not on a
+ * network (the diagnostics build mirrors PA4 on it instead). */
 #include "board.h"
 #include <string.h>
 #include "controls.h"

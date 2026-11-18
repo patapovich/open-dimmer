@@ -308,7 +308,9 @@ void phase_poll(void) {
 
 uint8_t phase_save_window(void) {
     if (!zc_locked(&g_zc)) {
-        return g_zc.good == 0;      /* no mains at all: any time; locking: not now */
+        /* Not locking (no mains, or the lock just restarted): no output to
+         * disturb, any time. Locking: not now. */
+        return g_zc.good == 0;
     }
     return (uint16_t)((uint16_t)TIM16->CNT - g_last_zc) < SAVE_WINDOW_TICKS;
 }
