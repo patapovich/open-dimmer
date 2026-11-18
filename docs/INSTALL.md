@@ -94,17 +94,25 @@ over the air from the stock firmware, no opening needed:
      It lists only the ZDMS16-2 (the update and the conversion from stock), and Zigbee2MQTT takes
      only one override index. If other devices of yours run tuya-zigbee-switch firmware, this
      index alone stops their updates and conversions. Merge upstream's index and the fork's into a
-     local file instead: run this in the Zigbee2MQTT data directory (next to
-     `configuration.yaml`), set the option to `index_router.json`, and run it again to pick up new
-     releases. Upstream entries for the fork's devices are dropped, all others are kept.
+     local file instead: run the commands below in the Zigbee2MQTT data directory (next to
+     `configuration.yaml`), set the option to `ota_index.json`, and run them again to pick up new
+     releases. Upstream entries for the fork's devices are dropped, all others are kept. They need
+     `curl` and `jq` 1.6 or newer, in any POSIX shell. If you use another upstream index
+     (`index_end_device.json` or a `-FORCE` one), put its name in the first URL; the fork's
+     ZDMS16-2 entries are in its `index_router.json`.
 
      ```
+     curl -fsSL -o ota_upstream.json https://raw.githubusercontent.com/romasku/tuya-zigbee-switch/refs/heads/main/zigbee2mqtt/ota/index_router.json &&
+     curl -fsSL -o ota_fork.json https://raw.githubusercontent.com/patapovich/tuya-zigbee-switch/refs/heads/home-dimmer_build/zigbee2mqtt/ota/index_router.json &&
      jq -s '(.[1] | map(.manufacturerName[]?)) as $m
             | [.[0][] | select(any(.manufacturerName[]?; IN($m[])) | not)] + .[1]' \
-       <(curl -fsSL https://raw.githubusercontent.com/romasku/tuya-zigbee-switch/refs/heads/main/zigbee2mqtt/ota/index_router.json) \
-       <(curl -fsSL https://raw.githubusercontent.com/patapovich/tuya-zigbee-switch/refs/heads/home-dimmer_build/zigbee2mqtt/ota/index_router.json) \
-       > index_router.json
+       ota_upstream.json ota_fork.json > ota_index.json.new &&
+     mv ota_index.json.new ota_index.json
      ```
+
+     Zigbee2MQTT reads this file at every OTA check of every device, and an empty or broken file
+     makes all of those checks fail. So the last line replaces it only when both downloads and jq
+     have succeeded; otherwise the old file stays.
 
    - converters (`switch_custom.js`, and `tuya_with_ota.js` for the stock module):
      [zigbee2mqtt/converters](https://github.com/patapovich/tuya-zigbee-switch/tree/home-dimmer_build/zigbee2mqtt/converters)
