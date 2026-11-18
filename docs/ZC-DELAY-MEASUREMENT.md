@@ -24,15 +24,25 @@ nollasta). Lamppu toimii nyt hyvin minimissä 6 %, joten mittaus on vain tiedoks
 
 ## Firmis
 
-LED seuraa PA4:ää vain diagnostiikkaversiossa (`make DIAG=1`, versio 2.0.14). Se flashataan
-SWD:llä verkko irti (probe kiinni vain jännitteettömänä):
+LED seuraa PA4:ää vain diagnostiikkaversiossa (`make DIAG=1`). Sen oletusversio on 2.0.14.
+ZTU tarjoaa sille sisältämäänsä uudempaa 2.1.x-versiota, ja diagnostiikkaversio ottaa sen
+vastaan muutaman sekunnin kuluttua verkon kytkemisestä. Mittaus ei siis ehdi alkaa.
+
+Kunnes firmis osaa kieltäytyä päivityksestä, käännä diagnostiikkaversio versiotavulla, joka on
+vähintään ZTU:n sisältämä versio. 0x9B (2.1.11) riittää, kun ZTU sisältää 2.1.11:n tai
+vanhemman. Käytä omaa build-hakemistoa, koska pelkkä käännösasetusten muutos ei käännä vanhoja
+objektitiedostoja uudelleen. Flashaus SWD:llä verkko irti (probe kiinni vain jännitteettömänä),
+fw-kloonin hakemistossa:
 
 ```
-cd ~/projects/zdms16-py32/fw && make DIAG=1 flash-all
+make DIAG=1 VERSION_BYTE=0x9B BUILD=build-diag-9b flash-all
 ```
 
-Mittauksen jälkeen ZTU päivittää MCU:n itse takaisin normaaliin versioon (2.1.x on uudempi kuin
-2.0.14), joten paluuseen ei tarvita SWD:tä.
+Zigbee2MQTT näyttää silloin `mcu_version` 2.1.11 own. Diagnostiikkaversion tunnistaa
+DP:istä 110..123, jotka tulevat 10 sekunnin välein.
+
+Paluu normaaliin versioon: `make flash-all` SWD:llä tai ZTU-päivitys, joka sisältää uudemman
+version kuin diagnostiikkaversion (ZTU tarjoaa sen itse).
 
 ## Kytkentä
 

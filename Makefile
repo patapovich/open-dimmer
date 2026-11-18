@@ -5,13 +5,20 @@ SDK      ?= $(HOME)/projects/py32f0-template/Libraries
 PACK     ?= $(HOME)/projects/zdms16-py32/pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack
 PYOCD    ?= $(HOME)/projects/zdms16-py32/.venv/bin/pyocd
 PROJECT  := zdms16_py32
-# make VERSION_BYTE=0x81 BUILD=build-x: another version byte (tests of updates)
+# make VERSION_BYTE=0x81 BUILD=build-x: another version byte (tests of updates). Use a new
+# BUILD directory: a change of flags alone does not rebuild the objects.
 # make SIM=1: virtual 50 Hz zero cross from TIM16 instead of PA4 (bench, no mains)
 SIM      ?= 0
 # make MEASURE=1: measurement build, outputs always off, zero-cross / input statistics
-# reported every 10 s (version 2.0.15 so the module never replaces it)
+# reported every 10 s (version 2.0.15 by default)
 MEASURE  ?= 0
-# make DIAG=1: normal outputs, the same statistics reported every 10 s (2.0.14)
+# make DIAG=1: normal outputs, the same statistics reported every 10 s (2.0.14 by default)
+# MEASURE / DIAG with their default versions do NOT stay: the module's Zigbee firmware offers
+# its carried release (2.1.x) to any older own MCU, they accept it, and they are replaced a few
+# seconds after mains-on. Until they decline updates, give them a version byte at least the
+# carried one: make DIAG=1 VERSION_BYTE=0x9B BUILD=build-diag-9b (0x9B = 2.1.11, holds while
+# the Zigbee firmware carries 2.1.11 or older). Back: make flash-all over SWD, or a Zigbee
+# firmware that carries a newer version.
 DIAG     ?= 0
 BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)
 
