@@ -22,3 +22,15 @@ Settings come from the environment (all optional):
 - `configure_check.js <converter.js> [empty reads]`: runs the ZDMS16-2 configure of a generated
   converter with the real zhc against a fake device whose MCU answers late (`mcu_version` "" for
   the first reads) and prints the order and time of the reads.
+- `deploy_ota.sh <ieee | friendly_name:ieee>...`: the local OTA step of a release. Takes the newest
+  ZDMS16-2 image of the fork's `home-dimmer_build` branch, refuses it unless it is a valid OTA file
+  that carries a valid PY32 image, shows each module's installed and the image's file version (from
+  the HA update entity) and asks before a downgrade, then updates the modules one at a time with
+  Z2M's `ota.image_block_response_delay` at 50 ms. A bare IEEE takes the Z2M friendly name from the
+  HA device registry (the device `name`, not `name_by_user`), because Z2M logs the end and failures
+  of an update with the friendly name. 250 ms is put back on every exit path (also on Ctrl-C), and a
+  failed restore is reported loudly (exit 3). It runs two local helpers from `$HA_HELPERS`, which
+  read the Z2M log over `$HA_SSH` by full timestamp (the clocks must agree; checked first):
+  `zdms16_ota_series.sh <image> <name:ieee>...` (offers the image to one module at a time through a
+  local OTA index; exit 0 only when every module finished; stall and total timeouts) and
+  `zdms16_ota_guard.sh <series output> <series pid>` (puts 250 ms back at the first BUFFER_FULL).
