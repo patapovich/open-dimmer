@@ -8,7 +8,9 @@
 # in ~/projects/tzs-diag instead, NO_TRIGGER=1 only waits for the py32-bump run that the
 # release's hand-over job starts (secret ZTU_DISPATCH_TOKEN).
 # Running it again resumes: a tag whose CI run failed gets its failed jobs re-run, a release
-# with a green CI run is carried on; a tag is never moved or deleted here.
+# with a green CI run is carried on; a tag is never moved or deleted here. The CI run counts
+# as green when its tests, builds and release succeeded: the optional hand-over job may fail
+# (expired token), then this script starts py32-bump itself.
 # Deploying to modules is a separate, local step: tools/ha/deploy_ota.sh <ieee>...
 # Usage: tools/release/release.sh            (bump FW_VERSION in src/tuya.h first)
 set -euo pipefail
@@ -65,7 +67,7 @@ watch_run() {    # repo, id, what: wait for the run, fail unless it succeeded
     gh run watch "$2" --repo "$1" --exit-status > /dev/null ||
         die "$3 run failed: https://github.com/$1/actions/runs/$2"
 }
-await_run() {    # repo, what, ids above, jq condition, gh run list args...: wait for it to appear, watch it
+await_id() {     # repo, what, ids above, jq condition, gh run list args...: wait for it to appear (sets RUN_ID)
     local repo=$1 what=$2 above=$3 cond=$4 id=""; shift 4
     for _ in $(seq 60); do
         id=$(find_run "$repo" "$above" "$cond" "$@")
@@ -73,16 +75,11 @@ await_run() {    # repo, what, ids above, jq condition, gh run list args...: wai
         sleep 5
     done
     [ -n "$id" ] || die "no $what run appeared in $repo"
-    watch_run "$repo" "$id" "$what"
+    RUN_ID=$id
 }
-rerun_failed() { # repo, id, what: re-run the failed jobs of a finished run and watch it
-    echo "  $3 run $2 did not succeed: re-running its failed jobs"
-    gh run rerun "$2" --repo "$1" --failed
-    for _ in $(seq 30); do
-        [ "$(gh run view "$2" --repo "$1" --json status --jq .status)" != completed ] && break
-        sleep 2
-    done
-    watch_run "$@"
+await_run() {    # the same arguments: wait for the run to appear, watch it
+    await_id "$@"
+    watch_run "$1" "$RUN_ID" "$2"
 }
 dispatched_id() { # output of gh workflow run: the run id, if it names the run
     grep -o 'actions/runs/[0-9]*' <<< "$1" | head -1 | cut -d/ -f3 || true
@@ -98,9 +95,55 @@ ensure_enabled() { # repo, workflow file: GitHub disables scheduled workflows af
         *) die "$2 in $1 is $state: enable it by hand if it should run" ;;
     esac
 }
-tag_run() {      # commit: "id status conclusion" of the newest CI run of the tag push at it
+tag_run() {      # commit: "id status" of the newest CI run of the tag push at it
     gh run list --repo "$PY32" --workflow ci.yml --event push --branch "$TAG" --commit "$1" --limit 1 \
-        --json databaseId,status,conclusion --jq '.[0] | select(.) | "\(.databaseId) \(.status) \(.conclusion)"'
+        --json databaseId,status --jq '.[0] | select(.) | "\(.databaseId) \(.status)"'
+}
+ci_url() { echo "https://github.com/$PY32/actions/runs/$1"; }
+watch_ci() {     # run id: wait for the tag's CI run to finish; ci_judge decides, not its conclusion
+    echo "  CI ($TAG) run $(ci_url "$1")"
+    gh run watch "$1" --repo "$PY32" > /dev/null || true
+}
+ci_judge() {     # run id: CI_OK=1 when every job but the optional hand-over succeeded (or was
+                 # skipped); HANDED_OVER=1 when the hand-over job succeeded
+    local j status nfail handover
+    j=$(gh run view "$1" --repo "$PY32" --json status,jobs --jq '
+        ([.jobs[] | select(.name | startswith("Hand over"))] | .[0].conclusion // "" |
+            if . == "" then "none" else . end) as $h
+        | ([.jobs[] | select(.name | startswith("Hand over") | not)
+            | select(.conclusion != "success" and .conclusion != "skipped")] | length) as $n
+        | "\(.status) \($n) \($h)"') || die "cannot read the CI ($TAG) run $(ci_url "$1")"
+    read -r status nfail handover <<< "$j"
+    [ "$status" = completed ] || die "CI ($TAG) run is $status: $(ci_url "$1"): run this again later"
+    CI_OK="" HANDED_OVER=""
+    [ "$nfail" = 0 ] && CI_OK=1
+    case $handover in
+        success) HANDED_OVER=1 ;;
+        none | skipped) ;;
+        *) [ -z "$CI_OK" ] ||
+            echo "warning: the hand-over job of the CI ($TAG) run did not succeed ($handover): ZTU_DISPATCH_TOKEN expired or without Actions write, or py32-bump disabled? $(ci_url "$1")" >&2 ;;
+    esac
+}
+move_tag() {     # how to move the unreleased tag to HEAD
+    printf '%s\n  %s' "move the unreleased tag (nobody uses it) to HEAD:" \
+        "git push origin :refs/tags/$TAG && git tag -d $TAG    and run this again"
+}
+ci_failed() {    # run id: stop after a failed CI run of the tag, with the ways on
+    local msg
+    msg="CI ($TAG) run failed: $(ci_url "$1")"
+    [ "$(release_state)" != none ] || msg+="
+By chance (runner, network): run this again, it re-runs the failed jobs.
+In the code or the workflow: fix it on main, then $(move_tag)"
+    die "$msg"
+}
+rerun_ci() {     # run id: re-run the failed jobs of a finished CI run and wait for it
+    echo "  CI ($TAG) run $1 did not succeed: re-running its failed jobs"
+    gh run rerun "$1" --repo "$PY32" --failed
+    for _ in $(seq 30); do
+        [ "$(gh run view "$1" --repo "$PY32" --json status --jq .status)" != completed ] && break
+        sleep 2
+    done
+    watch_ci "$1"
 }
 release_state() { # none, draft or published
     local d
@@ -112,7 +155,8 @@ release_state() { # none, draft or published
 # py32-bump run the release's hand-over job starts).
 prev_bump=$(max_run_id "$ZTU" --workflow py32-bump.yml)
 prev_build=$(max_run_id "$ZTU" --workflow build.yml --branch home-dimmer_build)
-CI_RAN=""   # a CI run of the tag (and so a hand-over) finished during this call
+CI_RAN=""        # a CI run of the tag finished during this call
+HANDED_OVER=""   # and its hand-over job succeeded (it started py32-bump, if it had the token)
 
 # --- tag, CI, release -------------------------------------------------------------------------
 remote_tag=$(git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}" | awk 'END { print $1 }')
@@ -130,21 +174,34 @@ if [ -n "$remote_tag" ]; then
         # the tag exists but the firmware has moved on: a new version is needed
         [ "$REL" != none ] && die "$TAG is released and the firmware changed since: bump FW_VERSION in src/tuya.h"
         die "$TAG is on origin at ${remote_tag:0:9} without a release, and the firmware changed since.
-Bump FW_VERSION in src/tuya.h, or (nobody uses an unreleased tag) move it to HEAD:
-  git push origin :refs/tags/$TAG && git tag -d $TAG    and run this again"
+Bump FW_VERSION in src/tuya.h, or $(move_tag)"
     fi
     # The release counts only with a green CI run of the tag at its commit.
     run=$(tag_run "$remote_tag")
     [ -n "$run" ] || die "no CI run of $TAG at ${remote_tag:0:9} in $PY32: push the tag again (git push origin :refs/tags/$TAG && git push origin $TAG)"
-    read -r id status conclusion <<< "$run"
+    read -r id status <<< "$run"
     if [ "$status" != completed ]; then
         echo "== $TAG: CI run in progress"
-        watch_run "$PY32" "$id" "CI ($TAG)"
+        watch_ci "$id"
         CI_RAN=1
-    elif [ "$conclusion" != success ]; then
-        echo "== $TAG: CI run $conclusion"
-        rerun_failed "$PY32" "$id" "CI ($TAG)"
-        CI_RAN=1
+        ci_judge "$id"
+        [ -n "$CI_OK" ] || ci_failed "$id"
+    else
+        ci_judge "$id"
+        if [ -z "$CI_OK" ]; then
+            echo "== $TAG: CI run failed"
+            # A re-run runs the tag's commit (its code, tests and workflow), not HEAD.
+            if [ "$REL" = none ] && [ "$remote_tag" != "$SHA" ]; then
+                changed=$(git diff --name-only "$remote_tag" HEAD -- . ':!docs' ':!*.md' ':!LICENSE')
+                [ -z "$changed" ] || die "$TAG has no release, its CI run failed ($(ci_url "$id")), and HEAD changed since the tag:
+$(head -5 <<< "$changed" | sed 's/^/  /')
+A re-run would run the tag's old code and workflow again: $(move_tag)"
+            fi
+            rerun_ci "$id"
+            CI_RAN=1
+            ci_judge "$id"
+            [ -n "$CI_OK" ] || ci_failed "$id"
+        fi
     fi
     REL=$(release_state)
     [ "$REL" = published ] || die "the CI run of $TAG succeeded but the release is $REL: see https://github.com/$PY32/releases"
@@ -163,9 +220,12 @@ else
     git push -q origin HEAD:main
     [ -n "$local_tag" ] || git tag -a "$TAG" -m "PY32 firmware $TAG"
     git push -q origin "refs/tags/$TAG"
-    await_run "$PY32" "CI ($TAG)" "$prev_ci" '.event == "push"' \
+    await_id "$PY32" "CI ($TAG)" "$prev_ci" '.event == "push"' \
         --workflow ci.yml --event push --branch "$TAG" --commit "$SHA"
+    watch_ci "$RUN_ID"
     CI_RAN=1
+    ci_judge "$RUN_ID"
+    [ -n "$CI_OK" ] || ci_failed "$RUN_ID"
     [ "$(release_state)" = published ] || die "the CI run of $TAG succeeded but there is no published release"
 fi
 gh release view "$TAG" --repo "$PY32" --json assets --jq '.assets[].name' | sed 's/^/  asset /'
@@ -178,10 +238,16 @@ bump_cond=".event != \"schedule\" and ((.displayTitle | startswith(\"Carry PY32 
 
 if [ -z "${LOCAL_BUMP:-}" ]; then
     echo "== carry into the Zigbee firmware: py32-bump in $ZTU (cloud)"
-    if [ -n "${NO_TRIGGER:-}" ] && [ -n "$CI_RAN" ]; then
+    if [ -n "${NO_TRIGGER:-}" ] && [ -n "$CI_RAN" ] && [ -n "$HANDED_OVER" ]; then
         await_run "$ZTU" "py32-bump" "$prev_bump" "$bump_cond" --workflow py32-bump.yml
     else
-        [ -z "${NO_TRIGGER:-}" ] || echo "  (NO_TRIGGER, but no CI run of $TAG finished now: starting py32-bump here)"
+        if [ -n "${NO_TRIGGER:-}" ]; then
+            if [ -n "$CI_RAN" ]; then
+                echo "  (NO_TRIGGER, but the hand-over job did not succeed: starting py32-bump here)"
+            else
+                echo "  (NO_TRIGGER, but no CI run of $TAG finished now: starting py32-bump here)"
+            fi
+        fi
         ensure_enabled "$ZTU" py32-bump.yml
         prev_bump=$(max_run_id "$ZTU" --workflow py32-bump.yml)
         out=$(gh workflow run py32-bump.yml --repo "$ZTU" -f py32_tag="$TAG" 2>&1) || die "$out"

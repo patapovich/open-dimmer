@@ -144,10 +144,14 @@ jobs:
           [ "$ver" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME but the image is $ver"; exit 1; }
           gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME" *
 
+  # Optional: a failure here (expired token) shows on the job but does not fail the run, and
+  # release.sh (which knows this job by its name starting with "Hand over") then starts
+  # py32-bump itself.
   handover:
     name: Hand over to the Zigbee firmware at once (tags v*, optional secret ZTU_DISPATCH_TOKEN)
     if: startsWith(github.ref, 'refs/tags/v')
     needs: release
+    continue-on-error: true
     runs-on: ubuntu-24.04
     permissions: {}
     steps:
@@ -163,9 +167,13 @@ jobs:
             echo "::notice::no ZTU_DISPATCH_TOKEN: $ZTU picks $GITHUB_REF_NAME up at its next hourly check (best effort), or run tools/release/release.sh"
             exit 0
           fi
+          failed() {
+            echo "::error::hand-over failed ($1): ZTU_DISPATCH_TOKEN expired or without Actions write on $ZTU? The release stands; run tools/release/release.sh, or $ZTU picks $GITHUB_REF_NAME up at its next hourly check (best effort)"
+            exit 1
+          }
           # GitHub disables scheduled workflows after 60 days without repository activity
-          state=$(gh api "repos/$ZTU/actions/workflows/py32-bump.yml" --jq .state)
+          state=$(gh api "repos/$ZTU/actions/workflows/py32-bump.yml" --jq .state) || failed "reading py32-bump"
           if [ "$state" = disabled_inactivity ]; then
-            gh api -X PUT "repos/$ZTU/actions/workflows/py32-bump.yml/enable"
+            gh api -X PUT "repos/$ZTU/actions/workflows/py32-bump.yml/enable" || failed "enabling py32-bump"
           fi
-          gh workflow run py32-bump.yml --repo "$ZTU" -f py32_tag="$GITHUB_REF_NAME"
+          gh workflow run py32-bump.yml --repo "$ZTU" -f py32_tag="$GITHUB_REF_NAME" || failed "starting py32-bump"
