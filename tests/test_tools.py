@@ -168,6 +168,8 @@ class Changelog(unittest.TestCase):
         self.assertEqual(cl.section(text, "v2.1.12"), "- a\n- b")
         self.assertEqual(cl.section(text, "2.1.1"), "- c")        # not a prefix match of 2.1.12
         self.assertEqual(cl.section(text, "2.1.13"), "")
+        wrapped = "## 1.0.0 (x)\n\n- one\n  two\n- three\n"
+        self.assertEqual(cl.section(wrapped, "1.0.0"), "- one two\n- three")
 
     def test_every_tagged_version_has_notes(self):
         """The repo's own CHANGELOG.md has a section for the version in src/tuya.h."""

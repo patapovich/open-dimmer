@@ -9,7 +9,8 @@ import sys
 
 
 def section(text, version):
-    """Body of the '## X.Y.Z (...)' section, without the heading and surrounding blank lines."""
+    """Body of the '## X.Y.Z (...)' section, without the heading and surrounding blank lines;
+    a bullet wrapped over several lines becomes one line."""
     version = version.lstrip("v")
     lines, body, inside = text.splitlines(), [], False
     for line in lines:
@@ -20,7 +21,14 @@ def section(text, version):
             continue
         if inside:
             body.append(line)
-    return "\n".join(body).strip()
+    # One line per bullet: GitHub shows a line break inside a release note as a break.
+    out = []
+    for line in body:
+        if line.startswith("  ") and line.strip() and out and out[-1].startswith("- "):
+            out[-1] += " " + line.strip()
+        else:
+            out.append(line)
+    return "\n".join(out).strip()
 
 
 def main(argv):
