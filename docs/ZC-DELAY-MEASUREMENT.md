@@ -61,5 +61,5 @@ version kuin diagnostiikkaversion (ZTU tarjoaa sen itse).
     eri muuntajaa, jos mahdollista);
   - valotransistorin nousu- ja laskuaika (1 kΩ:lla noin 10–20 µs);
   - MCU:n keskeytysviive (noin 2 µs).
-- Tulos kirjataan tiedostoon `~/projects/zdms16-py32-analysis.md`. Jos viive on suuri (yli noin
+- Kirjaa tulos tiedostoon `docs/stock-firmware-analysis.md`. Jos viive on suuri (yli noin
   0,3 ms), johtoajan alkua voidaan aikaistaa firmiksessä vastaavasti.
