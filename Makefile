@@ -126,6 +126,7 @@ define phase_test
 endef
 
 # Hardware-free logic on the PC
+HOST_TEST_FLAGS := -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -DHOST_TEST -Isrc -Itests
 test:
 	mkdir -p $(BUILD)/host
 	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_dim_core.c src/dim_core.c -o $(BUILD)/host/test_dim_core
@@ -141,6 +142,13 @@ test:
 	cc -std=c11 -Wall -Wextra -Werror -Dmemset=lm_memset -Dmemcpy=lm_memcpy -Dmemmove=lm_memmove \
 	   -Dmemcmp=lm_memcmp tests/test_libc_min.c src/libc_min.c -o $(BUILD)/host/test_libc_min
 	$(BUILD)/host/test_libc_min
+	@# dimmer.c and controls.c with the host stubs (board.h / ota_proto.h HOST_TEST)
+	cc $(HOST_TEST_FLAGS) tests/test_dimmer.c tests/host_stubs.c src/dimmer.c src/dim_core.c \
+	   -o $(BUILD)/host/test_dimmer
+	$(BUILD)/host/test_dimmer
+	cc $(HOST_TEST_FLAGS) tests/test_controls.c tests/host_stubs.c src/controls.c src/dimmer.c \
+	   src/dim_core.c src/input_core.c src/gesture_core.c -o $(BUILD)/host/test_controls
+	$(BUILD)/host/test_controls
 	python3 tests/test_tools.py
 
 .PHONY: test

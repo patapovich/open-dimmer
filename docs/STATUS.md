@@ -75,8 +75,23 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
   slow down to 1 step per 10 ms, 80 ms at min, then dark.
 - Momentary switch: tap from dark → quickly to the stored level; hold from dark → rises
   slowly from min (pick a very dim level); hold while lit → full rate up (no slow start),
-  slow near min going down; release stops at once.
+  slow near min going down; release stops at once. The first hold after a start goes
+  towards the far end (down above the middle of min..max), later ones alternate. The level
+  a hold picks is saved. A hold ends by itself after 2 × hold ms + 2 s (a stuck or shorted
+  input gives the network its levels back). A network on to a lit channel does not end a
+  hold (the ZTU writes DP 1 = 1 before every level change); an off does, also the module
+  button's.
 - Module button: both channels (any on → all off). ≥ 3 s: rejoin.
+- An input closed at power-up rests there: its release is no gesture, no button toggle and
+  no rejoin (a toggle or state switch takes it as a real change). A switch type change to
+  state sets the light from the switch at once.
+- After a watchdog, fault or update restart the light comes back as it was (on/off and
+  level), not by the power-on setting; once in a row only: another such reset within a
+  minute, and every power cut or brown-out, takes the power-on setting. A fault restarts at
+  once (no ~1 s dark wait for the watchdog). Host tests only, **untested on hardware**: the
+  watchdog and fault restore, the reset-flag decode and the fault reset (the update restore
+  of earlier versions has run on the spare); see the hardware gate.
+- A min or max write keeps the level inside min..max (the ack reports the level with it).
 - 50 and 60 Hz: the zero-cross tracker takes 40..70 Hz; fade and hold rates scale with the
   measured half period (1/64 steps per 10 ms), so the times in ms hold on both (tested).
 - The board's S1 input stays low ~0.1 s after release: a fast double tap merges in
@@ -156,6 +171,10 @@ version's own update path is proven.
   both channels at different levels, fading at the same time; a few hours at full and at ~50 %
   load, watching health DPs 131 (reset cause) and 132 (lock losses); 20+ mains cycles and short
   dropouts; an OTA with both channels lit.
+- Reset restore (the first version with it): a forced watchdog reset and a forced HardFault
+  each bring the light back as it was (health DP 131 shows IWDG or software), a second one
+  within a minute takes the power-on setting, a power cut or a brown-out takes the power-on
+  setting, and an update from it still restores the light.
 - `install.sh`: its re-flash path, then the full stock path (option reload) after restoring the
   spare's saved stock option bytes.
 - Tools: measure the CN2 pad pitch (below 2.54 mm, most likely 2.0 mm: ~6.0 mm first to last

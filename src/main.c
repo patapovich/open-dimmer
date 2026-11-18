@@ -204,15 +204,29 @@ static void watchdog_start(void) {
     IWDG->KR = 0xAAAA;
 }
 
+/* A fault restarts at once instead of spinning in the SDK's default handler
+ * until the watchdog bites (~1 s, the light dark): the light comes back as it
+ * was (dimmer_init). Unused interrupts still go to the default handler, which
+ * is not weak; the watchdog ends that. */
+void HardFault_Handler(void) {
+    SCB->AIRCR = (0x5FAu << SCB_AIRCR_VECTKEY_Pos) | SCB_AIRCR_SYSRESETREQ_Msk;
+    for (;;) {
+    }
+}
+void NMI_Handler(void) __attribute__((alias("HardFault_Handler")));
+
 int main(void) {
+    uint32_t csr = RCC->CSR;                    /* why we (re)started, before the flags are cleared */
 #if !(MEASURE || DIAG_REPORT)
-    g_reset_cause = RCC->CSR >> 24;             /* why we (re)started: kept for the health report */
+    g_reset_cause = csr >> 24;                  /* kept for the health report */
 #endif
     RCC->CSR |= RCC_CSR_RMVF;
     clock_init();
     gpio_init();
     phase_init();
-    dimmer_init();
+    _Static_assert(DIMMER_RESET_POWER == RCC_CSR_PWRRSTF && DIMMER_RESET_SOFT == RCC_CSR_SFTRSTF &&
+                   DIMMER_RESET_WDG == RCC_CSR_IWDGRSTF, "reset flags");
+    dimmer_init(csr);                           /* watchdog, fault, update: back as it was */
     controls_init();
     SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
     uart_init(UART_BAUD);
