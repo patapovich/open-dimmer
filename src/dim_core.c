@@ -104,7 +104,7 @@ void dim_fader_hold_cancel(dim_fader_t *f) {
     f->acc       = 0;
 }
 
-/* Whole steps to move now for q quarter steps (the rest is kept). */
+/* Whole steps to move now for q 1/64 steps (the rest is kept). */
 static uint16_t take(dim_fader_t *f, uint16_t q) {
     /* q 1/64 steps per 10 ms, for a half cycle of half_period: exact over time */
     uint32_t a    = f->acc + (uint32_t)q * f->half_period;

@@ -13,7 +13,8 @@
  *     in the DP dump (ours, gesture_core.h): 1 single, 2 double, 3 triple,
  *     4 hold, 5 release
  *   DP 101 / 102 dimming curve of channel 1 / 2 (enum, curves.h; ours, the
- *   stock MCU has no such DP): 0 linear, 1 led, 2 led_soft, 3 incandescent
+ *   stock MCU has no such DP): 0 linear, 1 led, 2 led_soft, 3 incandescent,
+ *   4 led_deep, 5 led_deeper
  * Levels are 10..1000 like the stock firmware. */
 #ifndef DIMMER_H
 #define DIMMER_H

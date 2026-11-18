@@ -45,7 +45,7 @@ LDFLAGS  := $(ARCH) -T$(LDSCRIPT) -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(PROJECT)
 
 OBJS     := $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o))) $(addprefix $(BUILD)/,$(notdir $(ASRCS:.s=.o)))
 
-# Bootloader (2 KB at 0x08000000): the same for every app build
+# Bootloader (4 KB at 0x08000000): the same for every app build
 BOOT_BUILD := build-boot
 BOOT_SRCS  := boot/boot.c src/flash_drv.c
 BOOT_OBJS  := $(addprefix $(BOOT_BUILD)/,$(notdir $(BOOT_SRCS:.c=.o)))
@@ -95,9 +95,10 @@ $(BUILD)/$(PROJECT)_full.bin: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin
 	python3 tools/mkimage.py $< --full $(BOOT_BUILD)/boot.bin $@
 
 # The module must be powered from the probe, never from mains, while wired.
-# Always the whole image (bootloader + app): pyocd erases 4 KB sectors and the
-# app shares the first one with the bootloader, so an app-only load wipes the
-# bootloader (seen 2026-11-17). The settings sector (0x08004000) is not touched.
+# Always the whole image (bootloader + app), so the two always match. pyocd
+# erases whole 4 KB sectors: the bootloader has the first one to itself (with
+# the old 2 KB layout an app-only load wiped it, 2026-11-17). The image ends
+# below the settings sector (0x08004000), which is not touched.
 flash flash-all: $(BUILD)/$(PROJECT)_full.bin
 	@# freeze the app's watchdog while the core is halted (DBGMCU APBFZ1 DBG_IWDG_STOP)
 	-$(PYOCD) commander -t py32f002ax5 --pack $(PACK) -f 400000 -O connect_mode=attach -c "write32 0x40015808 0x1000" >/dev/null 2>&1

@@ -8,8 +8,9 @@
  *   2 momentary  push button: press while off turns on at once; short press
  *                while on turns off on release; hold dims (light follows the
  *                finger, stops the moment it is released)
- * Module button: short press toggles channel 1; hold >= 3 s asks the Zigbee
- * module to leave and pair again (it decides, as with the stock MCU). */
+ * Module button: short press switches both channels (any on -> all off, else
+ * all on); hold >= 3 s asks the Zigbee module to leave and pair again (it
+ * decides, as with the stock MCU). */
 #ifndef CONTROLS_H
 #define CONTROLS_H
 

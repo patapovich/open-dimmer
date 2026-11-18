@@ -45,7 +45,7 @@ extern volatile zc_measure_t g_zc_measure;
 #endif
 
 void phase_init(void);
-/** New target for a channel (0 = channel 1). Fades there at 5 per half cycle. */
+/** New target for a channel (0 = channel 1). Fades there at the channel's fade rates. */
 void phase_set(uint8_t ch, uint8_t on, uint16_t level);
 /** Physical output limits of a channel (levels 10..1000, see dim_output). */
 void     phase_set_range(uint8_t ch, uint16_t min, uint16_t max);

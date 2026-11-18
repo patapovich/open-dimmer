@@ -59,7 +59,7 @@ static uint16_t g_fill;
 /* ---- hardware ------------------------------------------------------------- */
 
 /* Plain register writes: the LL GPIO helpers find the pin position with a
- * software bit scan on the M0+, which costs too much of the 2 KB. */
+ * software bit scan on the M0+, which costs bootloader space for nothing. */
 static void pins_safe(void) {
     RCC->IOPENR |= RCC_IOPENR_GPIOAEN;
     GPIOA->BRR   = (1u << 0) | (1u << 1);                    /* gates low */

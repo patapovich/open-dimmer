@@ -1,6 +1,6 @@
 /* Hardware-free part of the phase-control engine, unit tested on the PC
- * (tests/test_dim_core.c). Times are in ticks of 20 us (TIM16 / TIM1 with
- * PSC 479 at 24 MHz), so a 50 Hz half cycle is 500 ticks.
+ * (tests/test_dim_core.c). Times are in ticks of 20 us (TIM16 with PSC 479
+ * at 24 MHz), so a 50 Hz half cycle is 500 ticks.
  *
  * Model taken from the stock firmware of the twin WiFi board: on every zero
  * cross each channel's current value moves towards its target by a fixed
