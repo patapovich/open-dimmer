@@ -886,6 +886,30 @@ static void test_sim_poll_check_without_the_isrs(void) {
     sim_run(30000, NULL, 0, 1);
     CHECK(g_st.ug_on == 0);
 }
+
+static void test_sim_shutdown_survives_a_main_loop_moder_write(void) {
+    /* The EXTI shuts the gates down while the main loop is between the read
+     * and the write of GPIOA->MODER (uart_init): the write puts PA0/PA1 back
+     * to the timer, MOE off, floating. The next poll makes them GPIO low again. */
+    sim_start();
+    sim_run(30000, NULL, 0, 1);
+    CHECK(g_st.ug_on > 10 && !gates_shut_down());
+    GPIO_TypeDef before = fake_gpioa;                    /* the main loop reads MODER ... */
+    long         e[1]   = { 30123 };
+    sim_run(30123, e, 1, 1);                             /* ... the EXTI shuts down ... */
+    CHECK(gates_shut_down());
+    int on = g_st.ug_on;
+    fake_gpioa.mode[0] = before.mode[0];                 /* ... the stale write lands */
+    fake_gpioa.mode[1] = before.mode[1];
+    CHECK(fake_gpioa.mode[0] == LL_GPIO_MODE_ALTERNATE && fake_gpioa.mode[1] == LL_GPIO_MODE_ALTERNATE);
+    poll(30123 + POLL_TICKS);
+    CHECK(gates_shut_down());
+    for (long t = 30123 + 2 * POLL_TICKS; t < 60000; t += POLL_TICKS) {
+        poll(t);
+        CHECK(gates_shut_down());
+    }
+    CHECK(g_st.ug_on == on);
+}
 #endif /* SIM_ZC */
 
 int main(void) {
@@ -914,6 +938,7 @@ int main(void) {
     RUN(test_sim_edge_after_start_shuts_down_at_once);
     RUN(test_sim_level_check_without_the_exti);
     RUN(test_sim_poll_check_without_the_isrs);
+    RUN(test_sim_shutdown_survives_a_main_loop_moder_write);
 #endif
     RUN(test_main_loop_changes_faders_with_irqs_off);
     const char *variant = SIM_ZC ? "SIM" : MEASURE ? "MEASURE" : DIAG_REPORT ? "DIAG" : "normal";

@@ -322,7 +322,14 @@ void phase_poll(void) {
     uint8_t level = LL_GPIO_IsInputPinSet(ZC_PORT, ZC_PIN) ? 1 : 0;
     if (g_sim_poll_level == 2) {
         g_sim_poll_level = level;
-    } else if (level != g_sim_poll_level && !g_sim_blocked) {
+    } else if (level != g_sim_poll_level) {
+        g_sim_blocked = 1;
+    }
+    if (g_sim_blocked) {
+        /* Again on every poll: a shutdown from the ISR can be undone by a
+         * main-loop read-modify-write of GPIOA->MODER around it (uart_init
+         * sets PA2/PA3), which puts the gates back to the timer with MOE off,
+         * floating. The next main-loop pass makes them GPIO low again. */
         sim_block();
     }
 #endif
