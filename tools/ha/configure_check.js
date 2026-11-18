@@ -1,10 +1,10 @@
 // Run the ZDMS16-2 configure of a generated converter with the real zigbee-herdsman-converters
 // against a fake device whose MCU answers late (mcu_version "" at first), and print the order of
 // the reads. Usage: NODE_PATH=<zhc>/node_modules node configure_check.js <converter.js> [empty reads]
-const path = process.argv[2];
+const converter = require("path").resolve(process.argv[2]);   // a relative path works too
 const emptyReads = Number(process.argv[3] ?? 2);
 const zhc = require("zigbee-herdsman-converters");
-const defs = require(path);
+const defs = require(converter);
 const list = Array.isArray(defs) ? defs : (defs.default || defs.definitions || [defs]);
 const def = zhc.prepareDefinition(list.find((d) => d.model === "ZDMS16-2"));
 const t0 = Date.now();

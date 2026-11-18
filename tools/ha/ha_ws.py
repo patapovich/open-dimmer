@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """Minimal Home Assistant websocket client (stdlib only): send commands, print results.
-Usage: ha_ws.py '<json command without id>' ..."""
+Usage: ha_ws.py [--json] '<json command without id>' ...
+  HA_URL and HA_TOKEN come from the file $HA_ENV (default $HA_HELPERS/.env, HA_HELPERS default ~/ha).
+  Default output: one summary line per command. --json: each command's full result as one JSON
+  line on stdout (e.g. for config/device_registry/list); a failed command goes to stderr, exit 1."""
 import base64, json, os, socket, ssl, struct, sys, urllib.parse
 
-env = dict(l.strip().split("=", 1) for l in open(os.path.expanduser("~/ha-claude/.env")) if "=" in l and not l.startswith("#"))
+args = sys.argv[1:]
+raw = bool(args) and args[0] == "--json"
+if raw:
+    args = args[1:]
+env_file = os.environ.get("HA_ENV") or os.path.join(os.environ.get("HA_HELPERS") or "~/ha", ".env")
+env = dict(l.strip().split("=", 1) for l in open(os.path.expanduser(env_file)) if "=" in l and not l.startswith("#"))
 u = urllib.parse.urlparse(env["HA_URL"])
 host, port = u.hostname, u.port or (443 if u.scheme == "https" else 80)
 sock = socket.create_connection((host, port), timeout=15)
@@ -53,13 +61,21 @@ def recv():
 assert recv()["type"] == "auth_required"
 send({"type": "auth", "access_token": env["HA_TOKEN"]})
 assert recv()["type"] == "auth_ok"
-for i, arg in enumerate(sys.argv[1:], start=1):
+failed = False
+for i, arg in enumerate(args, start=1):
     cmd = json.loads(arg); cmd["id"] = i
     send(cmd)
     while True:
         r = recv()
         if r.get("id") == i and r.get("type") == "result":
-            print(json.dumps({"cmd": cmd.get("entity_id", cmd["type"]), "success": r["success"],
-                              "result": (r.get("result") or {}).get("entity_entry", {}).get("entity_id") if isinstance(r.get("result"), dict) else None,
-                              "error": r.get("error")}))
+            if not raw:
+                print(json.dumps({"cmd": cmd.get("entity_id", cmd["type"]), "success": r["success"],
+                                  "result": (r.get("result") or {}).get("entity_entry", {}).get("entity_id") if isinstance(r.get("result"), dict) else None,
+                                  "error": r.get("error")}))
+            elif r["success"]:
+                print(json.dumps(r.get("result")))
+            else:
+                print(json.dumps({"cmd": cmd["type"], "error": r.get("error")}), file=sys.stderr)
+                failed = True
             break
+sys.exit(1 if failed else 0)
