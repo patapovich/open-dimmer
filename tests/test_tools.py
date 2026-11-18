@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Host tests of the image tools: tools/mkimage.py (version byte rules) and
-tools/embed_ztu.py (what the Zigbee module may carry). Synthetic images, no
-toolchain needed. Run: python3 tests/test_tools.py"""
-import os, struct, subprocess, sys, tempfile, unittest, zlib
+"""Host tests of the image tools: tools/mkimage.py (version byte rules),
+tools/embed_ztu.py (what the Zigbee module may carry) and tools/gen_curves.py
+(curve tables). Synthetic images, no toolchain needed. Run: python3 tests/test_tools.py"""
+import contextlib, importlib.util, io, os, struct, subprocess, sys, tempfile, unittest, zlib
 
 TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
 MAGIC, HDR = 0x5A445041, 0xC0
@@ -120,6 +120,34 @@ class Tools(unittest.TestCase):
             self.assertIn(msg, out)
             self.assertFalse(made)
 
+
+def load_gen_curves():
+    sys.dont_write_bytecode = True                # no __pycache__ in tools/
+    spec = importlib.util.spec_from_file_location("gen_curves", os.path.join(TOOLS, "gen_curves.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class Curves(unittest.TestCase):
+    def test_generator_gives_src_curves_h(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            load_gen_curves().main()
+        with open(os.path.join(TOOLS, "..", "src", "curves.h")) as f:
+            self.assertEqual(out.getvalue(), f.read())
+
+    def test_generator_refuses_a_falling_table(self):
+        gen = load_gen_curves()
+        self.assertIsNone(gen.falling([0, 5, 5, 9]))
+        self.assertEqual(gen.falling([0, 5, 4, 9]), 2)
+        # a curve that dips in the middle (dim_curve's unsigned maths would wrap)
+        gen.CURVES = gen.CURVES + [("dip", lambda lv: lv / 1000.0 - (0.05 if 400 < lv < 500 else 0))]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as e:
+            gen.main()
+        self.assertIn("curve dip falls at point", str(e.exception.code))
+        self.assertEqual(out.getvalue(), "")       # nothing half-written to curves.h
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

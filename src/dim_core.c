@@ -199,8 +199,8 @@ uint16_t dim_curve(uint8_t curve, uint16_t value) {
     uint32_t        pos = (uint32_t)value * (CURVE_POINTS - 1);   /* in 1/1000 of a segment */
     uint32_t        seg = pos / DIM_VALUE_MAX;
     uint32_t        frac = pos % DIM_VALUE_MAX;
-    int32_t         a = k[seg], b = k[seg + 1];
-    int32_t         v = a + ((b - a) * (int32_t)frac + DIM_VALUE_MAX / 2) / DIM_VALUE_MAX;
+    uint32_t        a = k[seg], b = k[seg + 1];   /* b >= a: the tables never fall (gen_curves.py) */
+    uint32_t        v = a + ((b - a) * frac + DIM_VALUE_MAX / 2) / DIM_VALUE_MAX;
 
     return (uint16_t)(v < 1 ? 1 : v);       /* on is never fully dark */
 }

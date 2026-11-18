@@ -101,6 +101,51 @@ static void test_curves(void) {
     CHECK(dim_curve(99, 500) == dim_curve(0, 500));    /* unknown curve = linear */
 }
 
+/* dim_curve() interpolates with unsigned maths (no signed division code in
+ * the image): that needs tables that never fall, which tools/gen_curves.py
+ * enforces. */
+static void test_curve_tables_never_fall(void) {
+    for (uint8_t c = 0; c < CURVE_COUNT; c++) {
+        CHECK(k_curves[c][0] == 0);
+        CHECK(k_curves[c][CURVE_POINTS - 1] == CURVE_OUT_MAX);
+        for (uint8_t i = 0; i + 1 < CURVE_POINTS; i++) {
+            CHECK(k_curves[c][i + 1] >= k_curves[c][i]);
+        }
+    }
+    CHECK(CURVE_OUT_MAX == DIM_DUTY_MAX);
+}
+
+/* The interpolation as it was with signed maths (up to 2.1.11). */
+static uint16_t curve_signed(uint8_t curve, uint16_t value) {
+    if (value == 0) {
+        return 0;
+    }
+    if (value >= DIM_VALUE_MAX) {
+        return DIM_DUTY_MAX;
+    }
+    if (curve >= CURVE_COUNT) {
+        curve = CURVE_LINEAR;
+    }
+    const uint16_t *k    = k_curves[curve];
+    uint32_t        pos  = (uint32_t)value * (CURVE_POINTS - 1);
+    uint32_t        seg  = pos / DIM_VALUE_MAX;
+    uint32_t        frac = pos % DIM_VALUE_MAX;
+    int32_t         a = k[seg], b = k[seg + 1];
+    int32_t         v = a + ((b - a) * (int32_t)frac + DIM_VALUE_MAX / 2) / DIM_VALUE_MAX;
+    return (uint16_t)(v < 1 ? 1 : v);
+}
+
+static void test_curve_unsigned_maths_gives_the_same_duty(void) {
+    int differ = 0;
+    for (unsigned c = 0; c < 256; c++) {                 /* unknown curves too (= linear) */
+        for (unsigned v = 0; v <= 1100; v++) {
+            differ += dim_curve((uint8_t)c, (uint16_t)v) != curve_signed((uint8_t)c, (uint16_t)v);
+        }
+        differ += dim_curve((uint8_t)c, 65535) != curve_signed((uint8_t)c, 65535);
+    }
+    CHECK(differ == 0);
+}
+
 static void test_zc_locks_after_regular_edges(void) {
     zc_tracker_t z;
     zc_tracker_init(&z);
@@ -654,6 +699,8 @@ int main(void) {
     test_level_clamped();
     test_compare();
     test_curves();
+    test_curve_tables_never_fall();
+    test_curve_unsigned_maths_gives_the_same_duty();
     test_output_linear_is_unchanged();
     test_output_min_max_are_physical_for_every_curve();
     test_fader_floor();

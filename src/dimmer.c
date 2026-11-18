@@ -251,8 +251,8 @@ static uint8_t channel_dp(uint8_t dpid, uint8_t *ch, uint8_t *idx) {
     if (dpid < 1 || dpid > DIMMER_CHANNELS * DP_PER_CHANNEL) {
         return 0;
     }
-    *ch  = (uint8_t)((dpid - 1) / DP_PER_CHANNEL);
-    *idx = (uint8_t)((dpid - 1) % DP_PER_CHANNEL);
+    *ch  = (uint8_t)((unsigned)(dpid - 1) / DP_PER_CHANNEL);   /* unsigned: no signed division code */
+    *idx = (uint8_t)((unsigned)(dpid - 1) % DP_PER_CHANNEL);
     return 1;
 }
 
@@ -277,8 +277,8 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
             return 0;
         }
         uint32_t          v  = be32(value);
-        uint8_t           k  = (uint8_t)((dpid - DP_PROFILE_BASE) % DP_PROFILE_COUNT);
-        dimmer_channel_t *pc = &g_ch[(dpid - DP_PROFILE_BASE) / DP_PROFILE_COUNT];
+        uint8_t           k  = (uint8_t)((unsigned)(dpid - DP_PROFILE_BASE) % DP_PROFILE_COUNT);
+        dimmer_channel_t *pc = &g_ch[(unsigned)(dpid - DP_PROFILE_BASE) / DP_PROFILE_COUNT];
         if (k == PF_SOFT_END || k == PF_HOLD_END) {
             if (v > 100u) {
                 return 0;
@@ -300,7 +300,7 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
                 pc->hold_ms = (uint16_t)v;
             }
         }
-        apply((uint8_t)((dpid - DP_PROFILE_BASE) / DP_PROFILE_COUNT));
+        apply((uint8_t)((unsigned)(dpid - DP_PROFILE_BASE) / DP_PROFILE_COUNT));
         mark_dirty();
         return 1;
     }
@@ -419,9 +419,9 @@ void dimmer_report_dp(uint8_t dpid) {
         return;
     }
     if (dpid >= DP_PROFILE_BASE && dpid < DP_PROFILE_BASE + DP_PROFILE_COUNT * DIMMER_CHANNELS) {
-        const dimmer_channel_t *pc = &g_ch[(dpid - DP_PROFILE_BASE) / DP_PROFILE_COUNT];
+        const dimmer_channel_t *pc = &g_ch[(unsigned)(dpid - DP_PROFILE_BASE) / DP_PROFILE_COUNT];
         uint32_t                v;
-        switch ((dpid - DP_PROFILE_BASE) % DP_PROFILE_COUNT) {
+        switch ((unsigned)(dpid - DP_PROFILE_BASE) % DP_PROFILE_COUNT) {
         case PF_FADE_ON:  v = pc->fade_on_ms;   break;
         case PF_FADE_OFF: v = pc->fade_off_ms;  break;
         case PF_SOFT_END: v = pc->soft_end_pct; break;
