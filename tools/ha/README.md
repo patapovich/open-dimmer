@@ -29,8 +29,10 @@ Settings come from the environment (all optional):
   Z2M's `ota.image_block_response_delay` at 50 ms. A bare IEEE takes the Z2M friendly name from the
   HA device registry (the device `name`, not `name_by_user`), because Z2M logs the end and failures
   of an update with the friendly name. 250 ms is put back on every exit path (also on Ctrl-C), and a
-  failed restore is reported loudly (exit 3). It runs two local helpers from `$HA_HELPERS`, which
-  read the Z2M log over `$HA_SSH` by full timestamp (the clocks must agree; checked first):
+  failed restore is reported loudly (exit 3). On Ctrl-C the series is stopped first and 250 ms is
+  sent at once; a second Ctrl-C, TERM, HUP or a closed output pipe (`| tee` killed) cannot cut that
+  cleanup short. It runs two local helpers from `$HA_HELPERS`, which read the Z2M log over
+  `$HA_SSH` by full timestamp (the clocks must agree; checked first):
   `zdms16_ota_series.sh <image> <name:ieee>...` (offers the image to one module at a time through a
   local OTA index; exit 0 only when every module finished; stall and total timeouts) and
   `zdms16_ota_guard.sh <series output> <series pid>` (puts 250 ms back at the first BUFFER_FULL).

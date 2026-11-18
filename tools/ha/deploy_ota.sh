@@ -2,8 +2,9 @@
 # Deploy the newest module firmware built on the fork's home-dimmer_build branch to the named
 # ZDMS16-2 modules through Zigbee2MQTT, one module at a time. While the series runs, Z2M's
 # ota.image_block_response_delay is 50 ms; 250 ms is put back on every exit path (and by the
-# guard at the first BUFFER_FULL). The ZTU then updates an own PY32 MCU that runs an older
-# version (never a stock MCU).
+# guard at the first BUFFER_FULL). On Ctrl-C the series is stopped first and 250 ms put back;
+# a further Ctrl-C, TERM, HUP or a closed output pipe cannot cut that cleanup short. The ZTU then
+# updates an own PY32 MCU that runs an older version (never a stock MCU).
 #
 # Usage: tools/ha/deploy_ota.sh <ieee | friendly_name:ieee>...   (no default: always name the modules)
 #   Z2M logs 'Finished update of ...' and '... failed' with the friendly name. For a bare IEEE the
@@ -155,30 +156,36 @@ set_delay() {
         "{\"topic\":\"zigbee2mqtt/bridge/request/options\",\"payload\":\"{\\\"options\\\":{\\\"ota\\\":{\\\"image_block_response_delay\\\":$1}}}\"}"
 }
 SP=""; GP=""; TP=""; DELAY_SET=0; GSHOWN=0
+# shellcheck disable=SC2329  # used by cleanup (EXIT trap)
+say() { echo "$@" 2>/dev/null || { exec 1>&2; echo "$@"; }; }   # output pipe gone (| tee killed): stderr
 # shellcheck disable=SC2329  # runs from the EXIT trap
 cleanup() {
-    local rc=$?
+    local rc=$? stopping=0
     set +e
-    trap - EXIT INT TERM HUP
+    trap - EXIT
+    trap '' INT TERM HUP PIPE   # a second Ctrl-C or a closed output pipe must not cut this short
     if [ -n "$SP" ] && kill -0 "$SP" 2>/dev/null; then
-        echo "stopping the OTA series (pid $SP); its exit clears the OTA index"
-        kill -TERM "$SP"; pkill -TERM -P "$SP"
-        for _ in $(seq 30); do kill -0 "$SP" 2>/dev/null || break; sleep 1; done
-        kill -0 "$SP" 2>/dev/null && echo "!!! the OTA series (pid $SP) is still running"
+        kill -TERM "$SP"; pkill -TERM -P "$SP"; stopping=1   # first, before any output
         [ "$rc" -ne 0 ] || rc=1
+        say "stopping the OTA series (pid $SP), its exit clears the OTA index; Ctrl-C is ignored until this cleanup is done"
+    fi
+    if [ "$DELAY_SET" = 1 ]; then   # before the wait for the series and while the guard still runs
+        if set_delay 250; then
+            say "image_block_response_delay 250 sent (HA accepted the publish)"
+        else
+            say "!!! FAILED to put image_block_response_delay back to 250: set it in Z2M by hand (Settings, OTA)"
+            rc=3
+        fi
+    fi
+    if [ "$stopping" = 1 ]; then
+        for _ in $(seq 45); do kill -0 "$SP" 2>/dev/null || break; sleep 1; done
+        kill -0 "$SP" 2>/dev/null &&
+            say "!!! the OTA series (pid $SP) is still running: kill it, then write [] to /config/zigbee2mqtt/local_ota_index.json"
     fi
     for p in $GP $TP; do pkill -TERM -P "$p"; kill -TERM "$p"; done 2>/dev/null
     [ -n "$TP" ] && GSHOWN=$(wc -l < "$TMP/guard.log")
     [ -e "$TMP/guard.log" ] && tail -n +$(( GSHOWN + 1 )) "$TMP/guard.log"   # what the live view missed
-    if [ "$DELAY_SET" = 1 ]; then
-        if set_delay 250; then
-            echo "image_block_response_delay 250 sent (HA accepted the publish)"
-        else
-            echo "!!! FAILED to put image_block_response_delay back to 250: set it in Z2M by hand (Settings, OTA)"
-            rc=3
-        fi
-    fi
-    [ -e "$TMP/series.log" ] && echo "series output: $TMP/series.log"
+    [ -e "$TMP/series.log" ] && say "series output: $TMP/series.log"
     exit "$rc"
 }
 trap cleanup EXIT
