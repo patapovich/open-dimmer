@@ -14,6 +14,8 @@ if flags & 1 or version == 0xBF:
     sys.exit("refusing a SIM bench build: the module would push it to dimmers on the mains")
 if flags & 2:
     sys.exit("refusing a measurement build: its outputs are always off")
+if version == 0xFF:
+    sys.exit("refusing version 0xFF: no update could ever be offered to an MCU that has it")
 assert size <= 12 * 1024, "app larger than the 12 KB app area"
 sp, reset = struct.unpack_from("<II", img, 0)
 assert 0x08001000 <= reset < 0x08004000 and (sp >> 20) == 0x200, \
