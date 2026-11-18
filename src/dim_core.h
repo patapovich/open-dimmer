@@ -16,7 +16,7 @@
 #include <stdint.h>
 
 #define DIM_VALUE_MAX          1000
-#define DIM_STEP_DEFAULT       5      /* per half cycle: 0 -> 1000 in 2 s at 50 Hz */
+#define DIM_STEP_DEFAULT       5      /* per 10 ms: 0 -> 1000 in 2 s */
 
 /* Accepted half period: 40..70 Hz mains. Edges closer than the minimum are
  * noise or bounce and are ignored. */
@@ -29,14 +29,14 @@
 #define DIM_FADE_ON_MS         950    /* dark -> full when switched on: quick         */
 #define DIM_FADE_OFF_MS        950    /* full -> dark when switched off               */
 #define DIM_SOFT_END_PCT       12     /* switching off: the lowest 12 % above the min  */
-                                      /* slow down to 1 per half cycle (an even end)   */
+                                      /* slow down to 1 step per 10 ms (an even end)   */
 #define DIM_HOLD_MS            3300   /* hold dimming over the whole range             */
 #define DIM_HOLD_END_PCT       20     /* hold: the lowest 20 % above the min slow down */
 #define DIM_Q_PER_STEP         64     /* rates are in 1/64 steps per 10 ms             */
 #define DIM_HOLD_BOTTOM_Q      32     /* ... to 1/2 step per 10 ms at the min          */
 #define DIM_OFF_HOLD_MS        80     /* at the min before going dark                  */
 #define DIM_HALF_PERIOD_50HZ   500    /* 20 us ticks: the rates are per 10 ms half cycle */
-#define DIM_HOLD_RATE          3      /* full hold rate per half cycle at 3300 ms      */
+#define DIM_HOLD_RATE          3      /* full hold rate per 10 ms at 3300 ms           */
 #define DIM_PROFILE_MS_MAX     10000  /* longest fade / hold time a user can set       */
 
 /* How a channel fades and holds. Rates in 1/64 steps per 10 ms (DIM_Q_PER_STEP). */
@@ -59,7 +59,7 @@ void     dim_profile_default(dim_profile_t *p);
 typedef struct {
     uint16_t      current;   /* value applied now, 0..1000 */
     uint16_t      target;    /* 0 when off */
-    uint8_t       step;      /* lit to lit (level changes), per half cycle */
+    uint8_t       step;      /* lit to lit (level changes), steps per 10 ms */
     int8_t        hold_dir;  /* 0: normal fading; +1/-1: hold dimming */
     uint16_t      hold_lo;
     uint16_t      hold_hi;

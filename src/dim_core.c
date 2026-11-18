@@ -172,7 +172,7 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
                 cur           = tgt;
             }
         } else if (tgt < f->floor) {
-            /* going dark: the off rate, slowing to 1 per half cycle at the floor */
+            /* going dark: the off rate, slowing to 1 step per 10 ms at the floor */
             uint16_t step = take(f, eased_q(f->prof.off_q, DIM_Q_PER_STEP, (uint16_t)(cur - f->floor),
                                             f->prof.soft_span));
             cur = (uint16_t)(cur - f->floor > step ? cur - step : f->floor);
