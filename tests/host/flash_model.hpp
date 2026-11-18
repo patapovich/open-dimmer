@@ -1,9 +1,13 @@
-/* Register model of the PY32F002A flash controller for the host test of
- * src/flash_drv.c (tests/test_flash_drv.cpp, built as C++ so that register
- * reads and writes can be seen). Operations finish at once (BSY never set);
- * SR flags are write-1-to-clear, as on the chip. A test can make the erase or
- * the program raise an SR flag, or leave the page wrong. The page itself and
- * the factory timing words are plain memory mapped at their chip addresses. */
+/* Register model of the PY32F002A flash controller for the host tests of
+ * src/flash_drv.c (tests/test_flash_drv.cpp, and the real-driver variant of the
+ * bootloader harness tests/boot), built as C++ so that register reads and
+ * writes can be seen. SR flags are write-1-to-clear, as on the chip. A test can
+ * make the erase or the program raise an SR flag, or leave the page wrong. By
+ * default an operation finishes at once (BSY never seen); with erase_ns /
+ * program_ns BSY stays set for that long after the operation starts, every SR
+ * read costs poll_ns (one pass of the driver's busy wait) and is reported to
+ * advance_ns, and bsy_stuck makes BSY never clear. The page itself and the
+ * factory timing words are plain memory mapped at their chip addresses. */
 #ifndef HOST_FLASH_MODEL_HPP
 #define HOST_FLASH_MODEL_HPP
 
@@ -33,11 +37,27 @@ struct host_flash_model {
     uint32_t erase_raises;   /* SR flags the next erase raises */
     uint32_t program_raises; /* SR flags the next program raises */
     uint32_t pending;        /* raised when the running operation ends */
+    uint32_t erase_ns;       /* BSY time of an erase, of a program (0: at once) */
+    uint32_t program_ns;
+    uint32_t poll_ns;        /* model time one SR read costs */
+    uint8_t  bsy_stuck;      /* BSY never clears */
+    uint64_t now_ns;         /* model time, advanced by SR reads */
+    uint64_t busy_until_ns;
+    uint64_t sr_reads;
+    void   (*advance_ns)(uint32_t ns);   /* told of every SR read's cost (the owner's clock) */
 };
 extern host_flash_model host_flash;
 
 struct host_sr_reg {
     operator uint32_t() const {
+        host_flash.sr_reads++;
+        host_flash.now_ns += host_flash.poll_ns;
+        if (host_flash.advance_ns) {
+            host_flash.advance_ns(host_flash.poll_ns);
+        }
+        if (host_flash.bsy_stuck || host_flash.now_ns < host_flash.busy_until_ns) {
+            return host_flash.sr | FLASH_SR_BSY;
+        }
         host_flash.sr |= host_flash.pending;   /* the operation has ended */
         host_flash.pending = 0;
         return host_flash.sr;
@@ -56,11 +76,13 @@ struct host_cr_reg {
             host_flash.erases++;
             host_flash.pending |= host_flash.erase_raises | FLASH_SR_EOP;
             host_flash.erase_raises = 0;
+            host_flash.busy_until_ns = host_flash.now_ns + host_flash.erase_ns;
         }
         if ((b & FLASH_CR_PGSTRT) && (host_flash.cr & FLASH_CR_PG) && !(host_flash.cr & FLASH_CR_LOCK)) {
             host_flash.programs++;
             host_flash.pending |= host_flash.program_raises | FLASH_SR_EOP;
             host_flash.program_raises = 0;
+            host_flash.busy_until_ns = host_flash.now_ns + host_flash.program_ns;
         }
         host_flash.cr |= b & ~FLASH_CR_PGSTRT;
         return *this;

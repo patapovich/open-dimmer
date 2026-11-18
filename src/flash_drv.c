@@ -32,18 +32,19 @@ static void flash_set_timing(void) {
     FLASH->PRETPE  = (t[4] >> 16) & 0x3FFFu;
 }
 
-/* BOOTLOADER (set for boot/ builds only): the bootloader keeps the driver it
- * was released with, so boot.bin stays byte-identical until the bootloader
- * batch (fix plan phase 3) takes the SR-flag fix in and tests it on the spare.
- * Until then a stale flag or OPTVERR fails the bootloader's first attempt at a
- * page; the wait clears the flags and boot.c tries every page twice. */
+/* Busy waits are bounded: ~8 cycles a pass at 24 MHz, so ~50 ms, more than ten
+ * times a page erase. A controller that never finishes then fails the page
+ * (the caller reports it) instead of outlasting the ~1 s watchdog the
+ * bootloader refreshes between pages, which would reset-loop it before it
+ * could report anything. */
+#define FLASH_WAIT_LOOPS   150000u
 
 /* Returns 1 when the controller finished without a write error since the
  * flags were last cleared, and clears them. WRPERR is the only error a page
  * erase or program raises; OPTVERR tells of the option byte load at reset,
  * and the read-back after programming checks the page anyway. */
 static uint8_t flash_wait(void) {
-    uint32_t n = 2000000u;
+    uint32_t n = FLASH_WAIT_LOOPS;
     while (FLASH->SR & FLASH_SR_BSY) {
         if (--n == 0) {
             return 0;
@@ -51,11 +52,7 @@ static uint8_t flash_wait(void) {
     }
     uint32_t sr = FLASH->SR;
     FLASH->SR   = FLASH_SR_EOP | FLASH_SR_WRPERR | FLASH_SR_OPTVERR;   /* write 1 to clear */
-#ifdef BOOTLOADER
-    return (sr & (FLASH_SR_WRPERR | FLASH_SR_OPTVERR)) == 0;
-#else
     return (sr & FLASH_SR_WRPERR) == 0;
-#endif
 }
 
 /* Page program: 32 word writes into the page buffer with no other flash
@@ -75,11 +72,19 @@ static void program_page_ram(uint32_t addr, const uint32_t *src) {
     __enable_irq();
 }
 
+/* What this image may write (its linker script): the settings region in the
+ * app, the app area in the bootloader. */
+extern const uint8_t _flash_write_start[], _flash_write_end[];
+
 uint8_t flash_write_page(uint32_t addr, const uint32_t *src) {
     uint8_t         ok;
     const uint32_t *now = (const uint32_t *)addr;
     uint32_t        i;
 
+    if ((addr & (FLASH_PAGE_BYTES - 1u)) || addr < (uint32_t)(uintptr_t)_flash_write_start ||
+        addr > (uint32_t)(uintptr_t)_flash_write_end - FLASH_PAGE_BYTES) {
+        return 0;                   /* (written so that no sum can wrap) */
+    }
     for (i = 0; i < FLASH_PAGE_BYTES / 4u && now[i] == src[i]; i++) {
     }
     if (i == FLASH_PAGE_BYTES / 4u) {
@@ -87,11 +92,9 @@ uint8_t flash_write_page(uint32_t addr, const uint32_t *src) {
     }
 
     flash_set_timing();
-#ifndef BOOTLOADER
     /* Flags left by an earlier operation or by the reset are not this
      * write's: cleared first, so each wait sees only its own operation's. */
     FLASH->SR = FLASH_SR_EOP | FLASH_SR_WRPERR | FLASH_SR_OPTVERR;
-#endif
     if (FLASH->CR & FLASH_CR_LOCK) {
         FLASH->KEYR = FLASH_KEY1;
         FLASH->KEYR = FLASH_KEY2;
