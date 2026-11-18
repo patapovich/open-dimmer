@@ -13,6 +13,7 @@
 #define CH1_ON     1
 #define CH1_LEVEL  2
 #define CH1_TYPE   4
+#define CH2_ON     7
 #define HOLD_MS_1  153
 
 #define TOGGLE     0
@@ -120,6 +121,32 @@ static void test_type_change_mid_press(void) {
     CHECK(c1()->on == 1);
 }
 
+/* A press begun under another type: no 'on by this press' of the old one. */
+static void test_type_change_clears_on_by_press(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, MOMENTARY);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 600);
+    run_ms(3000);
+    s1(1);                                         /* a tap from dark: on by this press */
+    run_ms(150);
+    s1(0);
+    run_ms(2000);
+    CHECK(c1()->on == 1 && c1()->level == 600);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, TOGGLE);
+    run_ms(2000);
+    s1(1);                                         /* toggle: on */
+    run_ms(100);
+    CHECK(c1()->on == 1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, MOMENTARY);  /* still closed, before the hold time */
+    run_ms(500);
+    CHECK(g_host_fader[0].hold_dir != 0);          /* the hold dims the lit light */
+    run_ms(1000);
+    s1(0);
+    run_ms(100);
+    CHECK(c1()->on == 1 && c1()->level != 600);    /* and its level is kept */
+}
+
 static void test_release_reported_after_level(void) {
     momentary_lit_at(500);
     host_log_clear();
@@ -189,6 +216,32 @@ static void test_boot_held_toggle(void) {
     s1(0);                                         /* moving it is a real change */
     run_ms(100);
     CHECK(c1()->on == 1);
+}
+
+/* A state type switch says what the light is at boot, also over a restore
+ * after a watchdog reset and over the power-on setting. */
+static void test_state_switch_over_restore(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, STATE);/* S1 open */
+    run_ms(10);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);      /* on from the network */
+    host_write(CH2_ON, TUYA_DP_TYPE_BOOL, 1);
+    run_ms(3000);
+    CHECK(c1()->on == 1);
+    boot(DIMMER_RESET_WDG);
+    CHECK(dimmer_channel(1)->on == 1);             /* restored ... */
+    CHECK(c1()->on == 0);                          /* ... but the open switch wins */
+}
+
+static void test_state_switch_at_power_up(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, STATE);
+    run_ms(3000);                                  /* saved; power-on 'off' */
+    s1(1);
+    power_up(0);
+    CHECK(c1()->switch_type == STATE);
+    CHECK(c1()->on == 1);                          /* the closed switch wins */
+    CHECK(dimmer_channel(1)->on == 0);             /* channel 2: power-on 'off' */
 }
 
 /* ---- item 14 through the switch ---------------------------------------------- */
@@ -274,11 +327,14 @@ static void run(void (*test)(void), const char *name) {
 int main(void) {
     RUN(test_type_change_to_state_syncs);
     RUN(test_type_change_mid_press);
+    RUN(test_type_change_clears_on_by_press);
     RUN(test_release_reported_after_level);
     RUN(test_first_hold_goes_down);
     RUN(test_boot_held_button);
     RUN(test_boot_held_momentary);
     RUN(test_boot_held_toggle);
+    RUN(test_state_switch_over_restore);
+    RUN(test_state_switch_at_power_up);
     RUN(test_dp_on_during_hold_from_dark);
     RUN(test_hold_cap);
     RUN(test_tap_from_dark_fastest_hold);
