@@ -241,9 +241,9 @@ the fork. Fix plan, in phases:
 Phase 0 is done (2026-11-18). Phase 1 is released as ZTU 1.1.3-194952ee (fork home-dimmer
 aa5f02e4, build branch 194952ee) and the converter from it: on the spare since 2026-11-18 (MCU
 took 2.1.11 by itself; On to a lit channel keeps its level, OnLevel from off, gestures
-change-only after a Reconfigure) and on one further module with its stock MCU (no entity
-change, on/off checked), which is watched for a day before the others. Still to check on the
-spare: OnLevel kept across a power cycle.
+change-only after a Reconfigure) and on the further modules with their stock
+MCUs (2026-11-18, one at a time; no entity change). OnLevel kept across a power cycle
+(checked on the spare). Phase 2 is released as Open Dimmer 2.1.12 (on the spare).
 
 ## Open (for the next session)
 
