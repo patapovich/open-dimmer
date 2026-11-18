@@ -32,7 +32,10 @@ static void flash_set_timing(void) {
     FLASH->PRETPE  = (t[4] >> 16) & 0x3FFFu;
 }
 
-/* Returns 1 when the controller finished without an error. */
+/* Returns 1 when the controller finished without a write error since the
+ * flags were last cleared, and clears them. WRPERR is the only error a page
+ * erase or program raises; OPTVERR tells of the option byte load at reset,
+ * and the read-back after programming checks the page anyway. */
 static uint8_t flash_wait(void) {
     uint32_t n = 2000000u;
     while (FLASH->SR & FLASH_SR_BSY) {
@@ -42,7 +45,7 @@ static uint8_t flash_wait(void) {
     }
     uint32_t sr = FLASH->SR;
     FLASH->SR   = FLASH_SR_EOP | FLASH_SR_WRPERR | FLASH_SR_OPTVERR;   /* write 1 to clear */
-    return (sr & (FLASH_SR_WRPERR | FLASH_SR_OPTVERR)) == 0;
+    return (sr & FLASH_SR_WRPERR) == 0;
 }
 
 /* Page program: 32 word writes into the page buffer with no other flash
@@ -74,6 +77,9 @@ uint8_t flash_write_page(uint32_t addr, const uint32_t *src) {
     }
 
     flash_set_timing();
+    /* Flags left by an earlier operation or by the reset are not this
+     * write's: cleared first, so each wait sees only its own operation's. */
+    FLASH->SR = FLASH_SR_EOP | FLASH_SR_WRPERR | FLASH_SR_OPTVERR;
     if (FLASH->CR & FLASH_CR_LOCK) {
         FLASH->KEYR = FLASH_KEY1;
         FLASH->KEYR = FLASH_KEY2;

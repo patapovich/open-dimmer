@@ -113,7 +113,10 @@ clean:
 
 .PHONY: all flash flash-all clean
 
-# Hardware-free logic on the PC
+# Hardware-free logic on the PC. The store test builds the real source against stand-in device
+# headers (tests/host, HOST_TEST); the flash driver test is built as C++ so that its register
+# model sees every access.
+HOST_CFLAGS := -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -DHOST_TEST -Itests/host -Isrc
 test:
 	mkdir -p $(BUILD)/host
 	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_dim_core.c src/dim_core.c -o $(BUILD)/host/test_dim_core
@@ -125,6 +128,11 @@ test:
 	cc -std=c11 -Wall -Wextra -Werror -Dmemset=lm_memset -Dmemcpy=lm_memcpy -Dmemmove=lm_memmove \
 	   -Dmemcmp=lm_memcmp tests/test_libc_min.c src/libc_min.c -o $(BUILD)/host/test_libc_min
 	$(BUILD)/host/test_libc_min
+	cc $(HOST_CFLAGS) tests/test_store.c src/store.c -o $(BUILD)/host/test_store
+	$(BUILD)/host/test_store
+	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -Itests/host -Isrc \
+	   -x c++ src/flash_drv.c tests/test_flash_drv.cpp -o $(BUILD)/host/test_flash_drv
+	$(BUILD)/host/test_flash_drv
 	python3 tests/test_tools.py
 
 .PHONY: test
