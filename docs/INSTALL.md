@@ -203,7 +203,11 @@ automations that drive it).
 
 1. Power-cycle, disconnect the probe, close the module, connect it to the mains.
 2. In Zigbee2MQTT, press **Reconfigure** on the device: it reads `mcu_version` and the settings
-   again. Check that `mcu_version` shows `2.x.y own` (Reconfigure again if not).
+   again. Check that `mcu_version` shows `2.x.y own`. If it does not, Reconfigure alone does not
+   help: the Zigbee firmware asks the MCU who it is once, after its own start. Power-cycle the
+   module (mains off for a few seconds, then on), wait about 30 s and Reconfigure again. If it
+   still does not show `own`, check that the module runs the fork's current Zigbee firmware
+   (section 0). Do not restart Zigbee2MQTT before it shows `own`.
 3. Then restart Zigbee2MQTT once. Only then does it show the settings that only this firmware
    has (device option `own_mcu_settings`, default auto), and Home Assistant gets entities for
    them: per channel the dimming curve, the power-on behaviour, fade and hold, and the wall
