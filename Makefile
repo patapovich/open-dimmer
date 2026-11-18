@@ -113,11 +113,27 @@ clean:
 
 .PHONY: all flash flash-all clean
 
+# phase.c on the PC (tests/test_phase.c) against fake registers (tests/fake), once per
+# build variant. Its fader setters are renamed to hooks that check the interrupts are off.
+FADER_HOOKS := $(foreach f,set set_floor set_profile hold_start hold_start_from_dark hold_stop hold_cancel,\
+                 -Ddim_fader_$(f)=checked_dim_fader_$(f))
+HOST_CC     := cc -std=c11 -Wall -Wextra -Werror
+define phase_test
+	$(HOST_CC) -Itests/fake -Isrc $(2) $(FADER_HOOKS) -c src/phase.c -o $(BUILD)/host/phase_$(1).o
+	$(HOST_CC) -Itests/fake -Isrc $(2) tests/test_phase.c src/dim_core.c $(BUILD)/host/phase_$(1).o \
+	   -o $(BUILD)/host/test_phase_$(1)
+	$(BUILD)/host/test_phase_$(1)
+endef
+
 # Hardware-free logic on the PC
 test:
 	mkdir -p $(BUILD)/host
 	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_dim_core.c src/dim_core.c -o $(BUILD)/host/test_dim_core
 	$(BUILD)/host/test_dim_core
+	$(call phase_test,normal,-DSIM_ZC=0 -DMEASURE=0 -DDIAG_REPORT=0)
+	$(call phase_test,sim,-DSIM_ZC=1 -DMEASURE=0 -DDIAG_REPORT=0)
+	$(call phase_test,diag,-DSIM_ZC=0 -DMEASURE=0 -DDIAG_REPORT=1)
+	$(call phase_test,measure,-DSIM_ZC=0 -DMEASURE=1 -DDIAG_REPORT=0)
 	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_input_core.c src/input_core.c -o $(BUILD)/host/test_input_core
 	$(BUILD)/host/test_input_core
 	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_gesture_core.c src/gesture_core.c -o $(BUILD)/host/test_gesture_core

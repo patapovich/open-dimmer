@@ -4,6 +4,8 @@
  * Built with SIM_ZC=1, a TIM16 compare interrupt makes a virtual 50 Hz zero
  * cross instead of PA4 (no mains needed), so the whole output path can be
  * checked on the bench: TIM1 registers over SWD, PA0/PA1 on a logic analyzer.
+ * It starts once PA4 has been static for 200 ms; any PA4 edge (the module is
+ * on the mains) shuts the outputs down for good, from the interrupt.
  *
  * Safety: output only while locked onto regular zero crosses; if an edge is
  * late the timer wraps into compare 0 (gates low) by itself. */

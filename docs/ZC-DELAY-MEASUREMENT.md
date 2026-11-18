@@ -60,6 +60,9 @@ diagnostiikkaversiota uudempi MCU-versio (ZTU tarjoaa sen itse).
   - muuntajan vaihesiirto tyhjäkäynnillä (yleensä alle 0,1–0,3 ms; tarkista vertaamalla kahta
     eri muuntajaa, jos mahdollista);
   - valotransistorin nousu- ja laskuaika (1 kΩ:lla noin 10–20 µs);
-  - MCU:n keskeytysviive (noin 2 µs).
+  - MCU:n keskeytysviive: yleensä noin 1 µs, enintään noin 8 µs, jos UART-tavuja tulee samaan
+    aikaan (UART-keskeytys menee edelle, 3–4 µs kerrallaan), harvoin noin 10 µs
+    (diagnostiikkatilastojen kopiointi 10 sekunnin välein). Toista lukema muutaman kerran ja käytä
+    pienintä.
 - Kirjaa tulos tiedostoon `docs/stock-firmware-analysis.md`. Jos viive on suuri (yli noin
   0,3 ms), johtoajan alkua voidaan aikaistaa firmiksessä vastaavasti.

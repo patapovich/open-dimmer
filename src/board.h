@@ -36,4 +36,15 @@
 #define UART_RX_PIN     LL_GPIO_PIN_3
 #define UART_BAUD       115200
 
+/* Interrupt priorities, 0 = most urgent. The UART has one receive register and
+ * no FIFO: a byte must be read within one byte time (86.8 us at 115200), while
+ * the zero-cross ISR runs up to ~93 us (fader and curve maths for both
+ * channels). So the short UART ISR (3.3 us, 4.1 us with an overrun) comes
+ * first. It delays the zero-cross timestamp and UG by at most two of its runs,
+ * ~8 us: under one 20 us tick, ~0.8 V at the zero cross. */
+#define IRQ_PRIO_UART      0
+#define IRQ_PRIO_ZC        1   /* PA4 EXTI; the virtual TIM16 edge in the SIM build */
+#define IRQ_PRIO_SIM_GUARD 0   /* SIM build: the PA4 EXTI only shuts the outputs down */
+#define IRQ_PRIO_TICK      2   /* SysTick: input sampling */
+
 #endif

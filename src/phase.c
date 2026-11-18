@@ -8,6 +8,7 @@
 #define TICK_PSC          479u   /* TIM16: 24 MHz / 480 = 50 kHz, 20 us */
 #define OUT_PSC           47u    /* TIM1: 24 MHz / 48 = 500 kHz, 2 us */
 #define SIM_HALF_PERIOD   500u   /* 50 Hz */
+#define SIM_QUIET_HALVES  20u    /* SIM: PA4 static for 200 ms before the first virtual edge */
 #define SAVE_WINDOW_TICKS 50u    /* 1 ms after a zero cross: 9 ms until the next */
 #define ZC_PIN_MASK       (1u << 4)
 
@@ -53,10 +54,21 @@ static volatile uint16_t g_last_zc;
 
 #if SIM_ZC
 /* The bench build makes its own zero crosses. If the real detector moves, the
- * module is on the mains: never drive the gates out of step with it. */
+ * module is on the mains: never drive the gates out of step with it. PA4 is
+ * set up as in the normal build (pull-up, EXTI on both edges); its first edge
+ * shuts the outputs down for good, from the interrupt. The virtual edges start
+ * only after PA4 has been static for 200 ms. */
 static volatile uint8_t g_sim_blocked;
-static uint8_t          g_sim_zc_level;
-static uint8_t          g_sim_zc_changes;
+static uint8_t          g_sim_quiet;      /* virtual half cycles with PA4 static, saturates */
+static uint8_t          g_sim_zc_level;   /* PA4 at the first virtual half cycle */
+static uint8_t          g_sim_poll_level = 2;   /* PA4 at the first main-loop poll; 2 = not read yet */
+
+static void sim_block(void) {
+    g_sim_blocked = 1;
+    EXTI->IMR   &= ~ZC_PIN_MASK;            /* once is enough */
+    TIM16->DIER &= ~TIM_DIER_CC1IE;         /* no more virtual edges */
+    phase_shutdown();
+}
 #endif
 
 /* Channel 1 is PA1 = TIM1_CH4, channel 2 is PA0 = TIM1_CH3 (stock wiring). */
@@ -117,7 +129,24 @@ void TIM16_IRQHandler(void) {
         TIM16->SR = ~TIM_SR_CC1IF;
         uint16_t t   = (uint16_t)TIM16->CCR1;
         TIM16->CCR1 = (uint16_t)(t + SIM_HALF_PERIOD);
+        uint8_t level = LL_GPIO_IsInputPinSet(ZC_PORT, ZC_PIN) ? 1 : 0;
+        if (g_sim_quiet == 0) {
+            g_sim_zc_level = level;
+        } else if (level != g_sim_zc_level) {
+            sim_block();                    /* PA4 moved without an edge seen: on the mains */
+        }
+        if (g_sim_quiet < SIM_QUIET_HALVES) {
+            g_sim_quiet++;
+            return;
+        }
         zero_cross(t);
+    }
+}
+
+void EXTI4_15_IRQHandler(void) {
+    if (EXTI->PR & ZC_PIN_MASK) {
+        EXTI->PR = ZC_PIN_MASK;
+        sim_block();                        /* the real detector moves: on the mains */
     }
 }
 #else
@@ -153,7 +182,7 @@ static void timers_init(void) {
 #if SIM_ZC
     TIM16->CCR1  = SIM_HALF_PERIOD;
     TIM16->DIER |= TIM_DIER_CC1IE;
-    NVIC_SetPriority(TIM16_IRQn, 0);
+    NVIC_SetPriority(TIM16_IRQn, IRQ_PRIO_ZC);
     NVIC_EnableIRQ(TIM16_IRQn);
 #endif
     TIM16->CR1 = TIM_CR1_CEN;
@@ -183,8 +212,8 @@ static void gate_pins_to_timer(void) {
 }
 #endif
 
+/* The same in every build: in the SIM build the edges only shut the outputs down. */
 static void zero_cross_input_init(void) {
-#if !SIM_ZC
     LL_GPIO_SetPinMode(ZC_PORT, ZC_PIN, LL_GPIO_MODE_INPUT);
     LL_GPIO_SetPinPull(ZC_PORT, ZC_PIN, LL_GPIO_PULL_UP);
     LL_EXTI_SetEXTISource(LL_EXTI_CONFIG_PORTA, LL_EXTI_CONFIG_LINE4);
@@ -192,9 +221,8 @@ static void zero_cross_input_init(void) {
     EXTI->FTSR |= ZC_PIN_MASK;
     EXTI->PR    = ZC_PIN_MASK;
     EXTI->IMR  |= ZC_PIN_MASK;
-    NVIC_SetPriority(EXTI4_15_IRQn, 0);
+    NVIC_SetPriority(EXTI4_15_IRQn, SIM_ZC ? IRQ_PRIO_SIM_GUARD : IRQ_PRIO_ZC);
     NVIC_EnableIRQ(EXTI4_15_IRQn);
-#endif
 }
 
 void phase_init(void) {
@@ -205,12 +233,17 @@ void phase_init(void) {
 #if !MEASURE
     gate_pins_to_timer();       /* measurement build: the gates stay GPIO low, always */
 #endif
-    zero_cross_input_init();
+    zero_cross_input_init();    /* SIM: armed 200 ms before the first virtual edge */
 }
 
+/* Every fader change from the main loop is made with interrupts off: the
+ * zero-cross ISR ticks the same fader, and a change can be several stores
+ * (an off during a hold clears hold_dir and target). */
 void phase_set(uint8_t ch, uint8_t on, uint16_t level) {
     if (ch < 2) {
-        dim_fader_set(&g_fader[ch], on, level);   /* 16-bit store: atomic */
+        __disable_irq();
+        dim_fader_set(&g_fader[ch], on, level);
+        __enable_irq();
     }
 }
 
@@ -285,13 +318,12 @@ void phase_shutdown(void) {
 
 void phase_poll(void) {
 #if SIM_ZC
+    /* A third layer, behind the EXTI and the TIM16 level check: PA4 must not move. */
     uint8_t level = LL_GPIO_IsInputPinSet(ZC_PORT, ZC_PIN) ? 1 : 0;
-    if (level != g_sim_zc_level) {
-        g_sim_zc_level = level;
-        if (++g_sim_zc_changes >= 4 && !g_sim_blocked) {
-            g_sim_blocked = 1;
-            phase_shutdown();
-        }
+    if (g_sim_poll_level == 2) {
+        g_sim_poll_level = level;
+    } else if (level != g_sim_poll_level && !g_sim_blocked) {
+        sim_block();
     }
 #endif
     __disable_irq();
@@ -308,8 +340,10 @@ void phase_poll(void) {
 
 uint8_t phase_save_window(void) {
     if (!zc_locked(&g_zc)) {
-        /* Not locking (no mains, or the lock just restarted): no output to
-         * disturb, any time. Locking: not now. */
+        /* Not locked: no output to disturb. No good half cycle counted (no
+         * mains, or the count just restarted after a late edge or a gap): any
+         * time; a stall then at most delays the next timestamp, which the
+         * tracker's window catches. Counting towards the lock: not now. */
         return g_zc.good == 0;
     }
     return (uint16_t)((uint16_t)TIM16->CNT - g_last_zc) < SAVE_WINDOW_TICKS;
