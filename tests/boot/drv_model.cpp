@@ -21,8 +21,9 @@ static void on_sr_read(uint32_t ns) {
 
 extern "C" {
 
-/* sr: SR flags at reset (stale flags must not fail a write). */
-void drv_model_init(void (*advance_ns)(uint32_t), uint32_t sr, int bsy_stuck, int wrperr_always) {
+/* sr: SR flags at reset (stale flags must not fail a write). wrperr: 1 every erase raises
+ * WRPERR, 2 only the first erase (the model clears erase_raises once it is used). */
+void drv_model_init(void (*advance_ns)(uint32_t), uint32_t sr, int bsy_stuck, int wrperr) {
     host_flash               = host_flash_model();
     host_flash.cr            = FLASH_CR_LOCK;
     host_flash.sr            = sr;
@@ -32,8 +33,8 @@ void drv_model_init(void (*advance_ns)(uint32_t), uint32_t sr, int bsy_stuck, in
     host_flash.bsy_stuck     = (uint8_t)bsy_stuck;
     host_flash.advance_ns    = on_sr_read;
     g_advance                = advance_ns;
-    g_wrperr_always          = (uint8_t)wrperr_always;
-    host_flash.erase_raises  = wrperr_always ? FLASH_SR_WRPERR : 0;
+    g_wrperr_always          = wrperr == 1;
+    host_flash.erase_raises  = wrperr ? FLASH_SR_WRPERR : 0;
     host_rcc_regs_inst.ICSCR = 4u << RCC_ICSCR_HSI_FS_Pos;   /* 24 MHz, as the bootloader sets */
 }
 

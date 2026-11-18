@@ -13,10 +13,11 @@
  *   while RXNE is still set is lost and sets ORE, as on the chip. TX takes 87 us per byte.
  * - The ZTU: a C port of the fork's answer_block() (stateless, any offset, BLOCK_MAX 64 or 128,
  *   failed results counted and paused after 3), with a boot time, answer latency, noise (drop,
- *   late duplicates, bit flips), unsolicited frames, an image switch, a "serve below" limit, a
- *   phase-1 / phase-3 image gate or none, and fuzzed answers. Stock mode: the stock Tuya ZTU,
- *   which never answers 0xA1 / 0xA2 and sends its 0x01 query every 1 s, optionally with 1 s
- *   phases of 9600-baud garbage between them. SWD mode: tools/ota_swd_emu.py, feeding g_inject.
+ *   late duplicates, bit flips), a cut frame right before every answer, unsolicited frames, an
+ *   image switch, a "serve below" limit, a phase-1 / phase-3 image gate or none, and fuzzed
+ *   answers. Stock mode: the stock Tuya ZTU, which never answers 0xA1 / 0xA2 and sends its 0x01
+ *   query every 1 s, optionally with 1 s phases of 9600-baud garbage between them. SWD mode:
+ *   tools/ota_swd_emu.py, feeding g_inject.
  * - Checked at every boot: no rule broken in any register model, the gates never driven high,
  *   no flash write outside 0x08001000..0x080047FF (sector 0 and the top of the settings ring
  *   compared byte for byte), every request 16 bytes with the bootloader version, no request
@@ -25,8 +26,9 @@
  *   app is handed (VTOR, SP, SysTick off, USART1 reset, LED off, gates low, pins, clock, IWDG).
  *
  * Built twice (Makefile test-boot): with a flash model (power cuts at every page, pages that
- * never verify) and with the real src/flash_drv.c against the register model of
- * tests/host/flash_model.hpp (REAL_FLASH_DRV). Every scenario runs in a worker process of its
+ * never verify or fail their first write only) and with the real src/flash_drv.c against the
+ * register model of tests/host/flash_model.hpp (REAL_FLASH_DRV: stale flags, WRPERR at every or
+ * only the first erase, BSY that never clears). Every scenario runs in a worker process of its
  * own (HARNESS_JOBS of them at a time, default one per CPU); the output comes in table order.
  * Usage: harness <image dir> [scenario...] */
 #define _GNU_SOURCE
@@ -73,6 +75,12 @@ extern uint32_t _ebss __attribute__((alias("_sbss")));
 enum { OUT_RETURNED = 1, OUT_JUMP = 10, OUT_RESET = 11, OUT_CUT = 12, OUT_TIMEOUT = 13, OUT_BAD = 14, OUT_WDT = 15 };
 enum { ZTU_OWN, ZTU_STOCK, ZTU_SWD };
 enum { GATE_RAW, GATE_P1, GATE_P3 };    /* the ZTU's image check before it serves */
+/* The cut frame before an answer (section 8, Receive: the rescan). BADSUM: a whole frame header
+ * whose length takes in the answer's first bytes, so the answer starts inside a frame with a
+ * bad checksum. LONG: a header cut after 6 bytes, so with the answer's 55 AA its length reads
+ * 0x55AA, longer than any answer. Either way the answer is in the buffer when the cut frame
+ * fails, and only a rescan of the buffered bytes finds it. */
+enum { PREFIX_NONE, PREFIX_BADSUM, PREFIX_LONG };
 
 #define IMG_MAX  0x4000u
 #define LED_MAX  8192u
@@ -88,22 +96,25 @@ typedef struct {
     int      serving;                /* own ZTU answers 0xA1 at all */
     uint32_t block_max;
     uint64_t ready_ns, ready_cfg_ns; /* the ZTU answers nothing before (this boot / after a cold) */
-    uint32_t serve_below;            /* answers only offsets below, 0: all */
+    uint32_t serve_below;            /* answers only the header and offsets below, 0: all */
     int      probe_lat_ms;           /* header answers this long after the request (+-1.5 ms) */
     double   drop_p, dup_p, flip_p;
     int      fuzz;
     uint32_t unsol_every_ms;         /* own ZTU: query-all + version frames every N ms */
+    int      prefix;                 /* own ZTU: a cut frame right before every answer (PREFIX_*) */
     int      garbage;                /* stock ZTU: 1 s phases of 9600-baud garbage */
     long     switch_at_page, stop_at_page;
     long     cut_at_page;            /* power cut at this flash page write (counted over boots) */
     int      cut_after_program;      /* 0: after the erase, 1: after the program */
     long     bad_page;               /* this image page never verifies */
+    long     flaky_page;             /* this image page fails its first write only */
     int      button;                 /* module button held from power-up */
     uint64_t button_release_ns;      /* released at (0: never) */
     int      lsi_dead;
     int      hsi_dead;                /* HSIRDY never set after the frequency change */
     uint32_t drv_sr;                 /* real driver: SR flags at reset */
-    int      drv_bsy_stuck, drv_wrperr;
+    int      drv_bsy_stuck;
+    int      drv_wrperr;             /* real driver: 1 every erase raises WRPERR, 2 the first erase of a boot */
     long     corrupt_off;            /* the first answer that holds this image offset has it wrong */
     int32_t  size_skew;              /* the ZTU's block header tells a size this much off the image's */
     uint32_t offset_skew;            /* the ZTU's block answers tell this offset more than asked */
@@ -415,7 +426,7 @@ static void ztu_answer_block(const uint8_t *f, int n, uint64_t at) {
     if (!S->serving || S->failures >= 3 || at < S->ready_ns || !image_gate()) {
         return;
     }
-    if (S->serve_below && off >= S->serve_below) {
+    if (S->serve_below && off >= S->serve_below && off != APP_HEADER_OFFSET) {
         return;
     }
     const uint8_t *im = S->img;
@@ -497,6 +508,27 @@ static void ztu_answer_block(const uint8_t *f, int n, uint64_t at) {
     if (S->ztu == ZTU_SWD) {           /* through the debugger, not the UART */
         swd_put(fr, len);
         return;
+    }
+    if (S->prefix) {
+        uint8_t p[8] = { 0x55, 0xAA, 0x02, 0x00, 0x00, OTA_CMD_BLOCK, 0x00, 0x00 };
+        int     pn   = 6;
+        if (S->prefix == PREFIX_BADSUM) {
+            /* length l: l data bytes and the checksum byte come from the answer; one less if
+             * the sum happens to match */
+            int l = len - 1 < 29 ? len - 1 : 29;
+            for (; l > 1; l--) {
+                uint8_t ps = (uint8_t)(0x55 + 0xAA + 0x02 + OTA_CMD_BLOCK + l);
+                for (int i = 0; i < l; i++) {
+                    ps = (uint8_t)(ps + fr[i]);
+                }
+                if (ps != fr[l]) {
+                    break;
+                }
+            }
+            p[7] = (uint8_t)l;
+            pn   = 8;
+        }
+        ztu_send(p, pn, at + lat, 0);  /* not a frame: the half-duplex check skips it */
     }
     ztu_send(fr, len, at + lat, !flipped);
     if (S->dup_p > 0 && frand() < S->dup_p) {
@@ -897,7 +929,7 @@ static __attribute__((unused)) void cut_now(void) {
 
 #ifdef REAL_FLASH_DRV
 uint32_t drv_crc32_update(uint32_t crc, const uint8_t *p, uint32_t n);
-void     drv_model_init(void (*advance_ns)(uint32_t), uint32_t sr, int bsy_stuck, int wrperr_always);
+void     drv_model_init(void (*advance_ns)(uint32_t), uint32_t sr, int bsy_stuck, int wrperr);
 
 uint32_t crc32_update(uint32_t crc, const uint8_t *p, uint32_t n) {
     crc_ps += (uint64_t)n * CRC_PS_BYTE;
@@ -949,6 +981,10 @@ uint8_t flash_write_page(uint32_t addr, const uint32_t *src) {
     }
     if (S->bad_page >= 0 && addr == APP_BASE + 128u * (uint32_t)S->bad_page) {
         return 0;                     /* erased, never programs */
+    }
+    if (S->flaky_page >= 0 && addr == APP_BASE + 128u * (uint32_t)S->flaky_page) {
+        S->flaky_page = -1;
+        return 0;                     /* erased, not programmed this once */
     }
     memcpy(p, src, 128);
     if (k == S->cut_at_page && S->cut_after_program) {
@@ -1140,7 +1176,7 @@ static void fresh(void) {
     S->gate           = GATE_RAW;
     S->serving        = 1;
     S->block_max      = OTA_ZTU_BLOCK_MAX;
-    S->switch_at_page = S->stop_at_page = S->cut_at_page = S->bad_page = S->corrupt_off = -1;
+    S->switch_at_page = S->stop_at_page = S->cut_at_page = S->bad_page = S->flaky_page = S->corrupt_off = -1;
     S->seed           = 12345;
     S->limit_ns       = 600 * S_;
     memset(RAM_MEM, 0, 0x1000);
@@ -1371,6 +1407,9 @@ SCENARIO sc_switch(void) {
     EXPECT(o == OUT_JUMP && flash_is("n299"), "probe image change\n");
 }
 
+/* Item 28: the ZTU serves the header and page 0, which is the same in 300 and 301, then nothing.
+ * The page was offered to the writer (so g_intact is cleared) but nothing was erased: the give-up
+ * must check the app again and start it, not take it for a half-written one. */
 SCENARIO sc_stallp0(void) {
     fresh();
     flash_set("n300");
@@ -1380,9 +1419,51 @@ SCENARIO sc_stallp0(void) {
     app_ran(1);
     app_accepts();
     int o = boot_once();
-    printf("ZTU answers only page 0 (identical): %s after %.1f s, old app intact %d\n", oname(o), secs(),
-           flash_is("n300"));
-    EXPECT(o == OUT_JUMP && flash_is("n300") && secs() < 11, "old app after the give-up\n");
+    printf("ZTU answers the header and page 0 (identical), then nothing: %s after %.1f s, %u offset-0 requests, %u "
+           "page writes offered, %u erased, old app intact %d\n", oname(o), secs(), S->off0_req, S->flash_calls,
+           S->pages, flash_is("n300"));
+    EXPECT(S->header_req >= 1 && S->off0_req >= 1 && S->flash_calls >= 1 && S->pages == 0,
+           "pinned, page 0 offered to the writer, nothing erased\n");
+    EXPECT(o == OUT_JUMP && flash_is("n300") && secs() > 9.9 && secs() < 11, "old app after the give-up\n");
+}
+
+/* Section 8, Receive (item 39(4)): after a bad checksum, or a length no answer of ours has, the
+ * buffered bytes are scanned again before more are read. Every answer comes right behind a cut
+ * frame (PREFIX_*), so it is half in the buffer when the cut frame fails: without the rescan
+ * every answer is lost. */
+SCENARIO sc_rescan(void) {
+    const char *what[] = { "no cut frame", "a frame with a bad checksum", "a header cut after 6 bytes" };
+    uint32_t    base   = 0;
+    for (int k = PREFIX_NONE; k <= PREFIX_LONG; k++) {
+        fresh();                      /* the probe, nothing newer: the first answer ends it */
+        flash_set("n300");
+        carry("n300");
+        S->prefix = k;
+        cold();
+        int      op = boot_once();
+        double   tp = secs();
+        unsigned hr = S->header_req, pm = probe_ms();
+        EXPECT(op == OUT_JUMP && hr == 1 && pm > 0 && pm < 20 && tp < 0.2,
+               "%s: the probe used the first answer\n", what[k]);
+
+        fresh();                      /* an asked update: every answer used, nothing asked again */
+        flash_set("n300");
+        carry("n301");
+        S->prefix = k;
+        cold();
+        app_ran(1);
+        app_accepts();
+        int o = boot_once();
+        if (k == PREFIX_NONE) {
+            base = S->requests;
+        }
+        printf("answers behind %-28s: probe %s after %.3f s (%u header request, answer %u ms); asked update %s "
+               "after %.2f s, %u requests\n", what[k], oname(op), tp, hr, pm, oname(o),
+               secs(), S->requests);
+        EXPECT(o == OUT_RESET && S->res[0] == 1 && S->requests == base && secs() < 4.0,
+               "%s: the update with no answer lost\n", what[k]);
+        EXPECT(boot_once() == OUT_JUMP && flash_is("n301"), "%s: new app\n", what[k]);
+    }
 }
 
 SCENARIO sc_noisy(void) {
@@ -1447,6 +1528,33 @@ SCENARIO sc_flashfail(void) {
     EXPECT(o == OUT_TIMEOUT && S->results_flash == 3 && S->requests < 600 && S->requests > 100,
            "FLASH results, the ZTU pauses, no tight loop\n");
     EXPECT(S->max_req_gap_ns < 600 * MS, "requests go on at the pace: largest gap %.0f ms\n", S->max_req_gap_ns / 1e6);
+}
+
+/* Section 8, flash driver: each page is tried twice before OTA_RESULT_FLASH. Page 41 (it differs
+ * between 300 and 301) fails its first write only: the second attempt writes it, nothing is
+ * reported, nothing is fetched again. */
+SCENARIO sc_flashretry(void) {
+    fresh();
+    flash_set("n300");
+    carry("n301");
+    cold();
+    app_ran(1);
+    app_accepts();
+    boot_once();
+    uint32_t base_pages = S->pages, base_req = S->requests;
+    fresh();
+    flash_set("n300");
+    carry("n301");
+    S->flaky_page = 41;
+    cold();
+    app_ran(1);
+    app_accepts();
+    int o = boot_once();
+    printf("page 41 fails its first write only: %s after %.2f s, FLASH results %u, page writes %u (%u without), %u "
+           "requests (%u without)\n", oname(o), secs(), S->res[2], S->pages, base_pages, S->requests, base_req);
+    EXPECT(o == OUT_RESET && S->res[0] == 1 && S->res[2] == 0 && S->results_flash == 0 && S->flaky_page == -1 &&
+           S->pages == base_pages + 1 && S->requests == base_req, "the second attempt, no FLASH result\n");
+    EXPECT(boot_once() == OUT_JUMP && flash_is("n301"), "new app, page 41 included\n");
 }
 
 SCENARIO sc_badvec(void) {
@@ -1765,6 +1873,117 @@ SCENARIO sc_rescue_noapp(void) {
     int o = boot_to_app(3);
     printf("window wrote 10 pages of 299, then the ZTU carries 302 again: %s, build %u\n", oname(o), flash_build());
     EXPECT(o == OUT_JUMP && flash_is("n302"), "no app: the skipped image too\n");
+}
+
+/* NO_APP after a give-up (section 4, the state machine; section 8, give-up): unpin, unskip,
+ * unrefuse, and the 14 KB limit (section 1: recovery comes before settings). rescue-noapp pins the
+ * unskip; these the limit and the refusal. */
+SCENARIO sc_giveup_noapp(void) {
+    fresh();                          /* the limit: an asked update under a 12 KB-ring app wrote 4 pages,
+                                         then the ZTU carries the 13 KB big400 */
+    flash_set("n300");
+    carry("n301");
+    carry2("big400");
+    S->switch_at_page = 3;
+    cold();
+    app_ran(1);
+    app_accepts();
+    int o = boot_once();
+    printf("asked 301 over a 12 KB-ring app, 4 pages written, then 13 KB carried: %s after %.1f s, mode-2 requests "
+           "%u, written up to %08x\n", oname(o), secs(), S->by_mode[OTA_MODE_NO_APP], S->max_write_end);
+    EXPECT(o == OUT_RESET && S->by_mode[OTA_MODE_NO_APP] > 0 && S->res[0] == 1 && S->res_build == 400 &&
+           S->max_write_end == APP_BASE + 13312u, "no app after the give-up: 14 KB\n");
+    o = boot_once();
+    EXPECT(o == OUT_JUMP && flash_is("big400"), "big400 runs\n");
+
+    fresh();                          /* the refusal: no app, page 0 corrupted in transit once */
+    flash_erase_app();
+    carry("n301");
+    S->corrupt_off = 7;               /* the reset vector's top byte: 0x48001101, outside the image */
+    S->limit_ns    = 60 * S_;
+    cold();
+    o = boot_once();
+    printf("no app, page 0 of 301 corrupted once: %s after %.1f s, BAD_IMAGE %u, offset-0 requests %u\n", oname(o),
+           secs(), S->res[1], S->off0_req);
+    EXPECT(o == OUT_RESET && S->res[1] == 1 && S->res[0] == 1 && S->off0_req == 2 && secs() > 10 && secs() < 16,
+           "refused for the run, taken again after the give-up\n");
+    o = boot_once();
+    EXPECT(o == OUT_JUMP && flash_is("n301"), "301 runs\n");
+}
+
+/* Bench builds (section 2): an installed one leaves by a button rescue (or SWD); a carried one is
+ * never taken in any mode. Asked mode here; probe, benchrescue, link and gates have the others. */
+SCENARIO sc_benchmodes(void) {
+    const char *inst[] = { "diag305", "sim306", "measure308" };
+    for (int k = 0; k < 3; k++) {
+        fresh();
+        flash_set(inst[k]);
+        carry("n301");
+        S->button = 1, S->button_release_ns = 500 * MS;
+        cold();
+        int o = boot_once();
+        printf("button with %-10s installed, 301 carried: %s after %.2f s, mode-5 requests %u, info %03x\n", inst[k],
+               oname(o), secs(), S->by_mode[OTA_MODE_BUTTON], MB->boot & 0xF00u);
+        EXPECT(o == OUT_RESET && S->res[0] == 1 && S->requests && S->by_mode[OTA_MODE_BUTTON] == S->requests &&
+               (MB->boot & BOOT_INFO_BUTTON), "%s: a button rescue\n", inst[k]);
+        S->button = 0;
+        o = boot_once();
+        EXPECT(o == OUT_JUMP && flash_is("n301"), "%s: 301 runs\n", inst[k]);
+    }
+    const char *carried[] = { "diag307", "sim306", "measure308" };
+    for (int k = 0; k < 3; k++) {
+        fresh();
+        flash_set("n300");
+        carry(carried[k]);
+        cold();
+        app_ran(1);
+        app_accepts();                /* the mailbox holds the bench image's CRC */
+        int o = boot_once();
+        printf("asked update of the carried %-10s: %s after %.2f s, %u header requests, page writes offered %u\n",
+               carried[k], oname(o), secs(), S->header_req, S->flash_calls);
+        EXPECT(o == OUT_JUMP && S->header_req >= 1 && S->off0_req == 0 && S->flash_calls == 0 && flash_is("n300") &&
+               secs() > 9.9 && secs() < 10.6, "%s: never taken, even asked\n", carried[k]);
+    }
+}
+
+/* The image limit per mode (section 1): asked follows the installed header's RING_HIGH; with no
+ * valid app it is 14 KB at once, also when the broken app's header has no RING_HIGH. */
+SCENARIO sc_limits(void) {
+    fresh();
+    flash_set("n300");
+    carry("big400");
+    cold();
+    app_ran(1);
+    app_accepts();
+    int o = boot_once();
+    printf("asked update of the 13 KB big400 over a 12 KB-ring app: %s after %.2f s, page writes offered %u\n",
+           oname(o), secs(), S->flash_calls);
+    EXPECT(o == OUT_JUMP && S->header_req >= 1 && S->flash_calls == 0 && flash_is("n300") && secs() > 9.9,
+           "12 KB ring: refused\n");
+
+    fresh();
+    flash_set("n303r");
+    carry("big400");
+    cold();
+    app_ran(1);
+    app_accepts();
+    o = boot_once();
+    printf("asked update of the 13 KB big400 over a RING_HIGH app: %s after %.2f s, written up to %08x\n", oname(o),
+           secs(), S->max_write_end);
+    EXPECT(o == OUT_RESET && S->res[0] == 1 && S->max_write_end == APP_BASE + 13312u, "RING_HIGH: taken\n");
+    EXPECT(boot_once() == OUT_JUMP && flash_is("big400"), "big400 runs\n");
+
+    fresh();                          /* 300's header intact (flags 0x08: no RING_HIGH), page 50 damaged */
+    flash_set("n300");
+    FLASH_MEM[0x1000 + 50 * 128] ^= 0x01;
+    carry("big400");
+    cold();
+    o = boot_once();
+    printf("no valid app (header without RING_HIGH, CRC bad), 13 KB carried: %s after %.2f s, written up to %08x, "
+           "modes %x\n", oname(o), secs(), S->max_write_end, modes());
+    EXPECT(o == OUT_RESET && secs() < 6 && S->max_write_end == APP_BASE + 13312u && modes() == 1u << OTA_MODE_NO_APP,
+           "no app: 14 KB from the start, no give-up needed\n");
+    EXPECT(boot_once() == OUT_JUMP && flash_is("big400"), "big400 runs\n");
 }
 
 SCENARIO sc_rescuecut(void) {
@@ -2657,6 +2876,22 @@ SCENARIO sc_drv(void) {
     o = boot_once();
     EXPECT(o == OUT_JUMP && flash_is("n301"), "new app\n");
 
+    fresh();                          /* the first erase raises WRPERR, once: the second attempt */
+    flash_set("n300");
+    carry("n301");
+    S->drv_wrperr = 2;
+    cold();
+    app_ran(1);
+    app_accepts();
+    o = boot_once();
+    printf("real driver, the first erase raises WRPERR: %s after %.2f s, %u erases, %u programs, FLASH results %u\n",
+           oname(o), secs(), S->drv_erases, S->drv_programs, S->res[2]);
+    EXPECT(o == OUT_RESET && S->res[0] == 1 && S->res[2] == 0 && S->results_flash == 0 &&
+           S->drv_erases == S->drv_programs + 1, "the page's second attempt, no FLASH result\n");
+    S->drv_wrperr = 0;
+    o = boot_once();
+    EXPECT(o == OUT_JUMP && flash_is("n301"), "new app\n");
+
     fresh();                          /* BSY never clears */
     flash_set("n300");
     carry("n301");
@@ -2733,9 +2968,11 @@ static const scen_t k_scen[] = {
     { "cuts-program", sc_cuts_program, 1 },
     { "switch", sc_switch, 0 },
     { "stallp0", sc_stallp0, 0 },
+    { "rescan", sc_rescan, 0 },
     { "noisy", sc_noisy, 1 },
     { "unsol", sc_unsol, 0 },
     { "flashfail", sc_flashfail, 0 },
+    { "flashretry", sc_flashretry, 0 },
     { "badvec", sc_badvec, 0 },
     { "probe", sc_probe, 0 },
     { "probecoll", sc_probecoll, 1 },
@@ -2745,6 +2982,9 @@ static const scen_t k_scen[] = {
     { "bigrescue", sc_bigrescue, 0 },
     { "benchrescue", sc_benchrescue, 0 },
     { "rescuecut", sc_rescuecut, 0 },
+    { "giveup-noapp", sc_giveup_noapp, 0 },
+    { "benchmodes", sc_benchmodes, 0 },
+    { "limits", sc_limits, 0 },
     { "rescue-noapp", sc_rescue_noapp, 0 },
     { "duty", sc_duty, 0 },
     { "restored", sc_restored, 0 },
