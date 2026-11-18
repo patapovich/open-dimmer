@@ -254,6 +254,9 @@ void zc_tracker_init(zc_tracker_t *z) {
     z->half_period = 0;
     z->good        = 0;
     z->started     = 0;
+    z->kind        = 0;
+    z->hp[0]       = 0;
+    z->hp[1]       = 0;
 }
 
 uint8_t zc_tracker_edge(zc_tracker_t *z, uint16_t now) {
@@ -263,24 +266,36 @@ uint8_t zc_tracker_edge(zc_tracker_t *z, uint16_t now) {
         return 0;
     }
     uint16_t dt = (uint16_t)(now - z->last);
+    uint8_t  k  = z->kind;
 
-    if (zc_locked(z)) {
-        /* Locked: a real zero cross comes within a few percent of where it
-         * is expected. Anything earlier is noise (a glitch taken as a zero
-         * cross would turn the load on mid cycle, at high voltage). Later
-         * means edges were missed: count again from this one, no output
-         * until locked again. */
-        uint16_t win = (uint16_t)(z->half_period / ZC_WINDOW_DIV);
-        if (dt + win < z->half_period) {
+    if (dt < ZC_HALF_MIN_TICKS) {
+        return 0;                       /* bounce or noise: wait for the real edge */
+    }
+    if (z->good) {
+        /* A real zero cross comes where the last half cycles say. Within 1/12
+         * of the last one (the other kind, edge n against n-1): the two kinds
+         * differ by 8 % at most. And once both kinds are measured, within 1/24
+         * of the last one of its own kind (edge n against n-2): this is the
+         * window that admits a zero cross, for the third edge on, so for every
+         * edge that turns the gates on. Anything earlier is noise (a glitch
+         * taken as a zero cross would turn the load on mid cycle, at high
+         * voltage). Later means edges were missed: count again from this one,
+         * no output until locked again. */
+        uint16_t last = z->hp[k ^ 1u];                 /* the last half cycle */
+        uint16_t w    = (uint16_t)(last / (unsigned)ZC_WINDOW_DIV);
+        uint16_t own  = last, w_own = (uint16_t)(2u * w);   /* its own kind: not known yet */
+        if (z->good >= 2) {
+            own   = z->hp[k];
+            w_own = w;
+        }
+        if (dt + 2u * w < last || dt + w_own < own) {
             return 0;
         }
-        if (dt > z->half_period + win) {
+        if (dt > last + 2u * w || dt > own + w_own) {
             z->last = now;
             z->good = 0;
             return 0;
         }
-    } else if (dt < ZC_HALF_MIN_TICKS) {
-        return 0;                       /* bounce or noise: wait for the real edge */
     }
     z->last = now;
     if (dt > ZC_HALF_MAX_TICKS) {
@@ -288,13 +303,14 @@ uint8_t zc_tracker_edge(zc_tracker_t *z, uint16_t now) {
         z->half_period = 0;
         return 0;
     }
-    if (z->good == 0 || z->half_period == 0) {
-        z->half_period = dt;
-    } else {
-        /* Mains frequency drifts slowly; one late edge must not shift the
-         * timing much. 1/4 weight for the new sample. */
-        z->half_period = (uint16_t)((3u * z->half_period + dt + 2u) / 4u);
-    }
+    /* Mains frequency drifts slowly; one late edge must not shift the timing
+     * much. 1/4 weight for the new sample, once the kind has one. */
+    z->hp[k] = z->good < 2 ? dt : (uint16_t)((3u * z->hp[k] + dt + 2u) / 4u);
+    k ^= 1u;
+    z->kind = k;
+    /* The half cycle starting now is the other kind: as long as its last one,
+     * or as this one while that is not known yet. */
+    z->half_period = z->good ? z->hp[k] : dt;
     if (z->good < 255) {
         z->good++;
     }

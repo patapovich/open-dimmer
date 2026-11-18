@@ -19,11 +19,18 @@
 #define DIM_STEP_DEFAULT       5      /* per 10 ms: 0 -> 1000 in 2 s */
 
 /* Accepted half period: 40..70 Hz mains. Edges closer than the minimum are
- * noise or bounce and are ignored. */
+ * noise or bounce and are ignored, locked or not. */
 #define ZC_HALF_MIN_TICKS      357    /* 70 Hz */
 #define ZC_HALF_MAX_TICKS      625    /* 40 Hz */
 #define ZC_LOCK_EDGES          4      /* good half cycles in a row before output */
-#define ZC_WINDOW_DIV          12     /* once locked, edges only within +-1/12 (8 %) */
+/* Acceptance window. A detector need not be symmetric (on the spare PA4 is
+ * high 10.08 ms, low 10.02 ms), so the two kinds of half cycle are timed
+ * separately. From the third edge on, an edge must come within +-1/24 (4 %,
+ * 0.42 ms at 50 Hz) of where the last half cycle of its own kind ended (edge n
+ * against n-2): every edge that turns the gates on has passed this window. From
+ * the second edge on, also within +-1/12 of the last half cycle (edge n against
+ * n-1), so the two kinds differ by 8 % at most. */
+#define ZC_WINDOW_DIV          24
 
 /* Default profile (per channel, see dim_profile_t; the user can set them). */
 #define DIM_FADE_ON_MS         950    /* dark -> full when switched on: quick         */
@@ -123,14 +130,17 @@ uint16_t dim_reload(uint16_t half_period);
 
 typedef struct {
     uint16_t last;        /* timestamp of the last accepted edge */
-    uint16_t half_period; /* smoothed, 0 = unknown */
+    uint16_t half_period; /* expected length of the half cycle that started at last, 0 = unknown */
     uint8_t  good;        /* consecutive good half cycles, saturates */
     uint8_t  started;
+    uint8_t  kind;        /* which hp[] the half cycle that started at last is */
+    uint16_t hp[2];       /* the two kinds of half cycle, each smoothed */
 } zc_tracker_t;
 
 void zc_tracker_init(zc_tracker_t *z);
 /** Feed an edge timestamp. Returns 1 if the edge is a zero cross to act on
- * (output allowed only once zc_locked()), 0 if it was ignored as noise. */
+ * (output allowed only once zc_locked()), 0 if it was ignored as noise.
+ * Accepted half cycles are always ZC_HALF_MIN_TICKS..ZC_HALF_MAX_TICKS long. */
 uint8_t zc_tracker_edge(zc_tracker_t *z, uint16_t now);
 /** Locked onto mains: enough regular half cycles in a row. */
 uint8_t zc_locked(const zc_tracker_t *z);
