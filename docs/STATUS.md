@@ -181,11 +181,13 @@ Open Dimmer goes on further modules only through these gates.
 taken a real ZTU OTA from it (the MCU updated away from that version over Zigbee), so the
 version's own update path is proven.
 
-**Hardware gate**, on the spare (none of this has run yet):
-- Off the mains: record the PCB marking; check continuity PA0 → Q2 gate network and PB2 → S2
-  input stage (against PA1 / PB1 of channel 1); measure the gate–source resistance of Q1 and Q2
-  (gate pull-down).
-- On the bench: a lamp on L2 and a push button on S2, with every switch type and the gestures;
+**Hardware gate**, on the spare:
+- Done 2026-11-18: a lamp on L2 and a push button on S2 work (momentary: on, off, hold
+  dimming, gestures single / hold / release in the MCU log), so PA0 drives the channel 2 gate
+  and PB2 reads S2 as the code assumes.
+- Off the mains: record the PCB marking; measure the gate–source resistance of Q1 and Q2 (gate
+  pull-down).
+- On the bench: S2 with the toggle and state switch types;
   both channels at different levels, fading at the same time; a few hours at full and at ~50 %
   load, watching health DPs 131 (reset cause) and 132 (lock losses); 20+ mains cycles and short
   dropouts; an OTA with both channels lit.

@@ -50,9 +50,9 @@ So far tested on one module:
 | Radio | Tuya ZTU module (Telink TLSR8258), running the fork's Zigbee firmware 1.1.3 |
 | Dimming MCU | Puya **PY32F002AF15P** (TSSOP20), stock firmware 1.0.7 (read-protected, replaced by Open Dimmer) |
 | Mains | 230 V / 50 Hz |
-| Load and switch | channel 1 (L1): a dimmable LED lamp; a momentary push button between L and S1 |
+| Load and switch | channel 1 (L1): a dimmable LED lamp, a momentary push button between L and S1; channel 2 (L2 / S2): a lamp and a push button too (on, off, hold dimming and gestures checked) |
 
-Not tested yet: a load on channel 2 and a switch on S2, 60 Hz mains (unit tests only), the
+Not tested yet: 60 Hz mains (unit tests only), the
 `_TZE204_jtbgusdc` variant (listed as the same board, not verified), other DMS16 versions (the WiFi
 DMS16-W1, board MK-WC1H16A-A, was only read for the analysis). Reports of other modules are welcome.
 
