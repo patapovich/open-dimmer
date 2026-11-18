@@ -139,8 +139,13 @@ Before the erase, write down for each channel, from Zigbee2MQTT (or Home Assista
 - `power_on_behavior` (the stock MCU has one setting for both channels).
 
 The exact MCU values are the raw DPs: 3 min, 5 max, 4 switch type for channel 1; 9, 11, 10 for
-channel 2; 14 power-on. One place to read them is the fork's log of the MCU link (Basic
-attributes 0xff41..0xff45: the last 30 DP events with their values).
+channel 2; 14 power-on. One place to read them is the fork's log of the MCU link: Basic
+attributes 0xff41..0xff45 on endpoint 1 hold its last 30 events of every kind (sent and received
+DPs and commands, acks, timeouts), so the dump from the first contact has scrolled out soon.
+Fill it on demand: write 1 to Basic attribute 0xff4f (clears the log), then 2 (asks the MCU for
+all its DPs), and read 0xff41..0xff45 right after. Each 8-byte entry is the time in ms (2 bytes),
+the kind (3 or 4 = a DP report), the DP id and the value (4 bytes), little-endian. The fork's
+`helper_scripts/decode_mcu_diag.py` decodes them.
 
 ## 1. Quick install: one contact
 
