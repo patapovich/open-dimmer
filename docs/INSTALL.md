@@ -36,12 +36,16 @@ After that, every update goes over Zigbee.
 - A way to hold four contacts on the module's **CN2** pads (SWD, SWC, GND, VCC; not CN3,
   which is the radio header) without your hands.
 
-  Where they are: the pinout picture of the elektroda.com teardown of this board
-  ([topic4066696](https://www.elektroda.com/rtvforum/topic4066696.html), first post; it shows the
-  WiFi version, board MK-WC1H16A-A, whose PY32 side and CN2 are the same as on the ZDMS16-2).
-  The close-up at the bottom right shows CN2 with its pads colour-coded to the PY32 pins:
+  Where they are (picture by divadiow, first post of the elektroda.com thread
+  [topic4066696](https://www.elektroda.com/rtvforum/topic4066696.html), 23 Jul 2024; copied here
+  with credit, not covered by this repository's MIT license):
 
-  [![PY32F002A pinout and the CN2 / CN3 pads of the board (picture: elektroda.com, topic4066696)](https://obrazki.elektroda.pl/6256248900_1721713000.png)](https://www.elektroda.com/rtvforum/topic4066696.html)
+  ![PY32F002A pinout and the CN2 / CN3 pads of the board (picture: divadiow, elektroda.com topic4066696)](img/dms16-pinout-elektroda.png)
+
+  The picture shows the WiFi model (DMS16-W1, board MK-WC1H16A-A with a CBU module), but the
+  PY32 side and its pinout are the same on the ZDMS16-2. The close-up at the bottom right shows
+  CN2 with its pads colour-coded to the PY32 pins. On the ZDMS16-2 the Zigbee module does not have
+  to be desoldered: bend it carefully aside to reach CN2.
 
   | CN2 pad (left to right in the close-up) | Colour there | Signal | PY32F002A pin (TSSOP20) |
   |---|---|---|---|
@@ -53,8 +57,8 @@ After that, every update goes over Zigbee.
   CN3 (five pins at the board edge) is the radio module's header (TX, RX, NC, VCC, GND): do not
   use it for SWD.
 
-  The CN2 pads are closer than 2.54 mm, most likely **2.0 mm** pitch (to be confirmed: first to last pad centre ≈ 6.0 mm at 2.0 mm, ≈ 3.8 mm at
-  1.27 mm). Options:
+  The CN2 pads are closer than 2.54 mm, most likely **2.0 mm** pitch (to be confirmed: first to
+  last pad centre ≈ 6.0 mm at 2.0 mm, ≈ 3.8 mm at 1.27 mm). Options:
   - a single-row **4-pin pogo-pin clip / PCB clamp fixture in 2.0 mm pitch** (search "PCB clamp
     fixture 2.0mm 4P pogo pin"; the common 2.54 mm ones do not fit), if the pads are close
     enough to the board edge for its jaws;

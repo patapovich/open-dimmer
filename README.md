@@ -85,4 +85,6 @@ picks up and builds into its OTA image (`tools/release/release.sh`, see docs/STA
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Not affiliated with AVATTO, Tuya or Puya.
+MIT, see [LICENSE](LICENSE), except `docs/img/dms16-pinout-elektroda.png` (picture by divadiow,
+[elektroda.com topic4066696](https://www.elektroda.com/rtvforum/topic4066696.html), copied with
+credit). Not affiliated with AVATTO, Tuya or Puya.
