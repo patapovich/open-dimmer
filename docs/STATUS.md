@@ -66,7 +66,9 @@ Min and max are physical conduction limits for every curve (same meaning as the 
   after the tests and builds passed (image, full image, bootloader, `secondary_mcu_image.c`,
   `SHA256SUMS`: plain file names, `sha256sum -c --ignore-missing SHA256SUMS` checks a
   download). Running `release.sh` again resumes (re-runs a failed tag run; a release counts
-  only with a green run).
+  only when the run's tests, builds and release job passed). A re-run tests the tag's commit,
+  so once HEAD has changed since an unreleased tag (beyond docs), `release.sh` stops and says
+  how to move the tag to HEAD instead.
 - **Carry (cloud):** workflow `py32-bump.yml` on the default branch (`main`) of
   `patapovich/tuya-zigbee-switch` (fork only) runs hourly, by hand
   (`gh workflow run py32-bump.yml --repo patapovich/tuya-zigbee-switch [-f py32_tag=vX.Y.Z]
@@ -80,9 +82,10 @@ Min and max are physical conduction limits for every curve (same meaning as the 
 - **Instant hand-over (optional):** a secret `ZTU_DISPATCH_TOKEN` in zdms16-py32 (fine-grained
   PAT for `patapovich/tuya-zigbee-switch` with Actions: read and write only, no Contents
   write) makes the release's hand-over job start py32-bump itself (then
-  `NO_TRIGGER=1 tools/release/release.sh` only waits). Without it the hourly check picks the
-  release up (best effort: GitHub may delay scheduled runs and disables them after 60 days
-  without activity; `release.sh` enables it again).
+  `NO_TRIGGER=1 tools/release/release.sh` only waits). A failing hand-over (expired token) does
+  not fail the run: `release.sh` warns and starts py32-bump itself. Without the token the
+  hourly check picks the release up (best effort: GitHub may delay scheduled runs and disables
+  them after 60 days without activity; `release.sh` enables it again).
 - **Deploy (local, home network):** `tools/ha/deploy_ota.sh <ieee> [...]`: newest OTA image
   from `home-dimmer_build`, shows the PY32 version it carries, asks, then fast OTA one module at
   a time with the guard. The ZTU updates the MCU only if it is our firmware and older. Then
