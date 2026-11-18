@@ -101,7 +101,7 @@ jobs:
             done
           done
 
-      - name: Images for the module (ZTU embedding) refuse bench and measurement builds
+      - name: Images for the module (ZTU embedding) refuse bench, measurement and diagnostics builds
         run: |
           mkdir -p dist
           python3 tools/embed_ztu.py build/zdms16_py32.img dist/secondary_mcu_image.c
@@ -119,6 +119,7 @@ jobs:
           }
           refused build-sim/zdms16_py32.img "refusing a SIM bench build"
           refused build-measure/zdms16_py32.img "refusing a measurement build"
+          refused build-diag/zdms16_py32.img "refusing a diagnostics build"
 
       - name: Release files (flat, named as attached to a release, so sha256sum -c works on a download)
         run: |

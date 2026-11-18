@@ -24,7 +24,10 @@ read). App 2.1.11: 11 628 bytes (660 bytes free). DIAG / MEASURE builds 11 972 /
 (health report, raw timing and the pin scan compiled out there; ~300 bytes left). Since then
 (same behaviour) 928 bytes less in every build: own byte-loop mem* (src/libc_min.c) instead of
 newlib's, no signed division code (DP and curve maths unsigned): app 10 700, DIAG 11 044,
-MEASURE 11 060, SIM 10 744 bytes. CI warns when a build has under 512 bytes free.
+MEASURE 11 060, SIM 10 744 bytes. CI warns when a build has under 512 bytes free. Protocol,
+store and health fixes of review 2026-11-18 (items 7, 17, 18, 29, 30, 33, 37-40, 44): app
+10 852, DIAG 10 784, MEASURE 10 792, SIM 10 892 bytes (DIAG / MEASURE decline every update, so
+the update path is compiled out there).
 
 ## DPs (Open Dimmer; stock ones 1..14 unchanged)
 
@@ -86,8 +89,9 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
 
 - **CI** (`.github/workflows/ci.yml`, every push / PR, read-only token): host tests (C logic,
   the settings store, the flash driver against a register model, the serial protocol, UART
-  receive, health report, the MCU's start burst size, and the image tools); normal, DIAG, MEASURE and SIM builds with the pinned SDK; curve tables vs
-  generator; ZTU embedding refuses bench and measurement builds; size report; artifacts.
+  receive, health report, the MCU's start burst size, and the image tools); normal, DIAG,
+  MEASURE and SIM builds with the pinned SDK; curve tables vs generator; ZTU embedding refuses
+  bench, measurement and diagnostics builds; size report; artifacts.
 - **Release:** bump `FW_VERSION` in `src/tuya.h` (never 0xBF, reserved for SIM, or 0xFF; a
   warning comes when fewer than 16 codes are left), commit on `main`,
   `tools/release/release.sh`: checks (main, clean, contains origin/main, tests, all four
@@ -220,7 +224,7 @@ spare: OnLevel kept across a power cycle.
    stock path with the option reload has never run) or the single steps in docs/INSTALL.md.
    Mains off, probe only on a dead board.
 5. Optional: zero-cross delay measurement (`docs/ZC-DELAY-MEASUREMENT.md`; the DIAG build
-   needs a version byte at least the carried one, or the ZTU replaces it within seconds).
+   declines the ZTU's update offers, so it stays until `make flash-all` over SWD).
 6. Parked: per-channel gesture action modes / detached switch type; module button gestures.
 7. Later (user): the release starts the fork's py32-bump at once: a fine-grained PAT for
    `patapovich/tuya-zigbee-switch` (Actions: read and write only) as secret

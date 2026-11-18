@@ -6,7 +6,7 @@ import contextlib, importlib.util, io, os, struct, subprocess, sys, tempfile, un
 
 TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
 MAGIC, HDR = 0x5A445041, 0xC0
-SIM, MEASURE = 0x01, 0x02
+SIM, MEASURE, DIAG = 0x01, 0x02, 0x04
 
 
 def app_bin(version, flags=0):
@@ -95,11 +95,15 @@ class Tools(unittest.TestCase):
         self.assertIn("leaves 14 version codes before 0xFF", out)
 
     def test_mkimage_diag_and_measure_versions(self):
-        for v, flags in ((0x8E, 0), (0x8F, MEASURE)):
+        for v, flags, msg in ((0x8E, DIAG, "DIAGNOSTICS BUILD: takes no update (back over SWD)"),
+                              (0x8F, MEASURE, "MEASUREMENT BUILD: outputs off, takes no update")):
             rc, out, made = self.mkimage(v, flags)
             self.assertEqual(rc, 0, out)
             self.assertTrue(made)
+            self.assertIn(msg, out)
             self.assertNotIn("warning", out)
+        rc, out, _ = self.mkimage(0x9B)
+        self.assertNotIn("takes no update", out)
 
     # --- embed_ztu: what the module may carry -----------------------------------------
     def test_embed_accepts_normal(self):
@@ -114,6 +118,8 @@ class Tools(unittest.TestCase):
                               (0x9B, SIM, "refusing a SIM bench build"),
                               (0xBF, 0, "refusing a SIM bench build"),
                               (0x8F, MEASURE, "refusing a measurement build"),
+                              (0x8E, DIAG, "refusing a diagnostics build"),
+                              (0x9B, DIAG, "refusing a diagnostics build"),
                               (0xFF, 0, "refusing version 0xFF")):
             rc, out, made = self.embed(finished_img(v, flags))
             self.assertNotEqual(rc, 0, f"0x{v:02X}/{flags}: {out}")

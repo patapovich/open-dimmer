@@ -176,6 +176,13 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
     }
 
     case OTA_CMD_NOTIFY: {
+#if MEASURE || DIAG_REPORT
+        /* Measurement and diagnostics builds take no update: the module would
+         * replace them with its carried release seconds after mains-on, before
+         * any statistics. The way back to a normal build is SWD. */
+        uint8_t ok = 1;
+        tuya_send(OTA_CMD_NOTIFY, seq, &ok, 1);
+#else
         /* The module has a newer firmware for us: say yes, then restart into
          * the bootloader, which fetches it. Anything else is declined, so a
          * bad offer cannot keep the light restarting. 0xBF is the SIM bench
@@ -195,6 +202,7 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
         OTA_MAILBOX->magic     = OTA_MAILBOX_MAGIC;
         OTA_MAILBOX->magic_inv = ~OTA_MAILBOX_MAGIC;
         NVIC_SystemReset();
+#endif
         break;
     }
 

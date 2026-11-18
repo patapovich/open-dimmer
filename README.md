@@ -27,9 +27,9 @@ version in `mcu_version` (for example 2.1.11); with the stock MCU `mcu_firmware`
 - Update over Zigbee: 4 KB bootloader, nothing erased before the first block, the light state is
   kept over the update, only newer images are taken.
 - Health report (uptime, reset cause, zero-cross lock losses, UART receive losses) and
-  measurement builds that report statistics over Zigbee with nothing wired to the board. Note:
-  the Zigbee firmware replaces a measurement build with its carried release a few seconds after
-  mains-on, unless the build's version byte is at least the carried one (see the Makefile).
+  measurement builds that report statistics over Zigbee with nothing wired to the board. The
+  measurement and diagnostics builds decline every update the Zigbee firmware offers, so they
+  stay until the next SWD flash (`make flash-all` brings back a normal build).
 
 **Installation:** [docs/INSTALL.md](docs/INSTALL.md): first the Zigbee firmware over the air
 ([section 0](docs/INSTALL.md#0-zigbee-side-first)), then once per module over SWD, in one contact with

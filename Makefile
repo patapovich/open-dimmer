@@ -13,12 +13,11 @@ SIM      ?= 0
 # reported every 10 s (version 2.0.15 by default)
 MEASURE  ?= 0
 # make DIAG=1: normal outputs, the same statistics reported every 10 s (2.0.14 by default)
-# MEASURE / DIAG with their default versions do NOT stay: the module's Zigbee firmware offers
-# its carried release (2.1.x) to an MCU with any older Open Dimmer version, they accept it, and
-# they are replaced a few seconds after mains-on. Until they decline updates, give them a
-# version byte at least the carried one: make DIAG=1 VERSION_BYTE=0x9B BUILD=build-diag-9b
-# (0x9B = 2.1.11, holds while the Zigbee firmware carries 2.1.11 or older). Back: make
-# flash-all over SWD, or a Zigbee firmware that carries a newer version.
+# MEASURE and DIAG builds decline every update the module's Zigbee firmware offers (it offers
+# its carried release a few seconds after mains-on, which would replace them before any
+# statistics), so they stay whatever their version byte. The way back to a normal build is
+# SWD: make flash-all. Their image header flags (MEASURE 0x02, DIAG 0x04) make
+# tools/embed_ztu.py refuse them, so no Zigbee firmware ever carries one.
 DIAG     ?= 0
 BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)
 
@@ -135,6 +134,10 @@ test:
 	$(BUILD)/host/test_flash_drv
 	cc $(HOST_CFLAGS) tests/test_tuya.c src/tuya.c -o $(BUILD)/host/test_tuya
 	$(BUILD)/host/test_tuya
+	cc $(HOST_CFLAGS) -DMEASURE=1 -DFW_VERSION=0x8F tests/test_tuya.c src/tuya.c -o $(BUILD)/host/test_tuya_measure
+	$(BUILD)/host/test_tuya_measure
+	cc $(HOST_CFLAGS) -DDIAG_REPORT=1 -DFW_VERSION=0x8E tests/test_tuya.c src/tuya.c -o $(BUILD)/host/test_tuya_diag
+	$(BUILD)/host/test_tuya_diag
 	cc $(HOST_CFLAGS) tests/test_uart.c src/uart.c -o $(BUILD)/host/test_uart
 	$(BUILD)/host/test_uart
 	cc $(HOST_CFLAGS) tests/test_health.c src/health.c -o $(BUILD)/host/test_health

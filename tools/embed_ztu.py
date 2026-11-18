@@ -14,6 +14,8 @@ if flags & 1 or version == 0xBF:
     sys.exit("refusing a SIM bench build: the module would push it to dimmers on the mains")
 if flags & 2:
     sys.exit("refusing a measurement build: its outputs are always off")
+if flags & 4:
+    sys.exit("refusing a diagnostics build: it takes no update, so it would stay on every MCU")
 if version == 0xFF:
     sys.exit("refusing version 0xFF: no update could ever be offered to an MCU that has it")
 assert size <= 12 * 1024, "app larger than the 12 KB app area"

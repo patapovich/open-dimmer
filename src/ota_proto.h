@@ -53,6 +53,7 @@ typedef struct {
 
 #define APP_FLAG_SIM          0x01     /* bench build (virtual zero cross): never on mains */
 #define APP_FLAG_MEASURE      0x02     /* measurement build: outputs always off */
+#define APP_FLAG_DIAG         0x04     /* diagnostics build: takes no update, never carried */
 
 /* Mailbox in the last 32 bytes of RAM (outside .data/.bss/stack in both
  * linker scripts): survives a software reset, random after power-up. */
