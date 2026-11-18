@@ -229,7 +229,12 @@ the fork. Fix plan, in phases:
    SR-flag fix of phase 2 (item 40): `src/flash_drv.c` keeps the bootloader's old behaviour
    under `BOOTLOADER`, so `boot.bin` (what every `make flash-all` and `install.sh` writes) stays
    byte-identical to the one before phase 2 until this batch drops that and tests it on the
-   spare.
+   spare. Flash layout decided for it (2026-11-18): the bootloader stays in its own 4 KB
+   sector (2 136 B now, ~2.3–2.4 KB with the rescue paths; the sector stays write-protectable);
+   it accepts an app of up to ~14 KB (its own limit, not the app's `APP_MAX_SIZE`), so the app
+   can later grow into half of the settings area; the settings ring may shrink from 4 KB to
+   2 KB (32 → 16 pages, the app moves its records itself); the app checks an update offer
+   against its own `_settings_start`, so an image can never overwrite the settings.
 4. Hardware verification on the spare (the gate above).
 5. Migration of further modules (the order above).
 
