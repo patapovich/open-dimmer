@@ -295,7 +295,7 @@ static void test_offers_declined(void) {
     check_declined();
     offer((uint8_t)(FW_VERSION + 1), APP_HEADER_OFFSET - 1, 1, 9);
     check_declined();
-    offer((uint8_t)(FW_VERSION + 1), APP_MAX_SIZE + 1, 1, 9);
+    offer((uint8_t)(FW_VERSION + 1), APP_LIMIT_LEGACY + 1, 1, 9);
     check_declined();
     offer((uint8_t)(FW_VERSION + 1), 11000, 1, 8); /* too short */
     check_declined();
@@ -303,7 +303,7 @@ static void test_offers_declined(void) {
 
 static void test_offer_size_bounds_accepted(void) {
 #if !DECLINES_ALL
-    offer((uint8_t)(FW_VERSION + 1), APP_MAX_SIZE, 1, 9);
+    offer((uint8_t)(FW_VERSION + 1), APP_LIMIT_LEGACY, 1, 9);
     CHECK(answered(0) && g_resets == 1);
     offer(0xC0, APP_HEADER_OFFSET, 1, 9);        /* 3.0.0: past the SIM code */
     CHECK(answered(0) && g_resets == 1);

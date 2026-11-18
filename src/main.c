@@ -27,7 +27,7 @@
 __attribute__((section(".app_header"), used))
 const app_header_t g_app_header = { APP_MAGIC, 0, 0, FW_VERSION,
                                     (SIM_ZC ? APP_FLAG_SIM : 0) | (MEASURE ? APP_FLAG_MEASURE : 0) |
-                                    (DIAG_REPORT ? APP_FLAG_DIAG : 0), { 0, 0 } };
+                                    (DIAG_REPORT ? APP_FLAG_DIAG : 0), OTA_BUILD_NONE };
 
 static volatile uint32_t g_ms;
 

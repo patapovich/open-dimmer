@@ -3,8 +3,10 @@
 Status: design, 2026-11-18, revised the same day after an adversarial review of this design
 (three reviewers), again after two factory-firmware compatibility reviews (section 15), and
 once more with the user's decisions of the same day (the link-watchdog hook among them).
-Every finding, decision and its resolution is in section 16. Nothing here is implemented yet.
-Code references are to this repo at 421685a and to the fork `patapovich/tuya-zigbee-switch`,
+Every finding, decision and its resolution is in section 16. Of all this only the shared
+interface `src/ota_proto.h` v2 is implemented (with `tests/test_ota_proto.c`); the old
+bootloader and the app use its renamed constants without any change of behaviour. Code
+references are to this repo at 421685a and to the fork `patapovich/tuya-zigbee-switch`,
 branch `home-dimmer` at 51f5c95a (paths under `src/zigbee/` there are marked "fork").
 Addresses marked "stock ZTU" are in the public dump of the `_TZE284_jtbgusdc` ZTU (sha256
 f4afb7a8..., named in `docs/stock-firmware-analysis.md`), and "WiFi 1.0.3" ones in the WiFi PY32
@@ -1206,7 +1208,7 @@ way:
 | `tools/ota_swd_emu.py` | Answer the header request (0xC0, 16) before the blocks, accept 16-byte requests, send the 11-byte 0xA0 (build) so that build-only test images are accepted, and clear the boot word pair before its resets. |
 | `Makefile` | `FW_TEST=` (a new BUILD dir like `VERSION_BYTE`). `make flash` clears the boot word pair before its reset. `make test-boot`, part of `make test`. Report the bootloader size from the ELF; warn above 3584 bytes. |
 | `tests/test_tuya.c` | The confirmation rule of section 7: (1) two 0x01 frames, 30 s, no 0xA3 → confirmed (boot word bits 3..0 = 0, every other bit kept, `boot_check` = ~boot); (2) no 0x01 and no 0xA3 → not confirmed; (3) 0xA3 answered → confirmed as before; (4) one 0x01 only → not confirmed. 0x01 is never answered. The link watchdog cases of section 9, item 11 (here or in a test of their own). |
-| `tests/test_ota_proto.c` | New, with the header: the layouts and constants of `src/ota_proto.h` against this document (offsets the v1 bootloader reads, the boot word fields, the frame examples of section 5 byte for byte). |
+| `tests/test_ota_proto.c` | Done with the header: the layouts and constants of `src/ota_proto.h` against this document (offsets the v1 bootloader reads, the boot word fields, the frame examples of section 5 byte for byte). |
 | `tests/test_stock_ztu_dump.py` | New, skipped when the dump is absent (path in `STOCK_ZTU_DUMP`; the file is the one `docs/stock-firmware-analysis.md` names). Pins the stock ZTU facts of section 15 against the file: the 10 entries at 0x487E0; the 58-entry table at 0x48808 with handlers only for 0x01, 0x03, 0x05, 0x06, 0x08, 0x0B, 0x0D, 0x0E, 0x20, 0x24-0x27, 0x29, 0x2C, 0x36-0x38, 0x3A and 0xC8E4 for the rest; the `cmp r3,#57` encoding `ab39` at 0xCA0A; no branch to 0xDCD8 in 0xC8E4..0xC8F0. |
 | `.github/workflows/ci.yml` | The host test job runs `make test`, which includes `test-boot`: plain `cc`, no ARM toolchain and no zlib (the harness has its own CRC), Linux ≥ 4.17 for `MAP_FIXED_NOREPLACE` (ubuntu-24.04 has it). The build job checks `boot.elf` with `arm-none-eabi-nm`/`objdump`: `k_boot_id` at 0x08000010 and 16 bytes; `_flash_write_start`/`_end` exactly 0x08001000/0x08004800; `boot.bin` ≤ 4096; `_ebss` + 512 bytes of stack ≤ 0x20000BE0. The ZTU's CI prints its OTA file size with the carried image (section 12). |
 

@@ -163,6 +163,12 @@ test:
 	   -DBOOTLOADER -x c++ src/flash_drv.c tests/test_flash_drv.cpp \
 	   -o $(BUILD)/host/test_flash_drv_boot
 	$(BUILD)/host/test_flash_drv_boot
+	@# ota_proto.h v2 (shared with the bootloaders and the ZTU): with the host mailbox and with the
+	@# chip's address
+	cc $(HOST_CFLAGS) tests/test_ota_proto.c -o $(BUILD)/host/test_ota_proto
+	$(BUILD)/host/test_ota_proto
+	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_ota_proto.c -o $(BUILD)/host/test_ota_proto_chip
+	$(BUILD)/host/test_ota_proto_chip
 	cc $(HOST_CFLAGS) tests/test_tuya.c src/tuya.c -o $(BUILD)/host/test_tuya
 	$(BUILD)/host/test_tuya
 	cc $(HOST_CFLAGS) -DMEASURE=1 -DFW_VERSION=0x8F tests/test_tuya.c src/tuya.c -o $(BUILD)/host/test_tuya_measure

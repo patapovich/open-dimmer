@@ -190,7 +190,7 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
         uint32_t size = len >= 9 ? ((uint32_t)data[1] << 24) | ((uint32_t)data[2] << 16) |
                                    ((uint32_t)data[3] << 8) | data[4] : 0;
         uint8_t  ok   = (len >= 9 && data[0] > FW_VERSION && data[0] != 0xBF && data[0] != 0xFF &&
-                         size >= APP_HEADER_OFFSET && size <= APP_MAX_SIZE) ? 0 : 1;
+                         size >= APP_HEADER_OFFSET && size <= APP_LIMIT_LEGACY) ? 0 : 1;
         tuya_send(OTA_CMD_NOTIFY, seq, &ok, 1);
         if (ok != 0) {
             break;

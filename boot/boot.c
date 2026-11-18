@@ -7,7 +7,9 @@
  *   module does not answer (10 s) falls back to the old app.
  * - Once erasing has begun, or without a valid app, it keeps asking forever:
  *   a power cut half way leaves an app that fails its CRC, and the next boot
- *   asks again. No way to end up with a half app running. */
+ *   asks again. No way to end up with a half app running.
+ * This is the v1 bootloader: it speaks the v1 subset of ota_proto.h v2 (6-byte 0xA1 requests,
+ * 2-byte 0xA2 results) and ignores the boot word, until the v2 bootloader replaces it. */
 #include "flash_drv.h"
 #include "ota_proto.h"
 #include "py32f0xx.h"
@@ -27,12 +29,9 @@ static void fill(uint8_t *d, uint8_t v, uint32_t n) {
 }
 
 
-#define CHUNK_MAX         128u
 #define FRAME_HEADER      8u
-#define BLOCK_HEAD        13u                      /* offset size crc version */
-#define RX_MAX            (FRAME_HEADER + BLOCK_HEAD + CHUNK_MAX + 1u)
-#define REQUEST_EVERY_MS  500u
-#define GIVE_UP_MS        10000u
+#define RX_MAX            (FRAME_HEADER + OTA_BLOCK_HEAD + OTA_BLOCK_MAX + 1u)
+/* REQUEST_EVERY_MS and GIVE_UP_MS come from ota_proto.h. */
 
 /* Bench test over SWD: bytes placed here are read before the UART. */
 volatile uint8_t  g_inject[RX_MAX];
@@ -182,7 +181,7 @@ static uint8_t app_valid(void) {
     const uint32_t     *v = (const uint32_t *)APP_BASE;
 
     if (h->magic != APP_MAGIC || h->size < APP_HEADER_OFFSET + sizeof(*h) ||
-        h->size > APP_MAX_SIZE || (v[0] >> 20) != 0x200 ||
+        h->size > APP_LIMIT_LEGACY || (v[0] >> 20) != 0x200 ||
         v[1] < APP_BASE || v[1] >= APP_BASE + h->size) {
         return 0;
     }
@@ -209,7 +208,7 @@ static void jump_app(void) {
 }
 
 static void request(void) {
-    uint32_t left = g_boot.size ? g_boot.size - g_boot.expect : CHUNK_MAX;
+    uint32_t left = g_boot.size ? g_boot.size - g_boot.expect : OTA_BLOCK_MAX;
     uint32_t room = FLASH_PAGE_BYTES - g_fill;
     uint16_t want = (uint16_t)(left < room ? left : room);
     uint8_t  d[6] = { (uint8_t)(g_boot.expect >> 24), (uint8_t)(g_boot.expect >> 16),
@@ -233,13 +232,13 @@ static void result(uint8_t status) {
 
 /* A block from the module. Returns 1 when the image is complete and good. */
 static uint8_t on_block(const uint8_t *d, uint16_t n) {
-    if (n < BLOCK_HEAD) {
+    if (n < OTA_BLOCK_HEAD) {
         return 0;
     }
     uint32_t off = be32(d), size = be32(d + 4), crc = be32(d + 8);
-    uint16_t len = (uint16_t)(n - BLOCK_HEAD);
+    uint16_t len = (uint16_t)(n - OTA_BLOCK_HEAD);
 
-    if (size < APP_HEADER_OFFSET + sizeof(app_header_t) || size > APP_MAX_SIZE || len == 0) {
+    if (size < APP_HEADER_OFFSET + sizeof(app_header_t) || size > APP_LIMIT_LEGACY || len == 0) {
         return 0;
     }
     if (g_expect_crc && crc != g_expect_crc) {
@@ -254,7 +253,7 @@ static uint8_t on_block(const uint8_t *d, uint16_t n) {
     g_boot.size    = size;
     g_boot.crc     = crc;
     g_boot.version = d[12];
-    copy((uint8_t *)g_page + g_fill, d + BLOCK_HEAD, len);
+    copy((uint8_t *)g_page + g_fill, d + OTA_BLOCK_HEAD, len);
     g_fill        = (uint16_t)(g_fill + len);
     g_boot.expect += len;
     g_boot.blocks++;
