@@ -55,21 +55,35 @@ typedef struct {
 #define APP_FLAG_MEASURE      0x02     /* measurement build: outputs always off */
 
 /* Mailbox in the last 32 bytes of RAM (outside .data/.bss/stack in both
- * linker scripts): survives a software reset, random after power-up. */
+ * linker scripts): survives a software, watchdog or fault reset, random after
+ * power-up. The bootloader reads and clears only magic / magic_inv and reads
+ * expect_crc; the other words are the app's (dimmer.c). */
+#ifndef OTA_MAILBOX_ADDR
 #define OTA_MAILBOX_ADDR      0x20000BE0u
+#endif
 #define OTA_MAILBOX_MAGIC     0x55504454u   /* "UPDT" */
 
 typedef struct {
     uint32_t magic;          /* update request: app -> bootloader */
     uint32_t magic_inv;
     uint32_t restore_check;  /* OTA_RESTORE_MAGIC ^ restore: the light state ... */
-    uint32_t restore;        /* ... to come back to after the update (dimmer.c) */
+    uint32_t restore;        /* ... to come back to after a reset that kept the RAM (dimmer.c) */
     uint32_t expect_crc;     /* the image the app accepted: the bootloader takes no other */
-    uint32_t reserved[3];
+    uint32_t restored;       /* OTA_RESTORED_MAGIC: this run already came back by restore */
+    uint32_t reserved[2];
 } ota_mailbox_t;
 
-#define OTA_RESTORE_MAGIC     0x52535452u   /* "RSTR" */
+_Static_assert(sizeof(ota_mailbox_t) == 32u, "the mailbox is the last 32 bytes of RAM");
 
-#define OTA_MAILBOX           ((volatile ota_mailbox_t *)OTA_MAILBOX_ADDR)
+#define OTA_RESTORE_MAGIC     0x52535452u   /* "RSTR" */
+#define OTA_RESTORED_MAGIC    0x52535431u   /* "RST1" */
+
+#ifdef HOST_TEST
+/* Host tests (tests/): the mailbox is a variable of the test. */
+extern volatile ota_mailbox_t g_host_mailbox;
+#undef OTA_MAILBOX_ADDR
+#define OTA_MAILBOX_ADDR      ((uintptr_t)&g_host_mailbox)
+#endif
+#define OTA_MAILBOX           ((volatile ota_mailbox_t *)(uintptr_t)OTA_MAILBOX_ADDR)
 
 #endif

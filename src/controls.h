@@ -7,10 +7,13 @@
  *   1 state      closed = on, open = off
  *   2 momentary  push button: press while off turns on at once; short press
  *                while on turns off on release; hold dims (light follows the
- *                finger, stops the moment it is released)
+ *                finger, stops the moment it is released, or by itself 2 x
+ *                hold ms + 2 s after the press began: a stuck input)
  * Module button: short press switches both channels (any on -> all off, else
  * all on); hold >= 3 s asks the Zigbee module to leave and pair again (it
- * decides, as with the stock MCU). */
+ * decides, as with the stock MCU).
+ * An input closed at power-up rests there: its release is a change of a
+ * toggle or state switch, else nothing (no gesture, button action or rejoin). */
 #ifndef CONTROLS_H
 #define CONTROLS_H
 

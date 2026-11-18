@@ -4,7 +4,9 @@
 #include "input_core.h"
 #include "gesture_core.h"
 #include "tuya.h"
+#ifndef HOST_TEST
 #include "py32f0xx_ll_utils.h"
+#endif
 
 #define IN_S1             0
 #define IN_S2             1
@@ -16,6 +18,7 @@
 #define SWITCH_MOMENTARY  2
 
 #define BUTTON_RESET_MS   3000
+#define HOLD_CAP_MS       2000    /* + 2 x hold ms: a hold has reached its end by then */
 #define EV_RING           16      /* power of two */
 
 volatile uint8_t g_input_override;
@@ -29,6 +32,11 @@ static volatile uint16_t g_button_press_ms;   /* duration of the last button pre
 static uint8_t g_turned_on_by_press[DIMMER_CHANNELS];
 /* Gestures of the wall switches (momentary type), reported for automations. */
 static gesture_t g_gesture[DIMMER_CHANNELS];
+/* Switch type the press state above belongs to. */
+static uint8_t g_type[DIMMER_CHANNELS];
+/* Inputs closed at boot, until their release (bit per input): that press
+ * started before us, so its end is no gesture and no button action. */
+static uint8_t g_boot_held;
 
 static uint32_t  g_now;   /* time of the events being handled (controls_poll) */
 
@@ -49,15 +57,15 @@ void controls_init(void) {
         if (closed(i)) {
             g_in[i].pressed = 1;
             g_in[i].held    = 1;
+            g_boot_held    |= (uint8_t)(1u << i);
         }
     }
     __enable_irq();
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
         gesture_init(&g_gesture[ch]);
-    }
-    /* A state type switch says what the light is. */
-    for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
-        if (dimmer_channel(ch)->switch_type == SWITCH_STATE) {
+        g_type[ch] = dimmer_channel(ch)->switch_type;
+        /* A state type switch says what the light is. */
+        if (g_type[ch] == SWITCH_STATE) {
             dimmer_boot_set(ch, g_in[ch].pressed);
         }
     }
@@ -105,11 +113,6 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
         break;
 
     case SWITCH_MOMENTARY:
-        /* The light acts first, the gesture is reported on top of it. */
-        {
-            uint8_t g = gesture_event(&g_gesture[ch], ev, g_now);
-            dimmer_report_action(ch, g);
-        }
         switch (ev) {
         case INPUT_EV_PRESS:
             /* From dark: on at once at the minimum, rising slowly while the
@@ -140,6 +143,9 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
         default:
             break;
         }
+        /* The light acts first, the gesture is reported on top of it (after a
+         * hold, 'release' follows the report of the new level). */
+        dimmer_report_action(ch, gesture_event(&g_gesture[ch], ev, g_now));
         break;
 
     case SWITCH_TOGGLE:
@@ -169,19 +175,46 @@ static void button(uint8_t ev) {
 
 void controls_poll(uint32_t now) {
     g_now = now;
+    for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
+        const dimmer_channel_t *c = dimmer_channel(ch);
+        if (c->switch_type != g_type[ch]) {
+            /* New switch type (DP 4 / 10): no press state of the old one is
+             * kept, and a state type switch says what the light is. Here, not
+             * in the DP write, whose ack is being built. */
+            g_type[ch] = c->switch_type;
+            gesture_init(&g_gesture[ch]);
+            g_turned_on_by_press[ch] = 0;
+            if (g_type[ch] == SWITCH_STATE) {
+                dimmer_local_set(ch, g_in[ch].pressed);
+            }
+        }
+        /* A hold ends by itself once it has had time to reach its end: a
+         * shorted or stuck momentary input would else keep the network's
+         * levels out for good (nothing if no hold is running). */
+        if (g_in[ch].press_ms > 2u * c->hold_ms + HOLD_CAP_MS) {
+            dimmer_hold_end(ch);
+        }
+        dimmer_report_action(ch, gesture_poll(&g_gesture[ch], now));
+    }
     while (g_tail != g_head) {
         uint8_t e = g_ring[g_tail];
         g_tail    = (uint8_t)((g_tail + 1) & (EV_RING - 1));
 
         uint8_t idx = e >> 4, ev = e & 0x0F;
+        uint8_t bit = (uint8_t)(1u << idx);
+        if (g_boot_held & bit) {
+            /* The release of a press that started before boot (its first
+             * event): for a toggle or state switch a real change, else
+             * nothing (no 'release', no button toggle, no rejoin). */
+            g_boot_held &= (uint8_t)~bit;
+            if (idx == IN_BUTTON || g_type[idx] == SWITCH_MOMENTARY) {
+                continue;
+            }
+        }
         if (idx == IN_BUTTON) {
             button(ev);
         } else {
             wall_switch(idx, ev);   /* S1 -> channel 1, S2 -> channel 2 */
         }
-    }
-    for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
-        uint8_t g = gesture_poll(&g_gesture[ch], now);
-        dimmer_report_action(ch, g);
     }
 }

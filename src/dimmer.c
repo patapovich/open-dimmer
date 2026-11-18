@@ -26,14 +26,16 @@ enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
 #define SAVE_QUIET_MS    100    /* the CPU stalls ~5 ms while saving: not mid-frame */
 #define SAVED_FORMAT     3     /* 1: one power-on for both channels; 2: no fade profile */
 #define SAVE_RETRIES     3
+#define RESTORE_CLEAR_MS 60000  /* a run this long ends a reset loop: the next reset restores again */
 
 static dimmer_channel_t g_ch[DIMMER_CHANNELS];
 static uint8_t          g_power_on[DIMMER_CHANNELS];   /* 0 off, 1 on, 2 last state */
 
-/* What survives a power cut. The level is the one set while off, or the one the
- * light had when it was switched off: a level change while on (adaptive
- * lighting every few minutes) is not saved by itself, to spare the flash. The
- * on state is kept only for "last state" power-on. */
+/* What survives a power cut. The level is the one set while off, the one a
+ * wall switch hold picked, or the one the light had when it was switched off:
+ * a level change from the network while on (adaptive lighting every few
+ * minutes) is not saved by itself, to spare the flash. The on state is kept
+ * only for "last state" power-on. */
 typedef struct {
     uint8_t format;
     uint8_t power_on;     /* channel 1 (format 1: both) */
@@ -69,6 +71,18 @@ static uint8_t  g_save_retries;
 
 static uint16_t clamp_level(uint32_t v);
 
+/* A level within 10..1000 and the channel's min..max. */
+static uint16_t in_range(const dimmer_channel_t *c, uint32_t v) {
+    uint16_t l = clamp_level(v);
+    if (l < c->min) {
+        l = c->min;
+    }
+    if (l > c->max) {
+        l = c->max;
+    }
+    return l;
+}
+
 static void snapshot(saved_t *s) {
     memset(s, 0, sizeof(*s));
     s->format     = SAVED_FORMAT;
@@ -91,6 +105,17 @@ static void snapshot(saved_t *s) {
     }
 }
 
+/* The light state in the mailbox, kept current: after a reset that keeps the
+ * RAM (update, watchdog, fault) dimmer_init brings it back. Bit ch: on; 10 bits
+ * of level per channel from bit 2 (levels are 10..1000, on 0 or 1). */
+static void mailbox_keep(void) {
+    _Static_assert(DIMMER_CHANNELS == 2 && DIMMER_LEVEL_MAX < 1024, "restore word layout");
+    uint32_t r = g_ch[0].on | (uint32_t)g_ch[1].on << 1 | (uint32_t)g_ch[0].level << 2 |
+                 (uint32_t)g_ch[1].level << 12;
+    OTA_MAILBOX->restore       = r;
+    OTA_MAILBOX->restore_check = r ^ OTA_RESTORE_MAGIC;
+}
+
 static void apply(uint8_t ch) {
     dim_profile_t p;
     dim_profile_set(&p, g_ch[ch].fade_on_ms, g_ch[ch].fade_off_ms, g_ch[ch].soft_end_pct,
@@ -99,6 +124,7 @@ static void apply(uint8_t ch) {
     phase_set_range(ch, g_ch[ch].min, g_ch[ch].max);
     phase_set_curve(ch, g_ch[ch].curve);
     phase_set(ch, g_ch[ch].on, g_ch[ch].level);
+    mailbox_keep();
 }
 
 /* A hold in progress ends without taking its level (the network or a setting
@@ -115,7 +141,7 @@ static void mark_dirty(void) {
     g_dirty_restart = 1;
 }
 
-void dimmer_init(void) {
+void dimmer_init(uint32_t reset_csr) {
     for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
         /* Factory defaults of the stock firmware. */
         g_ch[i].on          = 0;
@@ -140,10 +166,9 @@ void dimmer_init(void) {
         g_power_on[1] = s.format == 1 ? g_power_on[0]
                       : s.power_on_2 <= POWER_ON_LAST ? s.power_on_2 : POWER_ON_OFF;
         for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
-            g_ch[i].level       = clamp_level(s.ch[i].level);
             g_ch[i].min         = clamp_level(s.ch[i].min);
             g_ch[i].max         = clamp_level(s.ch[i].max);
-            g_ch[i].switch_type = s.ch[i].switch_type;
+            g_ch[i].switch_type = s.ch[i].switch_type <= 2 ? s.ch[i].switch_type : 0;
             g_ch[i].curve       = s.ch[i].curve < CURVE_COUNT ? s.ch[i].curve : 0;
             if (s.format >= 3) {              /* stored + 1; 0 = default */
                 if (s.pf[i].fade_on_ms && s.pf[i].fade_on_ms <= DIM_PROFILE_MS_MAX + 1u) {
@@ -165,45 +190,55 @@ void dimmer_init(void) {
             if (g_ch[i].min > g_ch[i].max) {
                 g_ch[i].min = g_ch[i].max;
             }
-            g_ch[i].on = g_power_on[i] == POWER_ON_ON ||
-                         (g_power_on[i] == POWER_ON_LAST && (s.on_mask & (1u << i)));
+            g_ch[i].level = in_range(&g_ch[i], s.ch[i].level);
+            g_ch[i].on    = g_power_on[i] == POWER_ON_ON ||
+                            (g_power_on[i] == POWER_ON_LAST && (s.on_mask & (1u << i)));
         }
     }
-    /* Back from a firmware update (or the bootloader giving up on one): the
-     * light comes back as it was, not by the power-on behaviour. */
+    snapshot(&g_saved);               /* what flash holds (a restore below is not in it) */
+
+    /* Back from a reset that kept the RAM and was not a power-up or brown-out:
+     * a firmware update (or the bootloader giving up on one), the watchdog or a
+     * fault. The light comes back as it was, not by the power-on behaviour; but
+     * once in a row only: a reset again before RESTORE_CLEAR_MS takes the
+     * power-on behaviour, so a state that crashes is not brought back for ever. */
     volatile ota_mailbox_t *mb = OTA_MAILBOX;
-    if ((mb->restore ^ OTA_RESTORE_MAGIC) == mb->restore_check) {
+    if (!(reset_csr & (DIMMER_RESET_SOFT | DIMMER_RESET_WDG)) || (reset_csr & DIMMER_RESET_POWER)) {
+        mb->restored = 0;
+    } else if (mb->restored != OTA_RESTORED_MAGIC &&
+               (mb->restore ^ OTA_RESTORE_MAGIC) == mb->restore_check) {
         uint32_t r = mb->restore;
         for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
             g_ch[i].on    = (uint8_t)((r >> i) & 1u);
-            g_ch[i].level = clamp_level((r >> (2 + 10 * i)) & 0x3FFu);
+            g_ch[i].level = in_range(&g_ch[i], (r >> (2 + 10 * i)) & 0x3FFu);
         }
+        mb->restored = OTA_RESTORED_MAGIC;
     }
-    mb->restore_check = 0;
-    mb->restore       = 0;
-
-    snapshot(&g_saved);
     for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
-        apply(i);
+        apply(i);                     /* also puts the state in the mailbox */
     }
 }
 
 void dimmer_prepare_restart(void) {
+    for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
+        if (g_holding[i]) {           /* a hold in progress: where the light is now */
+            g_holding[i]  = 0;
+            g_ch[i].level = in_range(&g_ch[i], phase_current(i));
+        }
+    }
     saved_t s;
     snapshot(&s);
     if (memcmp(&s, &g_saved, sizeof(s)) != 0 && store_save((const uint8_t *)&s)) {
         g_saved = s;
     }
-    uint32_t r = 0;
-    for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
-        r |= (uint32_t)(g_ch[i].on ? 1u : 0u) << i;
-        r |= (uint32_t)(g_ch[i].level & 0x3FFu) << (2 + 10 * i);
-    }
-    OTA_MAILBOX->restore       = r;
-    OTA_MAILBOX->restore_check = r ^ OTA_RESTORE_MAGIC;
+    mailbox_keep();
+    OTA_MAILBOX->restored = 0;        /* a planned restart: restored after it in any case */
 }
 
 void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok) {
+    if (now >= RESTORE_CLEAR_MS) {
+        OTA_MAILBOX->restored = 0;    /* this run lasted: a reset may restore again */
+    }
     if (g_dirty_restart) {
         g_dirty_restart = 0;
         g_dirty_ms      = now;
@@ -324,8 +359,13 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         if (type != TUYA_DP_TYPE_BOOL || len != 1) {
             return 0;
         }
+        /* An off ends a wall switch hold, an on only a hold left from before an
+         * off: the module writes DP 1 = 1 before every level change, so an on
+         * to a lit channel must not take the light from under the finger. */
+        if (!value[0] || !c->on) {
+            end_hold(ch);
+        }
         c->on = value[0] ? 1 : 0;
-        end_hold(ch);
         apply(ch);
         mark_dirty();   /* switching off fixes the level to keep */
         return 1;
@@ -354,36 +394,27 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         /* Unlike the stock firmware, a level written while off is kept for
          * the next "on", and it stays within min..max (the ack reports the
          * level taken, so the module learns it). */
-        c->level = clamp_level(v);
-        if (c->level < c->min) {
-            c->level = c->min;
-        }
-        if (c->level > c->max) {
-            c->level = c->max;
-        }
+        c->level = in_range(c, v);
         apply(ch);
         if (!c->on) {
             mark_dirty();
         }
         return 1;
 
+    /* The other limit and the level follow (reported with it, dimmer_sibling_dp). */
     case DP_MIN:
         c->min = clamp_level(v);
         if (c->min > c->max) {
             c->max = c->min;
         }
-        apply(ch);
-        mark_dirty();
-        return 1;
+        break;
 
     case DP_MAX:
         c->max = clamp_level(v);
         if (c->max < c->min) {
             c->min = c->max;
         }
-        apply(ch);
-        mark_dirty();
-        return 1;
+        break;
 
     case DP_COUNTDOWN:
         c->countdown = v;
@@ -392,6 +423,10 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
     default:
         return 0;
     }
+    c->level = in_range(c, c->level);
+    apply(ch);
+    mark_dirty();
+    return 1;
 }
 
 uint8_t dimmer_sibling_dp(uint8_t dpid, uint8_t n) {
@@ -399,16 +434,13 @@ uint8_t dimmer_sibling_dp(uint8_t dpid, uint8_t n) {
     if (dpid == DP_POWER_ON) {                /* DP 14 set both channels */
         return n < DIMMER_CHANNELS ? (uint8_t)(DP_POWER_ON_BASE + n) : 0;
     }
-    if (n != 0 || !channel_dp(dpid, &ch, &idx)) {
+    if (n > 1 || !channel_dp(dpid, &ch, &idx) || (idx != DP_MIN && idx != DP_MAX)) {
         return 0;
     }
-    if (idx == DP_MIN) {
-        return (uint8_t)(dpid + (DP_MAX - DP_MIN));
+    if (n == 1) {
+        return (uint8_t)(dpid - idx + DP_LEVEL);    /* the level, kept within min..max */
     }
-    if (idx == DP_MAX) {
-        return (uint8_t)(dpid - (DP_MAX - DP_MIN));
-    }
-    return 0;
+    return (uint8_t)(idx == DP_MIN ? dpid + (DP_MAX - DP_MIN) : dpid - (DP_MAX - DP_MIN));
 }
 
 void dimmer_report_dp(uint8_t dpid) {
@@ -470,6 +502,9 @@ void dimmer_local_set(uint8_t ch, uint8_t on) {
     if (ch >= DIMMER_CHANNELS || g_ch[ch].on == (on ? 1 : 0)) {
         return;
     }
+    if (!on) {
+        end_hold(ch);                 /* e.g. the module button during a hold */
+    }
     g_ch[ch].on = on ? 1 : 0;
     apply(ch);
     mark_dirty();
@@ -519,8 +554,10 @@ void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark) {
             dir = +1;
         } else if (now + 2 * DIM_HOLD_RATE >= c->max) {
             dir = -1;
-        } else {
-            dir = g_last_hold_dir[ch] > 0 ? -1 : +1;
+        } else if (g_last_hold_dir[ch]) {
+            dir = (int8_t)-g_last_hold_dir[ch];
+        } else {                      /* the first hold: towards the far end */
+            dir = now > (unsigned)(c->min + c->max) / 2u ? -1 : +1;
         }
     }
     g_last_hold_dir[ch] = dir;
@@ -538,8 +575,9 @@ void dimmer_hold_end(uint8_t ch) {
         apply(ch);                  /* switched off during the hold: stay off */
         return;
     }
-    g_ch[ch].level = clamp_level(v);
+    g_ch[ch].level = in_range(&g_ch[ch], v);
     apply(ch);
+    mark_dirty();                   /* a level picked by hand is kept (the stock MCU does too) */
     report_local(ch, 1);
 }
 
@@ -553,8 +591,11 @@ void dimmer_hold_cancel(uint8_t ch) {
 }
 
 void dimmer_report_all(void) {
-    /* DP 14 first: a module that reads it for both channels then gets the
-     * per-channel power-on (103/104) after it, in either case right. */
+    /* DP 14 first, each channel's power-on (103 / 104) after it, so a module
+     * that sets both channels from DP 14 ends with each channel's own value.
+     * A module that has not identified us yet (0xA3) takes DP 14 only: the
+     * first-contact dump comes before the identity answer, so the fork's ZTU
+     * reads the whole dump again once it knows us. */
     tuya_report_begin(1);
     dimmer_report_dp(DP_POWER_ON);
     tuya_report_send();

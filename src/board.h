@@ -3,7 +3,34 @@
 #ifndef BOARD_H
 #define BOARD_H
 
+#ifndef HOST_TEST
 #include "py32f0xx_ll_gpio.h"
+#else
+/* Host tests (tests/): ports are plain input registers that the test sets;
+ * the few LL and CMSIS calls the pin users make. */
+#include <stdint.h>
+typedef struct {
+    uint32_t IDR;
+} GPIO_TypeDef;
+extern GPIO_TypeDef g_host_gpioa, g_host_gpiob;
+#define GPIOA           (&g_host_gpioa)
+#define GPIOB           (&g_host_gpiob)
+#define LL_GPIO_PIN_0   (1u << 0)
+#define LL_GPIO_PIN_1   (1u << 1)
+#define LL_GPIO_PIN_2   (1u << 2)
+#define LL_GPIO_PIN_3   (1u << 3)
+#define LL_GPIO_PIN_4   (1u << 4)
+#define LL_GPIO_PIN_5   (1u << 5)
+#define LL_GPIO_PIN_6   (1u << 6)
+static inline uint32_t LL_GPIO_IsInputPinSet(const GPIO_TypeDef *port, uint32_t pin) {
+    return (port->IDR & pin) == pin;
+}
+static inline void LL_mDelay(uint32_t ms) {
+    (void)ms;
+}
+#define __disable_irq() ((void)0)
+#define __enable_irq()  ((void)0)
+#endif
 
 /* Output stage gate drives (TIM1, AF13 in the stock firmware). Active high:
  * high = load conducts. Must be low whenever the firmware is not in control. */

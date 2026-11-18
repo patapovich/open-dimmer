@@ -3,7 +3,9 @@
  *   channel 1: DP 1 on, 2 level, 3 min, 4 switch type, 5 max, 6 countdown
  *   channel 2: DP 7 .. 12, same order
  *   DP 14 power-on behaviour (0 off, 1 on, 2 last state), both channels
- *     (written: both; reported: channel 1's, for the stock protocol)
+ *     (written: both; reported: channel 1's, for the stock protocol). After a
+ *     power cut only: a watchdog, fault or update restart brings the light
+ *     back as it was (once in a row, see dimmer_init)
  *   DP 103 / 104 power-on behaviour of channel 1 / 2 (ours)
  *   DP 150..154 / 155..159 fade and hold of channel 1 / 2 (values, ours, saved):
  *     fade on ms (dark -> full), fade off ms (full -> dark), soft end % (going
@@ -41,10 +43,19 @@ typedef struct {
     uint8_t  hold_end_pct;
 } dimmer_channel_t;
 
-/** Defaults, then saved settings and the power-on behaviour. */
-void dimmer_init(void);
+/* Reset flags of RCC_CSR (main.c checks them against the device header). */
+#define DIMMER_RESET_POWER  (1u << 27)   /* PWRRSTF: power-up or brown-out */
+#define DIMMER_RESET_SOFT   (1u << 28)   /* SFTRSTF: software (update restart, fault) */
+#define DIMMER_RESET_WDG    (1u << 29)   /* IWDGRSTF: watchdog */
+
+/** Defaults, then saved settings and the power-on behaviour. reset_csr: RCC_CSR
+ * at start. After a watchdog or software reset that was no power-up or
+ * brown-out (the RAM is kept) the light comes back as it was, from the mailbox
+ * (ota_proto.h), once in a row. */
+void dimmer_init(uint32_t reset_csr);
 /** Save changed settings once writes have settled, the UART is quiet and a
- * ~5 ms CPU stall would not miss a zero cross (stall_ok). */
+ * ~5 ms CPU stall would not miss a zero cross (stall_ok). After a minute of
+ * uptime the next warm reset may restore again. */
 void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok);
 const dimmer_channel_t *dimmer_channel(uint8_t ch);
 
@@ -63,19 +74,22 @@ void dimmer_local_toggle_all(void);
 /** Report a wall switch gesture (GESTURE_*) of a channel to the module. */
 void dimmer_report_action(uint8_t ch, uint8_t gesture);
 /** Start hold dimming; dir 0 = pick (up from dark or at min, down at max,
- * else the opposite of the last hold). */
+ * else the opposite of the last hold; the first hold goes towards the far end). */
 void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark);
-/** End hold dimming: keep the level the light has and report it. */
+/** End hold dimming: keep the level the light has (saved), and report it.
+ * Nothing if no hold is running. */
 void dimmer_hold_end(uint8_t ch);
 /** A press from dark started rising from the minimum but was a tap: on to the
  * level the channel has (not stored, nothing new to report). */
 void dimmer_hold_cancel(uint8_t ch);
 
 /** Before a restart into the bootloader: save pending settings and leave the
- *  light state in the mailbox, to be restored after the update. */
+ *  light state in the mailbox, to be restored after the update (a hold in
+ *  progress: at the level the light has). */
 void dimmer_prepare_restart(void);
 /** DPs to report with a written one (n = 0, 1, ...; 0 = no more): min <-> max of
- * the same channel (a write of one may move the other); DP 14 -> 103, 104. */
+ * the same channel and its level (a write of one may move the others); DP 14 ->
+ * 103, 104. */
 uint8_t dimmer_sibling_dp(uint8_t dpid, uint8_t n);
 
 /** Report every DP (answer to query-all). */
