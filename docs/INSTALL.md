@@ -170,7 +170,8 @@ When it beeps and says so, press the clip onto CN2 and hold it until **DONE** (a
 2. asks once, then writes the option bytes in one go: read protection off (this **erases
    the stock firmware**) and brown-out reset at 2.5 V,
 3. reloads the option bytes without a power cycle (FLASH_CR OBL_LAUNCH). If the chip does not
-   come back, lift the clip and press it on again (the script waits 60 s for it),
+   come back, the clip must be lifted and pressed on again (the script waits 60 s for it; when
+   to do it: see the note below),
 4. writes bootloader + app, reads it back and compares, and starts the firmware.
 
 On a module that already runs this firmware it skips steps 2–3 and just re-flashes. A SIM
@@ -182,9 +183,12 @@ so give `FREQ=400000` as above.
 > first module here was unlocked with the separate steps below). If anything is off, the
 > script stops with a message; the steps by hand below always work. Known gaps until the
 > script is fixed: after the option reload its "lift the probe" prompt and beep appear only
-> once the chip is back, so lift and press again yourself when nothing happens for ~5 s; and
-> when the chip comes back only after that second press, the read-protection / BOR check is
-> skipped. Run `install.sh` once more in that case: it must say "already unlocked with BOR".
+> once the chip is back, so go by the output instead. If no `after reload: OPTR=` line has
+> appeared 20 s after the `option bytes: protection off ...` line, lift the clip and press it
+> on again (the script then waits 60 s for it). Never lift it earlier: in the first seconds
+> after that line the option bytes are being written. And when the chip comes back only after
+> that second press, the read-protection / BOR check is skipped. Run `install.sh` once more in
+> that case: it must say "already unlocked with BOR".
 > If it stopped before **DONE**, the PY32 may be blank: do NOT connect the module to the
 > mains, run the install again.
 
