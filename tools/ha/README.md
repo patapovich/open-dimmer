@@ -9,9 +9,12 @@ Settings come from the environment (all optional):
 | `HA_SSH` | ssh target of the HA host whose `/config` holds `zigbee2mqtt` (SSH add-on) | `root@homeassistant.local` |
 | `ZTU_DIR`, `ZTU_REMOTE` | checkout of the ZTU fork and its remote for patapovich/tuya-zigbee-switch | `~/projects/tzs-diag`, `patapovich` |
 
-- `expose_dump.js <converter.js> [mcu_version]`: the ZDMS16-2 exposes the real
-  zigbee-herdsman-converters computes from a generated converter (default MCU "2.1.9 own";
-  pass "1.0.7" for a stock MCU). Run with `NODE_PATH=<zhc>/node_modules node expose_dump.js ...`
+- `expose_dump.js <converter.js> [raw MCU version]`: the ZDMS16-2 exposes the real
+  zigbee-herdsman-converters computes from a generated converter. The version is the raw Basic
+  0xff12 value the Zigbee firmware reports, not what Zigbee2MQTT shows: default "2.1.9 own" (an
+  MCU identified as Open Dimmer; shown as `mcu_version` 2.1.9, `mcu_firmware` Open Dimmer); pass
+  "1.0.7" for a stock MCU or "" for one not known yet. Device-level exposes (`mcu_firmware`)
+  print `endpoint=undefined`. Run with `NODE_PATH=<zhc>/node_modules node expose_dump.js ...`
   against an unpacked zigbee-herdsman-converters 26.125.0 with its dependencies. Diff the sorted
   output of the deployed and the new converter before every converter deployment
   (docs/STATUS.md checklist). The converter path may be relative.
@@ -20,8 +23,9 @@ Settings come from the environment (all optional):
   or `{"type":"switch_manager/config/save","config":{...}}`. `--json` prints each full result as
   one JSON line (e.g. `{"type":"config/device_registry/list"}`); the token is never printed.
 - `configure_check.js <converter.js> [empty reads]`: runs the ZDMS16-2 configure of a generated
-  converter with the real zhc against a fake device whose MCU answers late (`mcu_version` "" for
-  the first reads) and prints the order and time of the reads.
+  converter with the real zhc against a fake device whose MCU answers late (raw version "" for
+  the first reads, then "2.1.10 own", an Open Dimmer MCU) and prints the order and time of the
+  reads.
 - `deploy_ota.sh <ieee | friendly_name:ieee>...`: the local OTA step of a release. Takes the newest
   ZDMS16-2 image of the fork's `home-dimmer_build` branch, refuses it unless it is a valid OTA file
   that carries a valid PY32 image, shows each module's installed and the image's file version (from

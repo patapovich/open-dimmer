@@ -1,4 +1,4 @@
-# Installing on an AVATTO ZDMS16-2
+# Installing Open Dimmer on an AVATTO ZDMS16-2
 
 The first installation is done once per module over SWD, with the module **off the mains**.
 After that, every update goes over Zigbee.
@@ -16,7 +16,7 @@ After that, every update goes over Zigbee.
 > **No way back.** The stock PY32 firmware is read-protected (RDP level 1). Removing the
 > protection erases it, and it cannot be read out beforehand. It also erases the settings the MCU
 > keeps (min/max, switch type, power-on): write them down first (below). After this the module
-> needs this firmware (or another one written for it). This firmware in turn works only with the
+> needs Open Dimmer (or another firmware written for it). Open Dimmer in turn works only with the
 > fork's Zigbee firmware (section 0): it does not answer the product query (0x01) that the stock
 > Zigbee firmware needs.
 
@@ -79,7 +79,7 @@ After that, every update goes over Zigbee.
 
 ## 0. Zigbee side first
 
-The module must run the Zigbee firmware that carries this MCU firmware: the ZDMS16-2 build of
+The module must run the Zigbee firmware that carries Open Dimmer: the ZDMS16-2 build of
 the fork [patapovich/tuya-zigbee-switch](https://github.com/patapovich/tuya-zigbee-switch)
 (branch `home-dimmer`, built on `home-dimmer_build`), based on
 [romasku/tuya-zigbee-switch](https://github.com/romasku/tuya-zigbee-switch). It is installed
@@ -88,7 +88,7 @@ over the air from the stock firmware, no opening needed:
 1. Follow the upstream guide for Zigbee2MQTT:
    [conversion from the stock firmware](https://github.com/romasku/tuya-zigbee-switch/blob/main/docs/updating.md#conversion)
    and [external converters](https://github.com/romasku/tuya-zigbee-switch/blob/main/docs/updating.md#quirks--converters--extensions),
-   but take the fork's files (only the fork has the ZDMS16-2 with the MCU firmware):
+   but take the fork's files (only the fork has the ZDMS16-2 with Open Dimmer):
    - OTA index (`ota.zigbee_ota_override_index_location`):
      `https://raw.githubusercontent.com/patapovich/tuya-zigbee-switch/home-dimmer_build/zigbee2mqtt/ota/index_router.json`.
      It lists only the ZDMS16-2 (the update and the conversion from stock), and Zigbee2MQTT takes
@@ -120,13 +120,13 @@ over the air from the stock firmware, no opening needed:
      [bin/router/MODULE_AVATTO_ZDMS16_2](https://github.com/patapovich/tuya-zigbee-switch/tree/home-dimmer_build/bin/router/MODULE_AVATTO_ZDMS16_2)
      (`*-from_tuya.zigbee` converts a stock module, the plain `.zigbee` updates a converted one)
 2. Reconfigure the device in Zigbee2MQTT after the conversion, and check that it works with the
-   stock MCU: `mcu_version` shows the stock version (for example 1.0.7). Only then open the
-   module for the MCU part below.
+   stock MCU: `mcu_version` shows the stock version (for example 1.0.7) and `mcu_firmware` shows
+   "Tuya (stock)". Only then open the module for the MCU part below.
 
 ## Before you open it: write the settings down
 
 Removing the read protection also erases the settings the stock MCU keeps. The MCU then starts
-with this firmware's defaults: min 20 % (MCU 200, `min_level` 51), max 100 % (1000, 254),
+with Open Dimmer's defaults: min 20 % (MCU 200, `min_level` 51), max 100 % (1000, 254),
 switch type toggle, power-on off, dimming curve led_soft. These can drive an existing setup
 wrongly: with toggle a push button lights the lamp only while it is held, and the brightness of
 every level changes.
@@ -174,7 +174,7 @@ When it beeps and says so, press the clip onto CN2 and hold it until **DONE** (a
    to do it: see the note below),
 4. writes bootloader + app, reads it back and compares, and starts the firmware.
 
-On a module that already runs this firmware it skips steps 2–3 and just re-flashes. A SIM
+On a module that already runs Open Dimmer it skips steps 2–3 and just re-flashes. A SIM
 (bench) build is refused. Other probes: `PROBE=stlink` or `PROBE=jlink`. `FREQ` is pyOCD's SWD
 clock: the script's default of 4 MHz has never been tested, every tested step ran at 400 kHz,
 so give `FREQ=400000` as above.
@@ -202,17 +202,20 @@ Keep the wall switch and any automations away from the module until step 4 is do
 automations that drive it).
 
 1. Power-cycle, disconnect the probe, close the module, connect it to the mains.
-2. In Zigbee2MQTT, press **Reconfigure** on the device: it reads `mcu_version` and the settings
-   again. Check that `mcu_version` shows `2.x.y own`. If it does not, Reconfigure alone does not
+2. In Zigbee2MQTT, press **Reconfigure** on the device: it reads the MCU version and the
+   settings again. Check that `mcu_firmware` shows "Open Dimmer" and `mcu_version` the installed
+   version (`2.x.y`). If it does not (for example "Tuya (stock)"), Reconfigure alone does not
    help: the Zigbee firmware asks the MCU who it is once, after its own start. Power-cycle the
    module (mains off for a few seconds, then on), wait about 30 s and Reconfigure again. If it
-   still does not show `own`, check that the module runs the fork's current Zigbee firmware
-   (section 0). Do not restart Zigbee2MQTT before it shows `own`.
-3. Then restart Zigbee2MQTT once. Only then does it show the settings that only this firmware
-   has (device option `own_mcu_settings`, default auto), and Home Assistant gets entities for
-   them: per channel the dimming curve, the power-on behaviour, fade and hold, and the wall
-   switch gestures as `action`. The shared `power_on_behavior` is replaced by the per-channel
-   `power_on_behavior` entities: update automations that use it.
+   still does not show "Open Dimmer", check that the module runs the fork's current Zigbee
+   firmware and Zigbee2MQTT the fork's current converter (section 0). Do not restart
+   Zigbee2MQTT before it shows "Open Dimmer".
+3. Then restart Zigbee2MQTT once. Only then does it show the settings that only Open Dimmer has
+   (device option `open_dimmer_settings`: auto, the default, shows them once the module has
+   identified the MCU as Open Dimmer; show / hide: always / never), and Home Assistant gets
+   entities for them: per channel the dimming curve, the power-on behaviour, fade and hold, and
+   the wall switch gestures as `action`. The shared `power_on_behavior` is replaced by the
+   per-channel `power_on_behavior` entities: update automations that use it.
 4. Restore the settings you wrote down, per channel:
    - `dimming_curve` to `linear` first: it gives every level the same conduction as the stock
      firmware, so the old min/max, `on_level` and the brightness values in automations keep
@@ -305,6 +308,6 @@ zero cross and does not follow the real one.
 
 ## Updates
 
-The Zigbee firmware carries the MCU firmware and updates the MCU when it runs an older version
-of this firmware (never the stock firmware). Update the Zigbee firmware over the air as usual;
+The Zigbee firmware carries Open Dimmer and updates the MCU when it runs an older version of
+Open Dimmer (never the stock firmware). Update the Zigbee firmware over the air as usual;
 the MCU follows a few seconds after the module restarts, and the light comes back as it was.

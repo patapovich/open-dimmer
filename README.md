@@ -1,11 +1,15 @@
-# ZDMS16-2 PY32 dimmer firmware
+# Open Dimmer
 
-Own firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2 two-channel Zigbee dimmer
-module. The Zigbee side runs a fork of
+Open Dimmer is open-source firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2
+two-channel Zigbee dimmer module. The Zigbee side runs a fork of
 [romasku/tuya-zigbee-switch](https://github.com/romasku/tuya-zigbee-switch) (branch
-`home-dimmer` of `patapovich/tuya-zigbee-switch`), which carries this firmware and updates the
+`home-dimmer` of `patapovich/tuya-zigbee-switch`), which carries Open Dimmer and updates the
 MCU over the module's internal UART, so after the first SWD flash every update goes over Zigbee.
 The stock MCU firmware is never touched by the update.
+
+In Zigbee2MQTT a module with Open Dimmer shows `mcu_firmware` "Open Dimmer" and the plain
+version in `mcu_version` (for example 2.1.11); with the stock MCU `mcu_firmware` shows
+"Tuya (stock)".
 
 > **Mains voltage.** The module's low-voltage side is not isolated from the mains. Never connect
 > a debug probe, a computer or an earthed oscilloscope while it is connected to the mains: unplug,
@@ -43,7 +47,7 @@ So far tested on one module:
 | Device | **AVATTO ZDMS16-2**, 2-gang Zigbee dimmer module |
 | Zigbee model | stock: `TS0601`, manufacturer `_TZE284_jtbgusdc`; with the fork's Zigbee firmware: **`TS0601-ZDMS16-2`**, manufacturer `jtbgusdc` (as Zigbee2MQTT shows it) |
 | Radio | Tuya ZTU module (Telink TLSR8258), running the fork's Zigbee firmware 1.1.3 |
-| Dimming MCU | Puya **PY32F002AF15P** (TSSOP20), stock firmware 1.0.7 (read-protected, replaced) |
+| Dimming MCU | Puya **PY32F002AF15P** (TSSOP20), stock firmware 1.0.7 (read-protected, replaced by Open Dimmer) |
 | Mains | 230 V / 50 Hz |
 | Load and switch | channel 1 (L1): a dimmable LED lamp; a momentary push button between L and S1 |
 

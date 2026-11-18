@@ -1,14 +1,15 @@
-# ZDMS16-2 own PY32 firmware: status (2026-11-18)
+# Open Dimmer: status (2026-11-18)
 
-Own firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2, updated over Zigbee by
-the fork's Zigbee (ZTU) firmware (`patapovich/tuya-zigbee-switch`, branch `home-dimmer`).
+Open Dimmer is open-source firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2,
+updated over Zigbee by the fork's Zigbee (ZTU) firmware (`patapovich/tuya-zigbee-switch`,
+branch `home-dimmer`).
 
 ## Where things are
 
 | What | Version / place |
 |---|---|
-| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-b2f77929 (0x1103301d), MCU **2.1.10 own**; latest release v2.1.11 (default curve led_soft for unsaved channels only, so not deployed) |
-| Other modules | none runs the own MCU firmware yet: see "Before further modules" |
+| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-b2f77929 (0x1103301d), MCU **Open Dimmer 2.1.10**; latest release v2.1.11 (default curve led_soft for unsaved channels only, so not deployed) |
+| Other modules | none runs Open Dimmer yet: see "Before further modules" |
 | PY32 source | this repo (github.com/patapovich/zdms16-py32) |
 | ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (carries PY32 v2.1.11); `home-dimmer_build` has the generated converter and the OTA images |
 | SWD tools | `tools/swd/install.sh` (one-contact install, docs/INSTALL.md; untested on a stock module yet), the single steps beside it (`.venv` and `pack/` next to the clone, see docs/INSTALL.md) |
@@ -22,7 +23,7 @@ settings 4 KB @0x08004000 (32-page ring, record v2 "ZDS2" 40 bytes; v1 "ZDS1" 20
 read). App 2.1.11: 11 628 bytes (660 bytes free). DIAG / MEASURE builds 11 972 / 11 988 bytes
 (health report, raw timing and the pin scan compiled out there; ~300 bytes left).
 
-## DPs (own firmware; stock ones 1..14 unchanged)
+## DPs (Open Dimmer; stock ones 1..14 unchanged)
 
 | DP | Meaning |
 |---|---|
@@ -34,9 +35,29 @@ read). App 2.1.11: 11 628 bytes (660 bytes free). DIAG / MEASURE builds 11 972 /
 | 130..134 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, saves |
 | 150..154 / 155..159 | per channel: fade on ms, fade off ms, soft dim end %, hold ms, hold dim end % (saved) |
 | 110..123 | DIAG / MEASURE builds only (statistics every 10 s) |
-| 0xA0..0xA3 | own commands: update notify / block / result, identity |
+| 0xA0..0xA3 | Open Dimmer commands (not Tuya's): update notify / block / result, identity |
 
 Min and max are physical conduction limits for every curve (same meaning as the stock MCU).
+
+## MCU identity in Zigbee2MQTT (for developers)
+
+The ZTU asks the MCU who it is (identity command 0xA3; only Open Dimmer answers). Basic
+attribute 0xff12 on endpoint 1 then carries `"x.y.z own"` for an MCU identified as Open Dimmer
+and the bare version for a stock MCU (`"1.0.7"`). `own` is the ZTU's internal marker: it stays
+on the wire, and the converter's detection (the `auto` mode of `open_dimmer_settings`, the
+configure checks) works on this raw value. Users see two fields instead:
+
+| Basic 0xff12 | `mcu_version` | `mcu_firmware` |
+|---|---|---|
+| `"2.1.10 own"` | `2.1.10` | `Open Dimmer` |
+| `"1.0.7"` | `1.0.7` | `Tuya (stock)` |
+
+While no version is known (right after a restart the module answers `""` or `"0.0.0"`),
+`mcu_firmware` is not published. It is a device-level diagnostic text (no endpoint), only on
+boards whose device_db entry has `secondary_mcu_image` (the ZDMS16-2). The device option
+`open_dimmer_settings` (auto / show / hide) was called `own_mcu_settings`; the old key is still
+read when the new one is not set. Converters from before this rename show the raw value in
+`mcu_version` (`2.1.10 own`) and have no `mcu_firmware`.
 
 ## Behaviour (as tuned with the lamp)
 
@@ -88,8 +109,9 @@ Min and max are physical conduction limits for every curve (same meaning as the 
   newest OTA image from `home-dimmer_build`, refused unless it carries a valid PY32 image; shows
   the PY32 version it carries and each module's installed vs the image's file version, asks
   (once more if the image is not newer), then fast OTA one module at a time with the guard; the
-  250 ms block delay is put back on every exit. The ZTU updates the MCU only if it is our
-  firmware and older. Then read the health DPs 130..134 of the module (they come every 2 min).
+  250 ms block delay is put back on every exit. The ZTU updates the MCU only if it runs an
+  older version of Open Dimmer. Then read the health DPs 130..134 of the module (they come
+  every 2 min).
 - By hand (what the scripts do): `make test && make`, `tools/embed_ztu.py build/zdms16_py32.img
   <fork>/src/zigbee/secondary_mcu_image.c`, stub tests in the fork, push, build branch =
   home-dimmer + `fork-ci`, `gh workflow run build.yml --ref home-dimmer_build`, then the OTA as
@@ -101,7 +123,8 @@ A template slip commented out the `dimmer_left` light, and Home Assistant delete
 light entity of every module until the fix was deployed. Before deploying any converter change:
 
 1. Dump the exposes with the real zhc (`tools/ha/expose_dump.js`, see `tools/ha/README.md`;
-   own MCU and stock MCU versions) and diff the expose set against the deployed one.
+   with the raw MCU versions of Open Dimmer, `"2.1.10 own"`, and of the stock MCU, `"1.0.7"`)
+   and diff the expose set against the deployed one.
 2. Check that the other models' definitions are unchanged against the deployed converter
    (against upstream every one of them differs by design: the added `device_config_ext`).
 3. Snapshot Home Assistant's entity registry (`core.entity_registry`) before and after the Z2M
@@ -109,7 +132,7 @@ light entity of every module until the fix was deployed. Before deploying any co
 
 ## Before further modules
 
-The own MCU firmware goes on further modules only through these gates.
+Open Dimmer goes on further modules only through these gates.
 
 **Process rule.** A PY32 version reaches further modules only after the spare has run it and
 taken a real ZTU OTA from it (the MCU updated away from that version over Zigbee), so the
@@ -131,18 +154,19 @@ version's own update path is proven.
 
 **Migration order:**
 1. Endpoint rename first (Open 1), while the modules still run the stock MCU, so the new
-   per-channel entities of the own firmware are created once and not again at the rename.
+   per-channel entities of Open Dimmer are created once and not again at the rename.
 2. ZTU first: OTA one module's ZTU to the current build with its stock MCU still in, and watch
-   it for a day: `mcu_version` still shows the stock version (no "own"), no expose or entity
-   changes, lights, wall switch and OnLevel work. Then the other modules, one at a time. A ZTU
-   build from before the own-MCU support has no identity check and no MCU updates: never put
-   the own MCU under one.
+   it for a day: `mcu_firmware` still shows "Tuya (stock)" and `mcu_version` the stock version,
+   no expose or entity changes, lights, wall switch and OnLevel work. Then the other modules,
+   one at a time. A ZTU build from before the Open Dimmer support has no identity check and no
+   MCU updates: never put an Open Dimmer MCU under one.
 3. The bootloader changes of the fix plan (phase 3) are released, and the spare runs exactly
    that release's full image (re-flashed with `install.sh`) for a while, including an OTA from it.
 4. Then the MCU, one module at a time, as in docs/INSTALL.md: write the settings down, install,
-   restore them (curve `linear` first), Reconfigure, check "own", restart Zigbee2MQTT, check the
-   entity diff (the shared `power_on_behavior` gone, the per-channel entities added), and watch
-   the health DPs for 24–48 h before the next module.
+   restore them (curve `linear` first), Reconfigure, check that `mcu_firmware` shows
+   "Open Dimmer", restart Zigbee2MQTT, check the entity diff (the shared `power_on_behavior`
+   gone, the per-channel entities added), and watch the health DPs for 24–48 h before the next
+   module.
 
 ## Review 2026-11-18 and fix plan
 
@@ -168,8 +192,8 @@ Phases 0 and 1 are in progress.
    (expose dump + predicted ids). In the same migration: the device-level entities
    `device_config`, `device_config_ext`, `mcu_version`, `multi_press_reset_count` move off
    `dimmer_left` (upstream template puts them on the first endpoint) to the device (no
-   endpoint).
-1b. ~~Converter configure read the own-MCU settings too early after a module restart~~ done
+   endpoint), where `mcu_firmware` already is.
+1b. ~~Converter configure read the Open Dimmer settings too early after a module restart~~ done
    2026-11-18 (home-dimmer 8ea5a25e): configure waits for a real `mcu_version` first (checked
    with `tools/ha/configure_check.js`; on hardware at the next OTA).
 2. Long trial of the spare: read the health DPs now and then (131 reset cause, 132 lock losses,

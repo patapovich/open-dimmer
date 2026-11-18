@@ -38,8 +38,8 @@ fw-kloonin hakemistossa:
 make DIAG=1 VERSION_BYTE=0x9B BUILD=build-diag-9b flash-all
 ```
 
-Zigbee2MQTT näyttää silloin `mcu_version` 2.1.11 own. Diagnostiikkaversion tunnistaa
-DP:istä 110..123, jotka tulevat 10 sekunnin välein.
+Zigbee2MQTT näyttää silloin kentässä `mcu_firmware` Open Dimmer ja kentässä `mcu_version`
+2.1.11. Diagnostiikkaversion tunnistaa DP:istä 110..123, jotka tulevat 10 sekunnin välein.
 
 Paluu normaaliin versioon: `make flash-all` SWD:llä tai ZTU-päivitys, jonka mukana tulee
 diagnostiikkaversiota uudempi MCU-versio (ZTU tarjoaa sen itse).

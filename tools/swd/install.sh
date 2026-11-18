@@ -1,9 +1,9 @@
 #!/bin/bash
-# One-touch installation of the PY32 firmware on a ZDMS16-2, OFF THE MAINS, powered from the
+# One-touch installation of Open Dimmer on a ZDMS16-2's PY32, OFF THE MAINS, powered from the
 # probe: start this, THEN press the probe onto CN2 and hold it there until it says DONE.
 #
 # Works on a stock module (read-protected: the protection is removed, which ERASES the stock
-# firmware) and on one that already runs this firmware (just re-flashed). In one contact:
+# firmware) and on one that already runs Open Dimmer (just re-flashed). In one contact:
 #   1. attach right at power-up (the stock firmware takes the SWD pins a moment later)
 #   2. option bytes: read protection off + brown-out reset 2.5 V, written at once
 #   3. option reload without a power cycle (FLASH_CR OBL_LAUNCH); if the chip does not come
@@ -127,4 +127,4 @@ py commander -c "savemem 0x08000000 $(stat -c %s "$IMAGE") $TMP/readback.bin" > 
 cmp -s "$IMAGE" "$TMP/readback.bin" || die "read-back differs from the image"
 py reset > /dev/null 2>&1 || true
 beep
-say "DONE: firmware written and checked. Lift the probe, close the module; in Zigbee2MQTT mcu_version shows 'x.y.z own'."
+say "DONE: firmware written and checked. Lift the probe, close the module; in Zigbee2MQTT mcu_firmware shows 'Open Dimmer'."

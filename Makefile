@@ -1,4 +1,4 @@
-# Own firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2.
+# Open Dimmer: open-source firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2.
 # SDK (CMSIS + LL drivers) is used straight from the py32f0-template checkout.
 
 SDK      ?= $(HOME)/projects/py32f0-template/Libraries
@@ -14,11 +14,11 @@ SIM      ?= 0
 MEASURE  ?= 0
 # make DIAG=1: normal outputs, the same statistics reported every 10 s (2.0.14 by default)
 # MEASURE / DIAG with their default versions do NOT stay: the module's Zigbee firmware offers
-# its carried release (2.1.x) to any older own MCU, they accept it, and they are replaced a few
-# seconds after mains-on. Until they decline updates, give them a version byte at least the
-# carried one: make DIAG=1 VERSION_BYTE=0x9B BUILD=build-diag-9b (0x9B = 2.1.11, holds while
-# the Zigbee firmware carries 2.1.11 or older). Back: make flash-all over SWD, or a Zigbee
-# firmware that carries a newer version.
+# its carried release (2.1.x) to an MCU with any older Open Dimmer version, they accept it, and
+# they are replaced a few seconds after mains-on. Until they decline updates, give them a
+# version byte at least the carried one: make DIAG=1 VERSION_BYTE=0x9B BUILD=build-diag-9b
+# (0x9B = 2.1.11, holds while the Zigbee firmware carries 2.1.11 or older). Back: make
+# flash-all over SWD, or a Zigbee firmware that carries a newer version.
 DIAG     ?= 0
 BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)
 

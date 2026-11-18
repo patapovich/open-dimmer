@@ -4,7 +4,7 @@
 # ota.image_block_response_delay is 50 ms; 250 ms is put back on every exit path (and by the
 # guard at the first BUFFER_FULL). On Ctrl-C the series is stopped first and 250 ms put back;
 # a further Ctrl-C, TERM, HUP or a closed output pipe cannot cut that cleanup short. The ZTU then
-# updates an own PY32 MCU that runs an older version (never a stock MCU).
+# updates a PY32 MCU that runs an older version of Open Dimmer (never a stock MCU).
 #
 # Usage: tools/ha/deploy_ota.sh <ieee | friendly_name:ieee>...   (no default: always name the modules)
 #   Z2M logs 'Finished update of ...' and '... failed' with the friendly name. For a bare IEEE the

@@ -50,10 +50,10 @@ Timers TIM1 and TIM16 are used heavily (phase-angle control); USART1 once.
 - BOOT0 alone is not enough: the PY32 samples BOOT0 within ms of power-up, before the Telink
   firmware can drive a GPIO, so a power cycle cannot be used to enter the ROM bootloader.
   BOOT0 + NRST (pin 10) both wired to ZTU GPIOs would be needed (hold BOOT0 high, pulse NRST).
-- Cleaner: no permanent wires. Flash an own PY32 firmware once on the bench (SWD on CN2 +
-  NRST for connect-under-reset), and give it a UART command that jumps to the ROM bootloader
-  (system memory) — later updates go Zigbee → Telink → UART ISP. A failed update then needs
-  physical access again unless the own firmware keeps a small fail-safe loader.
+- Cleaner: no permanent wires. Flash a custom PY32 firmware (now Open Dimmer) once on the bench
+  (SWD on CN2 + NRST for connect-under-reset), and give it a UART command that jumps to the ROM
+  bootloader (system memory) — later updates go Zigbee → Telink → UART ISP. A failed update then
+  needs physical access again unless that firmware keeps a small fail-safe loader.
 
 ## Update support in the WiFi PY32 firmware (checked 2026-11-16)
 - Product info: {"p":"chfpey4klfcp1ipl","v":"1.0.3","m":0}; no MCU OTA fields.
@@ -120,7 +120,7 @@ Update side, all paths checked:
 - Eight quick wall-switch toggles: LED blinks 6 × 100 ms and 0x08003404 runs (pairing/reset
   request to the radio module). Counter 0x200000C4.
 
-Dimming engine (for an own PY32 firmware):
+Dimming engine (the reference for Open Dimmer):
 - Clock 24 MHz. TIM16: PSC 23, ARR 19 → 50 kHz tick; its update ISR counts ticks between
   zero crosses (0x20000298) and sets a 10 ms flag every 500 ticks.
 - Zero cross: PA4 EXTI both edges → ISR 0x08000C40. Each crossing: TIM1 CNT = 0, TIM1 ARR =
@@ -182,7 +182,7 @@ Dimming engine (for an own PY32 firmware):
   (WiFi dump RDP = 0xAA = level 0, open). So MAIN FLASH 0x08000000 is unreadable: every read failed
   ("Failed to read memory at 0x08000000"); system ROM, option bytes, UID, factory config read fine.
 - Consequence: the Zigbee PY32's own firmware can NOT be dumped; clearing RDP mass-erases the flash.
-  Use the WiFi dump (mainflash.bin) as the reference for an own PY32 firmware.
+  Use the WiFi dump (mainflash.bin) as the reference for Open Dimmer.
 - Saved outside the repo: system ROM (3584 B), option bytes, UID and factory config (128 B each).
 
 ## Power stage from the elektroda photos (WiFi DMS16-W1 board MK-WC1H16A-A V1.1, read 2026-11-17)
@@ -195,6 +195,6 @@ Dimming engine (for an own PY32 firmware):
   (unreadable at 1200x900, verify on the spare).
 - Pull-down check (off mains, multimeter): resistance Q1/Q2 gate (left lead) ↔ source (right lead),
   both polarities; 1–100 kΩ = pull-down present. Also PY32 pin 11/12 (PA0/PA1) ↔ pin 1 (VSS).
-- 2026-11-17 Zigbee board check (spare, own DIAG fw): wall push button wired L–S1 (module label) pulls PB1 low
+- 2026-11-17 Zigbee board check (spare, Open Dimmer DIAG build): wall push button wired L–S1 (module label) pulls PB1 low
   as a STEADY level while pressed (no 50 Hz pulses); N–S1 gives nothing. ZC detector PA4: symmetric square
   wave 10.07/10.02 ms, ±20 µs jitter, clean under an LED load.
