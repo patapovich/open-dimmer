@@ -5,8 +5,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Read-only by default; only the tag-only release job may write (the release itself).
 permissions:
-  contents: write   # releases on tags
+  contents: read
+
+# A newer push to a branch or PR supersedes a running check; tag runs (releases) always finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   # PY32F0 SDK (CMSIS + LL drivers) used straight from py32f0-template, pinned.
@@ -19,7 +25,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Dimming, input and gesture logic (PC build)
+      - name: Dimming, input and gesture logic, image tools (PC build)
         run: make test
 
   build:
@@ -41,8 +47,8 @@ jobs:
 
       - name: Curve tables match their generator
         run: |
-          python3 tools/gen_curves.py > /tmp/curves.h
-          diff -u src/curves.h /tmp/curves.h
+          python3 tools/gen_curves.py > "$RUNNER_TEMP/curves.h"
+          diff -u src/curves.h "$RUNNER_TEMP/curves.h"
 
       - name: Build normal, diagnostics, measurement and bench builds
         run: |
@@ -66,11 +72,32 @@ jobs:
             echo "bootloader: $(stat -c %s build-boot/boot.bin) of 4096 bytes"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Images for the module (ZTU embedding) refuse bench/measurement builds
+      - name: Images for the module (ZTU embedding) refuse bench and measurement builds
         run: |
-          python3 tools/embed_ztu.py build/zdms16_py32.img /tmp/secondary_mcu_image.c
-          ! python3 tools/embed_ztu.py build-sim/zdms16_py32.img /tmp/x.c
-          ! python3 tools/embed_ztu.py build-measure/zdms16_py32.img /tmp/x.c
+          mkdir -p dist
+          python3 tools/embed_ztu.py build/zdms16_py32.img dist/secondary_mcu_image.c
+          refused() {  # image, the refusal embed_ztu.py must give for it
+            local out
+            if out=$(python3 tools/embed_ztu.py "$1" "$RUNNER_TEMP/refused.c" 2>&1); then
+              echo "::error::embed_ztu.py accepted $1"
+              exit 1
+            fi
+            if ! grep -qF "$2" <<< "$out"; then
+              echo "::error::embed_ztu.py refused $1, but not with '$2': $out"
+              exit 1
+            fi
+            echo "refused as expected: $1: $out"
+          }
+          refused build-sim/zdms16_py32.img "refusing a SIM bench build"
+          refused build-measure/zdms16_py32.img "refusing a measurement build"
+
+      - name: Release files (flat, named as attached to a release, so sha256sum -c works on a download)
+        run: |
+          cp build/zdms16_py32.img build/zdms16_py32_full.bin build-boot/boot.bin dist/
+          cd dist
+          sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS"
+          mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
+          sha256sum -c SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
@@ -83,29 +110,70 @@ jobs:
             build-diag/zdms16_py32_full.bin
             build-measure/zdms16_py32_full.bin
 
-      - name: Release (tags v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zdms16-py32-release-files-${{ github.sha }}
+          path: dist/
+
+  release:
+    name: Release (tags v*)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: py32-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: zdms16-py32-release-files-${{ github.sha }}
+          path: dist
+
+      - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -e
+          cd dist
+          sha256sum -c SHA256SUMS
           # The tag must name the version the image carries (FW_VERSION in src/tuya.h).
-          ver=$(python3 -c "d=open('build/zdms16_py32.img','rb').read(); v=d[0xCC]; print(f'v{v>>6}.{(v>>4)&3}.{v&15}')")
+          ver=$(python3 -c "d=open('zdms16_py32.img','rb').read(); v=d[0xCC]; print(f'v{v>>6}.{(v>>4)&3}.{v&15}')")
           [ "$ver" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME but the image is $ver"; exit 1; }
-          cp /tmp/secondary_mcu_image.c secondary_mcu_image.c
-          sha256sum build/zdms16_py32.img build/zdms16_py32_full.bin build-boot/boot.bin secondary_mcu_image.c > SHA256SUMS
-          gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME" \
-            build/zdms16_py32.img build/zdms16_py32_full.bin build-boot/boot.bin secondary_mcu_image.c SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME" *
 
-      - name: Hand over to the Zigbee firmware at once (tags v*, needs secret ZTU_DISPATCH_TOKEN)
-        if: startsWith(github.ref, 'refs/tags/v')
+  # Optional: a failure here (expired token) shows on the job but does not fail the run, and
+  # release.sh (which knows this job by its name starting with "Hand over") then starts
+  # py32-bump itself.
+  handover:
+    name: Hand over to the Zigbee firmware at once (tags v*, optional secret ZTU_DISPATCH_TOKEN)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Start py32-bump in patapovich/tuya-zigbee-switch
         env:
+          # Fine-grained PAT for patapovich/tuya-zigbee-switch with Actions: read and write only
+          # (it can start workflows there, not push to branches).
           GH_TOKEN: ${{ secrets.ZTU_DISPATCH_TOKEN }}
+          ZTU: patapovich/tuya-zigbee-switch
         run: |
-          # Without the token the fork's py32-bump picks the release up within the hour.
+          set -e
           if [ -z "$GH_TOKEN" ]; then
-            echo "::notice::no ZTU_DISPATCH_TOKEN: patapovich/tuya-zigbee-switch picks $GITHUB_REF_NAME up within the hour"
+            echo "::notice::no ZTU_DISPATCH_TOKEN: $ZTU picks $GITHUB_REF_NAME up at its next hourly check (best effort), or run tools/release/release.sh"
             exit 0
           fi
-          gh api repos/patapovich/tuya-zigbee-switch/dispatches -f event_type=py32-release \
-            -F "client_payload[tag]=$GITHUB_REF_NAME"
+          failed() {
+            echo "::error::hand-over failed ($1): ZTU_DISPATCH_TOKEN expired or without Actions write on $ZTU? The release stands; run tools/release/release.sh, or $ZTU picks $GITHUB_REF_NAME up at its next hourly check (best effort)"
+            exit 1
+          }
+          # GitHub disables scheduled workflows after 60 days without repository activity
+          state=$(gh api "repos/$ZTU/actions/workflows/py32-bump.yml" --jq .state) || failed "reading py32-bump"
+          if [ "$state" = disabled_inactivity ]; then
+            gh api -X PUT "repos/$ZTU/actions/workflows/py32-bump.yml/enable" || failed "enabling py32-bump"
+          fi
+          gh workflow run py32-bump.yml --repo "$ZTU" -f py32_tag="$GITHUB_REF_NAME" || failed "starting py32-bump"
