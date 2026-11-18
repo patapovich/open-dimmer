@@ -3,6 +3,25 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
+## 2.1.13 (2026-11-19)
+
+- Bootloader v2 (build 300 of the app, the first with a build number). It is installed over SWD
+  only (`tools/swd/install.sh`); on the old bootloader this app runs as before, without the
+  points marked v2.
+- v2: at power-on the module takes a newer build the Zigbee firmware carries, even if the
+  running app cannot take updates; the light comes as soon as the Zigbee firmware answers, after
+  ~3 s if it does not.
+- v2: an app that keeps crashing (3 starts in a row that never confirm themselves) gets 30 s
+  windows in which any other carried image is installed, older ones included. Holding the
+  module button while the power comes (pressed through the insulated case, never opened on
+  mains) forces such a window.
+- v2: link watchdog. If the Zigbee firmware sends nothing for 30 min while every channel is
+  off, the app restarts once (at most every ~4 h) and checks for a newer build; the light state
+  stays, the wall switch is not read for up to ~3 s.
+- Updates go by build number with a Zigbee firmware that knows it, by version byte otherwise.
+- Health: DP 136 (bootloader sector CRC) and DP 137 (boot word: probe time, rescue, button,
+  written, stuck and link flags, tries).
+
 ## 2.1.12 (2026-11-18)
 
 - After a watchdog, fault or update restart the light comes back as it was (on/off and level);

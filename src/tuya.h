@@ -33,7 +33,7 @@
 #define FW_VERSION               0xBF
 #else
 #ifndef FW_VERSION
-#define FW_VERSION               0x9C   /* 2.1.12 (make VERSION_BYTE=0x.. overrides) */
+#define FW_VERSION               0x9D   /* 2.1.13, build 300 (make VERSION_BYTE=0x.. overrides) */
 #endif
 #endif
 
