@@ -44,11 +44,13 @@ LDFLAGS  := $(ARCH) -T$(LDSCRIPT) -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(PROJECT)
 
 OBJS     := $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o))) $(addprefix $(BUILD)/,$(notdir $(ASRCS:.s=.o)))
 
-# Bootloader (4 KB at 0x08000000): the same for every app build
+# Bootloader (4 KB at 0x08000000): the same for every app build. BOOTLOADER keeps the
+# shared src/flash_drv.c as the bootloader was released with (boot.bin byte-identical) until
+# the bootloader batch (fix plan phase 3) takes the app's flash driver fixes in.
 BOOT_BUILD := build-boot
 BOOT_SRCS  := boot/boot.c src/flash_drv.c
 BOOT_OBJS  := $(addprefix $(BOOT_BUILD)/,$(notdir $(BOOT_SRCS:.c=.o)))
-BOOT_CFLAGS := $(CFLAGS) -ffreestanding -fno-tree-loop-distribute-patterns
+BOOT_CFLAGS := $(CFLAGS) -DBOOTLOADER -ffreestanding -fno-tree-loop-distribute-patterns
 BOOT_LDFLAGS := $(ARCH) -Tboot/boot.ld -Wl,--gc-sections -Wl,-Map=$(BOOT_BUILD)/boot.map -nostdlib -lgcc
 
 vpath %.c $(sort $(dir $(SRCS) $(BOOT_SRCS)))
@@ -132,6 +134,10 @@ test:
 	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -Itests/host -Isrc \
 	   -x c++ src/flash_drv.c tests/test_flash_drv.cpp -o $(BUILD)/host/test_flash_drv
 	$(BUILD)/host/test_flash_drv
+	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -Itests/host -Isrc \
+	   -DBOOTLOADER -x c++ src/flash_drv.c tests/test_flash_drv.cpp \
+	   -o $(BUILD)/host/test_flash_drv_boot
+	$(BUILD)/host/test_flash_drv_boot
 	cc $(HOST_CFLAGS) tests/test_tuya.c src/tuya.c -o $(BUILD)/host/test_tuya
 	$(BUILD)/host/test_tuya
 	cc $(HOST_CFLAGS) -DMEASURE=1 -DFW_VERSION=0x8F tests/test_tuya.c src/tuya.c -o $(BUILD)/host/test_tuya_measure

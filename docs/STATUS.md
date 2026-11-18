@@ -25,9 +25,17 @@ read). App 2.1.11: 11 628 bytes (660 bytes free). DIAG / MEASURE builds 11 972 /
 (same behaviour) 928 bytes less in every build: own byte-loop mem* (src/libc_min.c) instead of
 newlib's, no signed division code (DP and curve maths unsigned): app 10 700, DIAG 11 044,
 MEASURE 11 060, SIM 10 744 bytes. CI warns when a build has under 512 bytes free. Protocol,
-store and health fixes of review 2026-11-18 (items 7, 17, 18, 29, 30, 33, 37-40, 44): app
-10 852, DIAG 10 784, MEASURE 10 792, SIM 10 892 bytes (DIAG / MEASURE decline every update, so
-the update path is compiled out there).
+store and health fixes of review 2026-11-18 (items 17, 29, 30, 33, 37, 38, 39, and parts of 7:
+the MCU's start burst check, 18: the app declines 0xBF / 0xFF offers, 40: flash SR flags in the
+app (the bootloader takes them in phase 3), 44: store, flash driver, protocol, UART and health
+harnesses): app 10 852, DIAG 10 784, MEASURE 10 792, SIM 10 892 bytes (DIAG / MEASURE decline
+every update, so the update path is compiled out there); the bootloader is unchanged (2 136
+bytes, byte-identical). Still open of those items: 18 the SIM build's guard (PA4 pull-up and
+EXTI, shut down from the ISR, virtual edges only after PA4 is static), `make flash` refusing
+SIM images unless ALLOW_SIM=1, the note that a unit stuck on SIM needs a 3.x image or SWD; 40
+switch_type clamped on load, the 60 Hz comment, the INSTALL line that Open Dimmer needs the
+fork's ZTU; 44 dimmer.c and controls.c harnesses. ZTU side: also refuse the DIAG header flag
+0x04 (tools/embed_ztu.py already does).
 
 ## DPs (Open Dimmer; stock ones 1..14 unchanged)
 
@@ -193,7 +201,11 @@ the fork. Fix plan, in phases:
 1. ZTU + converter batch: one ZTU release, OTA to the spare first, then one module with its
    stock MCU.
 2. PY32 app batch (OTA to the spare; the flash savings first).
-3. Bootloader batch (SWD, frozen per unit: most test effort).
+3. Bootloader batch (SWD, frozen per unit: most test effort). It also takes the flash driver's
+   SR-flag fix of phase 2 (item 40): `src/flash_drv.c` keeps the bootloader's old behaviour
+   under `BOOTLOADER`, so `boot.bin` (what every `make flash-all` and `install.sh` writes) stays
+   byte-identical to the one before phase 2 until this batch drops that and tests it on the
+   spare.
 4. Hardware verification on the spare (the gate above).
 5. Migration of further modules (the order above).
 

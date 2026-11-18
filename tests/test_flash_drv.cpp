@@ -2,7 +2,10 @@
  * bootloader's page writes) against the register model in
  * tests/host/flash_model.hpp. Built as C++ so that every SR / CR / KEYR access
  * goes through the model; the page and the factory timing words are memory
- * mapped at their chip addresses. Run: make test */
+ * mapped at their chip addresses. Built twice: as the app has it, and with
+ * BOOTLOADER, the driver the bootloader keeps until fix plan phase 3 (a stale
+ * flag or OPTVERR fails its first attempt; boot.c tries every page twice).
+ * Run: make test */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,6 +67,14 @@ static void test_stale_flags_do_not_fail_a_write(void) {
     model_reset();
     host_flash.sr = FLASH_SR_WRPERR | FLASH_SR_OPTVERR | FLASH_SR_EOP;
     fill(1);
+#ifdef BOOTLOADER
+    /* Shipped bootloader driver: the first attempt fails before any erase
+     * and clears the flags, so boot.c's second attempt writes the page. */
+    CHECK(flash_write_page(PAGE_ADDR, g_src) == 0);
+    CHECK(host_flash.erases == 0 && host_flash.programs == 0);
+    CHECK(host_flash.sr == 0);
+    check_idle_and_locked();
+#endif
     CHECK(flash_write_page(PAGE_ADDR, g_src) == 1);
     CHECK(memcmp(page(), g_src, FLASH_PAGE_BYTES) == 0);
     CHECK(host_flash.erases == 1 && host_flash.programs == 1);
@@ -99,8 +110,16 @@ static void test_optverr_is_not_a_write_error(void) {
     model_reset();
     host_flash.program_raises = FLASH_SR_OPTVERR;
     fill(4);
+#ifdef BOOTLOADER
+    /* Shipped bootloader driver: counted as an error once; the page was
+     * programmed, so the second attempt finds it right and erases nothing. */
+    CHECK(flash_write_page(PAGE_ADDR, g_src) == 0);
+    CHECK(host_flash.erases == 1 && host_flash.programs == 1);
+    check_idle_and_locked();
+#endif
     CHECK(flash_write_page(PAGE_ADDR, g_src) == 1);
     CHECK(memcmp(page(), g_src, FLASH_PAGE_BYTES) == 0);
+    CHECK(host_flash.erases == 1 && host_flash.programs == 1);
 }
 
 /* A page that is already right is not erased (wear), and the controller is
@@ -154,10 +173,15 @@ int main(void) {
     test_identical_page_is_left_alone();
     test_timing_from_the_factory_words();
     test_crc32_is_zlibs();
+#ifdef BOOTLOADER
+#define NAME "test_flash_drv (BOOTLOADER)"
+#else
+#define NAME "test_flash_drv"
+#endif
     if (g_failures) {
-        printf("test_flash_drv: %d FAILED\n", g_failures);
+        printf(NAME ": %d FAILED\n", g_failures);
         return 1;
     }
-    printf("test_flash_drv: all passed\n");
+    printf(NAME ": all passed\n");
     return 0;
 }
