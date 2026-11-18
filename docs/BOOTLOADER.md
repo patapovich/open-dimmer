@@ -1,14 +1,15 @@
 # Bootloader v2: design (fix plan phase 3)
 
 Status: design, 2026-11-18, revised the same day after an adversarial review of this design
-(three reviewers), and again after two factory-firmware compatibility reviews (section 15).
-Every finding and its resolution is in section 16. Nothing here is implemented yet. Code
-references are to this repo at 421685a and to the fork `patapovich/tuya-zigbee-switch`, branch
-`home-dimmer` at 51f5c95a (paths under `src/zigbee/` there are marked "fork"). Addresses marked
-"stock ZTU" are in the public dump of the `_TZE284_jtbgusdc` ZTU (sha256 f4afb7a8..., named in
-`docs/stock-firmware-analysis.md`), and "WiFi 1.0.3" ones in the WiFi PY32 dump of the same
-document. Item numbers refer to the project review of 2026-11-18, which is kept privately (see
-STATUS.md).
+(three reviewers), again after two factory-firmware compatibility reviews (section 15), and
+once more with the user's decisions of the same day (the link-watchdog hook among them).
+Every finding, decision and its resolution is in section 16. Nothing here is implemented yet.
+Code references are to this repo at 421685a and to the fork `patapovich/tuya-zigbee-switch`,
+branch `home-dimmer` at 51f5c95a (paths under `src/zigbee/` there are marked "fork").
+Addresses marked "stock ZTU" are in the public dump of the `_TZE284_jtbgusdc` ZTU (sha256
+f4afb7a8..., named in `docs/stock-firmware-analysis.md`), and "WiFi 1.0.3" ones in the WiFi PY32
+dump of the same document. Item numbers refer to the project review of 2026-11-18, which is
+kept privately (see STATUS.md).
 
 The bootloader can only be replaced over SWD (mains off, probe on CN2). Every module installed
 from now on keeps the v2 bootloader for good, so v2 is designed to never need replacing: it
@@ -39,15 +40,16 @@ Numbers marked *measured* come from throwaway experiments that are not in the re
 |---|---|---|
 | 1 | Layout | Bootloader alone in sector 0 (4 KB). It takes apps up to 14 KB (`BOOT_APP_MAX` 0x3800). Every mode with an installed app keeps a new image inside that app's settings layout (12 KB, or 14 KB with the header flag RING_HIGH); only "no valid app" takes up to 14 KB. Settings ring stays at 0x08004000 (4 KB) until an app needs more than 12 KB; a "ring-move" release first moves it to 0x08004800 (2 KB). Today the ZTU's OTA slot, not the bootloader, caps the app near 12 KB (section 12). Sector 0 is not write-protected in phase 3. |
 | 2 | Versions | 16-bit build number in the app header's reserved bytes (0xCE..0xCF). Releases are multiples of 100 (the first 300), test builds take the 99 numbers after a release. The version byte stays for display, the converter and old peers. Identity (0xA3) and offer (0xA0) get the build appended; old peers ignore the extra bytes. Build 0 (2.1.x) images stay valid and servable. |
-| 3 | Mailbox | The two reserved words become the boot word (tries, rescue info, probe answer time) and its complement. The bootloader writes `restored` only when it opens a counter rescue, so a crash loop never brings back a stale light state. |
-| 4 | Boot flow | Gates low first; the reset flags are copied before any RCC write; the bootloader starts the watchdog with its own ~1 s period. Mode order: update (asked, or no valid app) > rescue (button, or 3 unconfirmed boots) > power-on probe > jump. |
-| 5 | Probe | After a cold reset only: header-only 0xA1 every 100 ms for up to 3 s (frozen, generous on purpose). The ZTU commits to answering within 1.5 s of power-up (contract, section 10). The light comes at the ZTU's answer time + ~50 ms; the full 3.1 s only when the ZTU cannot answer (always under a stock Tuya ZTU, which is not supported). Takes only a valid, larger build number that fits the installed settings layout. |
-| 6 | Rescue | 30 s listening windows. Takes any non-bench image the ZTU serves whose CRC differs from the installed one and that fits the layout, older ones included. Button: held when the power comes, released within 5 s. |
-| 7 | Confirm | The app confirms after 30 s of uptime once it has answered a 0xA3 in this run, or when no 0xA3 but at least two 0x01 product queries came (a stock Tuya ZTU). Only apps with the header flag CONFIRMS and no bench flag are counted, so 2.1.x apps and bench builds never fall into rescue loops. |
+| 3 | Mailbox | The two reserved words become the boot word (tries, rescue info, probe answer time, the app's probe request) and its complement. The bootloader writes `restored` only when it opens a counter rescue, so a crash loop never brings back a stale light state. |
+| 4 | Boot flow | Gates low first; the reset flags are copied before any RCC write; the bootloader starts the watchdog with its own ~1 s period. Mode order: update (asked, or no valid app) > rescue (button, or 3 unconfirmed boots) > probe (a cold reset, or a warm reset the app asked one for) > jump. |
+| 5 | Probe | After a cold reset, or a warm reset whose boot word carries the app's probe request (row 14): header-only 0xA1 every 100 ms for up to 3 s (frozen, generous on purpose; user decision U1). The ZTU commits to answering within 1.5 s of power-up (contract, section 10). The light comes at the ZTU's answer time + ~50 ms; the full 3.1 s only when the ZTU cannot answer (always under a stock Tuya ZTU, which is not supported). Takes only a valid, larger build number that fits the installed settings layout. |
+| 6 | Rescue | 30 s listening windows (user decision U3). Takes any non-bench image the ZTU serves whose CRC differs from the installed one and that fits the layout, older ones included. After a counter rescue the light takes the power-on behaviour (U3). Button: held when the power comes, released within 5 s; the module sits in an insulated case, the button is pressed through it, and the case is never opened on mains (U2). |
+| 7 | Confirm | The app confirms after 30 s of uptime once it has answered a 0xA3 in this run, or when no 0xA3 but at least two 0x01 product queries came (a stock Tuya ZTU). A confirmation sets the tries to 0 and keeps every other bit of the boot word. Only apps with the header flag CONFIRMS and no bench flag are counted, so 2.1.x apps and bench builds never fall into rescue loops. |
 | 8 | Update path | Every mode asks for the carried header first and pins the image it takes; page 0's vectors are checked before anything is written. Give-up is based on progress (item 28). No request while a frame is half received. Requests carry the bootloader version, the mode and the installed image (16 bytes). The SR-flag shim goes; the flash wait is bounded at ~50 ms. |
 | 9-11 | App, ZTU, tools | Listed in sections 9-11. Under an own ZTU every change except the bootloader ships over the air. Under a stock Tuya ZTU nothing reaches the MCU: the app installed over SWD stays until the ZTU is converted (section 15). |
-| 12 | Size | *Measured* prototype: 3216 of 4096 bytes (+1080 over v1's 2136); 880 bytes stay free. |
-| 13 | Factory firmware | A stock MCU behind the phase-3 ZTU gets exactly what phase 1 sends it, apart from one retry of a lost DP dump. Own commands go only to an MCU identified as Open Dimmer. Unidentified MCUs get bounded identity questions and short frames (contract items 4 and 6). Open Dimmer under a stock Tuya ZTU is not supported but safe, with its costs listed. Section 15. |
+| 12 | Size | *Measured* prototype with the link hook: 3252 of 4096 bytes (+1116 over v1's 2136); 844 bytes stay free. |
+| 13 | Factory firmware | A hard requirement (user decision U5). A stock MCU behind the phase-3 ZTU gets exactly what phase 1 sends it, apart from one retry of a lost DP dump. Own commands go only to an MCU identified as Open Dimmer. Unidentified MCUs get bounded identity questions and short frames (contract items 4 and 6). Open Dimmer under a stock Tuya ZTU is not supported but safe, with its costs listed. Section 15. |
+| 14 | Link watchdog | User decision U4. Frozen hook: boot word bit 7 (`BOOT_PROBE_REQ`), set by the app in a valid word right before a software reset, cleared by the bootloader at every boot. On a warm boot it runs the power-on probe with the same rules (newer build only, fits the layout, no bench build, 3 s window, ends at the first answer), counts as a probe and not a rescue (no window, no `restored` mark, no older image), sends mode 6 and sets bit 6 (`BOOT_INFO_LINK`). *Measured*: +36 bytes. The first v2 app (release R) ships the watchdog with defaults: no well-formed frame from the ZTU for 30 min, every channel off, the run at least 4 h old (at most one restart per ~4 h); then the planned restart with the request and tries 0. The light state comes back by the restore rule; the wall switch is not read for ~3.1 s at most when nothing newer is carried. Sections 3, 5, 9 (item 11). |
 
 ---
 
@@ -64,8 +66,10 @@ write-protection unit and pyOCD's erase unit), 3 KB RAM.
 | RAM | 0x20000000-0x20000BDF | 3040 | .data/.bss/stack of the bootloader or the app (`RAM LENGTH = 3K - 32` in both linker scripts) | - |
 | Mailbox | 0x20000BE0-0x20000BFF | 32 | `ota_mailbox_t` (section 3) | Both |
 
-Constants in `src/ota_proto.h` v2. `APP_MAX_SIZE` goes away: its two users each get their own
-limit.
+Constants in `src/ota_proto.h` v2. The header holds every number of this document that two
+sides share, with the frame formats, the boot word, the app's link-watchdog defaults and the ZTU
+contract, and says for each field which side reads it. `APP_MAX_SIZE` goes away: its two users
+each get their own limit (both use `APP_LIMIT_LEGACY` until their v2 code lands).
 
 ```c
 #define BOOT_BASE          0x08000000u
@@ -79,7 +83,7 @@ limit.
 typedef struct {
     uint32_t magic;      /* BOOT_ID_MAGIC 0x4C42444F "ODBL" */
     uint8_t  version;    /* 2 */
-    uint8_t  features;   /* bit 0 try counter, 1 power-on probe, 2 button */
+    uint8_t  features;   /* bit 0 try counter, 1 power-on probe, 2 button, 3 link probe request */
     uint16_t reserved;   /* 0xFFFF */
     uint32_t app_max;    /* BOOT_APP_MAX */
     uint32_t mailbox;    /* 0x20000BE0 */
@@ -91,6 +95,7 @@ typedef struct {
 #define OTA_MODE_PROBE     3             /* power-on probe, and the update it started */
 #define OTA_MODE_RESCUE    4             /* 3 unconfirmed boots */
 #define OTA_MODE_BUTTON    5             /* module button at power-on */
+#define OTA_MODE_LINK      6             /* probe asked by the app's link watchdog, and its update */
 ```
 
 `boot_id_t` sits in its own section, placed in `boot.ld` right after `.isr_vector`, so
@@ -258,7 +263,7 @@ build. The app's answer stays 1 byte (0 = accepted).
 |---|---|---|---|---|---|---|
 | 2.1.x | v1 | phase 1 | byte | - | - | The spare today |
 | 2.1.x | v1 | phase 3 | byte (7-byte identity) | - | - | The spare in rollout step 3, until it takes the release's app |
-| v2 app | v1 | phase 1 / phase 3 | byte / build | - | - | The spare between the app OTA and its SWD re-flash. `app_limit()` is 12 KB (no boot_id). The confirmation writes are ignored. |
+| v2 app | v1 | phase 1 / phase 3 | byte / build | - | - | The spare between the app OTA and its SWD re-flash. `app_limit()` is 12 KB (no boot_id). The confirmation writes are ignored. The link watchdog stays off (no `BOOT_FEAT_LINK`). |
 | 2.1.x | v2 | any | byte | yes (any build counts as newer than build 0) | no (no CONFIRMS) | Only after a rescue downgrade, or bench test B6. Button rescue still works. |
 | v2 app | v2 | phase 1 | byte | yes | yes | A module whose ZTU lags behind |
 | v2 app | v2 | phase 3 | build | yes | yes | Target |
@@ -279,29 +284,37 @@ Section 15 has the full matrix, factory firmware included.
 | 0x0C | `restore` | - | never touched | read/write | same |
 | 0x10 | `expect_crc` | reads when asked | reads when asked | writes with the offer | same |
 | 0x14 | `restored` | - | writes OTA_RESTORED_MAGIC when it opens a counter rescue window; else never touched | read/write (`dimmer.c:205-216, 240, 245`) | same |
-| 0x18 | `boot` (was `reserved[0]`) | - | read and written at every boot | - | reads at start; clears bits 7..0 to confirm |
-| 0x1C | `boot_check` (was `reserved[1]`) | - | written = ~boot | - | rewritten with a confirmation |
+| 0x18 | `boot` (was `reserved[0]`) | - | read and written at every boot | - | reads at start; sets the tries to 0 to confirm; sets bit 7 (with tries 0) before a link-watchdog restart |
+| 0x1C | `boot_check` (was `reserved[1]`) | - | written = ~boot | - | rewritten with every change of `boot` |
 
-Boot word:
+Boot word (`BOOT_*` in `src/ota_proto.h`):
 
 | Bits | Field |
 |---|---|
 | 31..24 | Tag 0xB2. The word is valid only when the tag matches and `boot_check == ~boot`. Random RAM matches with p ≈ 2^-40; that matters for the first boot after an SWD install, a software reset with random RAM. |
-| 23..12 | Probe answer time in ms since the first probe request (1..4095), 0 = no answer or no probe. The probe starts ~50 ms after power-up (clock, watchdog, `app_valid()`). `PROBE_WINDOW_MS` < 4096 is a static assert. |
+| 23..12 | Answer time of the last probe since the power-up, in ms since its first request (1..4095), 0 = no answer or no probe. The power-on probe starts ~50 ms after power-up (clock, watchdog, `app_valid()`). A link probe (bit 6) clears the field before it starts, so with bit 6 set the field holds the link probe's time. `PROBE_WINDOW_MS` < 4096 is a static assert. |
 | 11..8 | Info, all since the last power-up: bit 8 RESCUE (the counter opened a rescue window), bit 9 BUTTON (the button forced one), bit 10 WRITTEN (an image was written), bit 11 STUCK (the button was still held 5 s after power-up). |
-| 7..0 | `tries`: unconfirmed boots of a counted app (CONFIRMS and no bench flag), 0..3 |
+| 7 | `BOOT_PROBE_REQ`, app to bootloader: probe at the next boot (the link-watchdog hook, section 5). The v2 app sets it only in a valid word, right before a software reset; the bootloader clears it at every boot, honoured or not, so a stored word never has it. |
+| 6 | `BOOT_INFO_LINK`: a probe asked by bit 7 ran since the last power-up (set by the bootloader). |
+| 5..4 | 0, reserved. |
+| 3..0 | `tries`: unconfirmed boots of a counted app (CONFIRMS and no bench flag), 0..3. Every reader masks it (`boot & BOOT_TRIES_MASK`, 0x0F): bits 7..4 are not part of the count, and an unmasked compare would read bit 6 as 64 tries. |
 
 Life cycle:
 - **Cold boot** (section 4): the word is rebuilt as `0xB2000000`. Probe time, info and tries
-  all count since the last power-up.
-- **Warm boot**: the word is kept if it is valid, otherwise rebuilt.
+  all count since the last power-up; a probe request from before the power cut is gone (the
+  power-on probe runs anyway).
+- **Warm boot**: the word is kept if it is valid, otherwise rebuilt. Bit 7 is read and cleared.
 - **Asked update, or no valid app**: tries = 0, because the app just proved its update path or
   there is no app.
 - **Image written** (result OK, just before the reset): tries = 0, WRITTEN set. A new image gets
   3 fresh runs.
+- **Link probe** (bit 7 honoured, section 5): bits 23..12 cleared, LINK set.
 - **Before every jump**: if the app is counted and tries < 3, tries + 1. The word is stored
   together with its complement.
 - **App confirmation** (section 7): tries = 0, the other bits are kept.
+- **Link-watchdog restart** (section 9, item 11): the app writes tries = 0 and bit 7 in one
+  word (and its complement), then resets. So a link restart never moves the counter: after it,
+  tries reads 1, as after a power-on probe.
 - **SWD**: a debugger reset is a software reset, so an old word would survive a re-flash. `make
   flash`, `install.sh` and `ota_swd_emu.py` therefore write 0 to `boot` and `boot_check` before
   every reset they issue; a freshly flashed build always starts with 3 tries.
@@ -325,6 +338,12 @@ keeps working, with one addition:
 - **Probe or button update**: the reset flags include PWRRSTF, so the new app uses the
   power-on behaviour.
 - **Offered update**: the light is restored as today.
+- **Link-watchdog restart**: the app's planned restart (`dimmer_prepare_restart()`, `restored`
+  = 0), as before an offered update. The light state comes back after it, also after the image
+  a link probe installs (only SFTRSTF is set then): every channel off, since the watchdog fires
+  only then, with the levels kept. The power-on behaviour is never used for it, so a lamp with
+  power-on "on" never switches on by itself (user decision U4: "restores the state per the
+  existing restore logic").
 - Cost: when no run confirms (section 7), every warm reset after the third also takes the
   power-on behaviour instead of the restore. With the default "off" a lamp that was on stays
   off. With "on" a lamp that was off switches on by itself. Under a stock Tuya ZTU the app
@@ -355,15 +374,25 @@ main:
     asked = mb->magic == UPDT && mb->magic_inv == ~UPDT;
     g_expect = asked ? mb->expect_crc : 0;   mb->magic = mb->magic_inv = 0;
     word  = (!cold && valid(mb->boot)) ? mb->boot : 0xB2000000;   if (stuck) info |= STUCK;
+    link  = word & PROBE_REQ;  word &= ~PROBE_REQ;        /* the app's request: read, cleared always */
+    tries = word & TRIES_MASK;                            /* bits 3..0 only, every read and write */
     h     = installed header;  ok = app_valid();  counts = (h->flags & (CONFIRMS | BENCH)) == CONFIRMS;
     limit = h->flags & RING_HIGH ? 14K : 12K;
     if (!ok || asked)                        { tries = 0; if (!ok) limit = 14K; mode = ok ? ASKED : NO_APP; run(GIVE_UP_MS); }
     else if (button)                         { info |= BUTTON; skip = h->crc; mode = BUTTON; run(RESCUE_WINDOW_MS); }
     else if (counts && tries >= 3)           { info |= RESCUE; mb->restored = RST1; skip = h->crc; mode = RESCUE; run(RESCUE_WINDOW_MS); }
-    else if (cold && !(h->flags & BENCH))    { mode = PROBE; run(PROBE_WINDOW_MS); }
+    else if ((cold || link) && !(h->flags & BENCH)) {
+        if (!cold) { probe_ms = 0; info |= LINK; }        /* request byte 7: 6 instead of 3 */
+        mode = PROBE; run(PROBE_WINDOW_MS);
+    }
     if (counts && tries < 3) tries++;
     store word, ~word;  jump_app();
 ```
+
+The hook adds one operand to the probe's condition and nothing to `run()`: a link probe is the
+power-on probe on a warm boot. It sits below the asked update and the counter rescue, so it can
+never take their place, and a request the bootloader does not honour (asked, no valid app, a
+rescue, a bench build) is dropped all the same.
 
 `run()` returns only to start an intact app. A finished image ends in `NVIC_SystemReset()`.
 
@@ -433,24 +462,25 @@ at power-up (`g_boot_held`, `controls.c:58, 203-207`). For a press that comes to
 the bootloader looked, the v2 app ignores a module-button hold of 3 s or more that began in the
 first 10 s after a cold start (section 9).
 
-User steps for docs/INSTALL.md: press the module button and keep it pressed, then switch the
-power on; when the LED lights, let go within 5 s. The LED then blinks slowly while the module
-waits for an image and fast while it writes one; without a different image it starts the light
-after 30 s. The board is not isolated from the mains (INSTALL.md, "Mains voltage"): press the
-button only with an insulated tool, never with a finger on the open board.
+User steps for docs/INSTALL.md (user decision U2): the module sits in an insulated case, the
+button is pressed through the case, and the case is never opened while the mains is connected
+(INSTALL.md, "Mains voltage": the board is not isolated from the mains). Press the module button
+through the case and keep it pressed, then switch the power on; when the LED lights, let go
+within 5 s. The LED then blinks slowly while the module waits for an image and fast while it
+writes one; without a different image it starts the light after 30 s.
 
 ### Timeouts
 
 | Constant | Value | Why |
 |---|---|---|
 | `PROBE_EVERY_MS` | 100 | The light comes at most ~100 ms after the ZTU can answer. Never sent while a frame is half received (section 8). |
-| `PROBE_WINDOW_MS` | 3000, frozen | Generous on purpose: the probe ends at the first answer, so the window costs light delay only when the ZTU cannot answer at all (failure pause, no usable image, broken, or a stock Tuya ZTU). The ZTU commits to 1500 ms, half of it (section 10). < 4096 (boot word field). Section 5. |
+| `PROBE_WINDOW_MS` | 3000, frozen (user decision U1) | Generous on purpose: the probe ends at the first answer, so the window costs light delay only when the ZTU cannot answer at all (failure pause, no usable image, broken, or a stock Tuya ZTU). The ZTU commits to 1500 ms, half of it (section 10). < 4096 (boot word field). The link probe uses the same window. Section 5. |
 | `BUTTON_MS` | 100 | Rejects bounce and the pull-up settling |
 | `BUTTON_RELEASE_MS` | 5000 | Long enough to let go after the LED lights; the cost of a stuck button per power-up |
 | `REQUEST_EVERY_MS` | 500 | Unchanged (boot.c:34): the request pace when nothing comes |
 | `REJECT_PACE_MS` | 50 | A stray block (wrong offset, duplicate, short) is asked for again 50 ms later instead of at once (review: ~210 requests/s in the deadlock) |
 | `GIVE_UP_MS` | 10 000 | Unchanged value, now measured from the last accepted block (item 28) |
-| `RESCUE_WINDOW_MS` | 30 000 | Section 6 |
+| `RESCUE_WINDOW_MS` | 30 000 (user decision U3) | Section 6 |
 | frame silence | 50 | Unchanged (boot.c:136-138) |
 | result flush | 20 | Unchanged (boot.c:321) |
 
@@ -489,8 +519,9 @@ Stricter checks (SP exactly 0x20000BE0, an odd reset vector) stay in the tools a
 ```
         +---------------------------------- reset ----------------------------------+
         | gates low; flags copied; clock; IWDG ~1 s; button (cold); mailbox; app_valid |
+        | (bit 7 of the boot word read and cleared)                                    |
         +------------------------------------------------------------------------------+
- no valid app | asked     button released | tries>=3 & counted    cold & not bench        else
+ no valid app | asked     button released | tries>=3 & counted  (cold | bit 7) & not bench  else
         v                       v                                       v                   |
   UPDATE (asked: that CRC)  RESCUE (not the installed CRC)        PROBE (newer build only)  |
         \_______________________|_______________________________________/                   |
@@ -548,7 +579,8 @@ Then the image is pinned to the carried CRC and fetched in the same loop (pace 5
 whole blocks.
 
 **When is the probe skipped?**
-- On warm boots. A crash loop is the counter's job, and an asked update brings its own image.
+- On warm boots, unless the app asked for one (below). A crash loop is the counter's job, and
+  an asked update brings its own image.
 - When the installed app is a bench build (flags & 0x07). DIAG and MEASURE builds decline every
   offer so that they stay (item 17, `src/tuya.c:179-185`). The probe must not undo that after
   each power cut, and SIM benches keep their build too.
@@ -581,7 +613,7 @@ stock Tuya ZTU, on every power-up). So:
   boot after a ZTU OTA (contract, section 10);
 - every ZTU release is checked against that on the spare before it goes further (section 14,
   B2), and DP 137 shows a miss on any unit under an own ZTU of phase 3 or later (a cold boot
-  with probe time 0). Under a stock Tuya ZTU every cold boot shows 0.
+  with probe time 0 and LINK clear). Under a stock Tuya ZTU every cold boot shows 0.
 
 A window that the installed app's header could set was considered and left out: it would take
 flag bits, and the escape's timing should not come from the app it escapes from.
@@ -608,6 +640,62 @@ RING_HIGH app was taken, and so was build 301 over an installed 2.1.10. With the
 20-201 ms after each request, all 20 of 20 power-ups found the newer build at every latency (the
 first prototype found it in 3 of 20 at ~97 ms: a request sent while an answer arrived destroyed
 it).
+
+### Probe asked by the app (the link-watchdog hook)
+
+User decision U4: the frozen bootloader gives the app a way to ask for the power-on probe
+without a power cut. Its user is the app's link watchdog (section 9, item 11), which restarts an
+app that has heard nothing from the ZTU for 30 min. The policy (when to ask) is app code and
+changes over the air; the frozen part is only this:
+
+- **The bit.** Boot word bit 7, `BOOT_PROBE_REQ` (section 3). The app sets it only in a valid
+  word (tag and complement), together with tries = 0, and resets with `NVIC_SystemReset()`.
+  `boot_id.features` bit 3 (`BOOT_FEAT_LINK`) tells the app that the bootloader honours it.
+- **Read and cleared at every boot.** On a warm boot with a valid word the bootloader copies bit
+  7 and clears it before anything else uses the word, whatever happens next. A cold boot rebuilds
+  the word, so a request never survives a power cut (the power-on probe runs then anyway), and a
+  request in an invalid word is never seen.
+- **Same rules as the power-on probe.** It runs only where the power-on probe would: a valid,
+  not asked app, no rescue due, no bench build. Then it is the power-on probe: header requests
+  every 100 ms for up to `PROBE_WINDOW_MS` (3 s), never while a frame is half received; it ends
+  at the first header answer; it takes only an image with a larger build than the installed one
+  that fits the installed layout, with "APDZ" and no bench flag; page 0 is checked before the
+  first write; give-up 10 s after the last accepted block; the LED stays off.
+- **A probe, not a rescue.** No 30 s window, no `restored` mark, the installed CRC is not
+  skipped and no older image is taken; RESCUE and BUTTON stay clear. For the counter it is an
+  ordinary warm boot (tries + 1 at the jump for a counted app); because the app wrote tries = 0
+  with the request, the app then runs with tries 1, as after a power-on probe.
+- **Visible.** Request byte 7 is `OTA_MODE_LINK` (6) instead of 3, also for the update it
+  starts, so the ZTU can log a link probe as such. Bits 23..12 are cleared first and then hold
+  the link probe's answer time; bit 6 (`BOOT_INFO_LINK`) is set and stays until the power-up.
+  DP 137 then tells the two broken sides apart: LINK with a probe time means the ZTU answered
+  0xA1 (its UART works: the silence was on the app's side, or above the ZTU's UART), LINK with 0
+  means the ZTU did not answer at all.
+- **Order.** Update (asked, or no valid app) > rescue (button, counter) > probe (cold, or asked)
+  > jump, unchanged. The request never displaces an asked update or a counter rescue.
+- **Size.** *Measured* on the prototype: +36 bytes, of which +24 for the hook and +12 for
+  reading the tries through `BOOT_TRIES_MASK`, which bits 7 and 6 now require (3216 → 3252
+  bytes).
+
+*Measured* in the byte-timed model (a copy of the prototype with the hook, all earlier
+scenarios still passing with 64- and 128-byte blocks, largest watchdog gap 51 ms). A unit that
+ran, confirmed and then asked for a link probe:
+
+| ZTU carries | Result |
+|---|---|
+| Same image, older build, 2.1.12 without a build, a SIM image, 13 KB over a 12 KB-ring app | Not taken; app after 0.05 s (answer after 9 ms); nothing written; tries 1, LINK set |
+| Newer build (301 over 300) | Taken: reset after 2.52 s (1.84 s with 128-byte blocks), next boot jumps at once without a second probe; tries 1, WRITTEN and LINK set |
+| 13 KB over a RING_HIGH app | Taken (2.86 s) |
+| Anything, but the ZTU does not answer 0xA1 (silent, or a stock Tuya ZTU) | App after 3.12 s, probe time 0, LINK set, nothing written |
+| Installed DIAG build | No request at all, bit 7 cleared, app after 0.04 s |
+
+Also *measured*: a request together with an asked update gives the asked update (mode 1 only);
+a request with tries 3 gives the counter rescue (no mode-6 request, `restored` marked); a cold
+boot with a stale request in RAM probes with mode 3 and leaves LINK clear; a request in a word
+with a wrong complement gives no probe; with LINK set, a crash loop still opens its first window
+at the 4th unconfirmed boot (`..WWWW`); 10 link restarts in a row under a ZTU that never answers
+0xA1, with foreign frames every 1 s and no confirmation, gave 0 windows, every boot ≤ 3.12 s,
+nothing written, `restored` untouched.
 
 ---
 
@@ -641,11 +729,12 @@ header first, a window with the same image carried sends header requests only (*
 offset-0 requests in a 30 s window; the first prototype sent 61, each of which made the ZTU
 treat the MCU as restarted).
 
-**Window.** 30 s from the start, or from the last accepted block (then 10 s). With nothing new
-the bootloader starts the app again. `tries` stays at 3, so every further warm reset opens
-another window until a run confirms or the power is cut. Under a stock Tuya ZTU a window can
-install nothing, because that ZTU drops every 0xA1 (section 15). There the app's stock-ZTU
-confirmation (section 7) keeps the counter from reaching 3.
+**Window.** 30 s from the start, or from the last accepted block (then 10 s); user decision U3
+keeps 30 s. With nothing new the bootloader starts the app again. `tries` stays at 3, so every
+further warm reset opens another window until a run confirms, a run lasts long enough for its
+link watchdog (4 h; its restart writes tries 0), or the power is cut. Under a stock Tuya ZTU a
+window can install nothing, because that ZTU drops every 0xA1 (section 15). There the app's
+stock-ZTU confirmation (section 7) keeps the counter from reaching 3.
 
 **Why not stay listening for ever (the literal "stays listening")?**
 - For an app that crashes or hangs in init, the effect is the same: *measured* 96 % of the time
@@ -682,14 +771,15 @@ holds:
 - no 0xA3 came in this run, and at least 2 well-formed 0x01 product queries did (`55 AA 02 seq
   01 00 00 cs`: a stock Tuya ZTU, see "Stock-ZTU confirmation" below).
 
-It then clears bits 7..0 of a valid boot word and rewrites `boot_check`:
+It then sets the tries (bits 3..0) of a valid boot word to 0, keeps every other bit (LINK, the
+info bits, the probe time) and rewrites `boot_check`:
 
 ```c
 static void boot_confirm(void) {                /* main loop, once per run */
     volatile ota_mailbox_t *mb = OTA_MAILBOX;
     uint32_t w = mb->boot;
-    if ((w >> 24) == BOOT_TAG && mb->boot_check == ~w && (w & 0xFFu)) {
-        w &= ~0xFFu;  mb->boot = w;  mb->boot_check = ~w;
+    if (BOOT_WORD_VALID(w, mb->boot_check) && (w & BOOT_TRIES_MASK)) {
+        w &= ~BOOT_TRIES_MASK;  mb->boot = w;  mb->boot_check = ~w;
     }
 }
 ```
@@ -739,12 +829,26 @@ points matter here:
 
 **No fallback "confirm after N minutes without 0xA3".** A stable app is never pushed into rescue
 anyway (the counter moves only at resets). Without the fallback, an app with a broken UART that
-also resets now and then is still rescued. An app whose UART is broken and that never resets is
-not rescued automatically: it needs a power cut (the probe, if a newer build is carried) or the
-button. An app-side link watchdog (a warm reset after ~10 min without a valid ZTU frame) would
-need no frozen change, but it would also disturb a working light whenever the ZTU, not the app,
-is the broken side: after three such resets the counter window opens and the light takes the
-power-on behaviour. It is left out and can be added over the air later.
+also resets now and then is still rescued.
+
+**Link watchdog (user decision U4).** An app whose UART is broken and that never resets used to
+need a power cut (the probe, if a newer build is carried) or the button. The first version of
+this design left an app-side link watchdog out, because it would disturb a working light
+whenever the ZTU, not the app, is the broken side: after three such resets the counter window
+opens and the light takes the power-on behaviour. The adopted form (section 9, item 11, with the
+frozen hook of section 5) removes both costs:
+- it restarts only while every channel is off, after 30 min without any frame from the ZTU, in a
+  run at least 4 h old, and the restore rule brings the state back (off);
+- its request writes tries = 0, so link restarts never open a counter window (*measured*: 10
+  link restarts under a ZTU that never answers, 0 windows);
+- the restart asks for a probe, which takes a newer build if the ZTU carries one, without a
+  power cut.
+
+What remains when the ZTU is the broken side: ~3.1 s without wall-switch input at most once per
+4 h while the light is off. The link restart is not a confirmation. Its tries = 0 changes one
+thing for the counter: an app with a dead link is counter-rescued only by unconfirmed boots
+less than 4 h apart (crashes); one that crashes more rarely gets the probe at each link restart
+(newer builds) instead of the counter's older-image path (the button keeps that path).
 
 **Cost when nothing confirms.** When no run confirms, every warm reset after the third
 unconfirmed boot opens a 30 s dark window, until a confirmed run or a power cut (*measured*: 7
@@ -770,7 +874,8 @@ per day.
 - Accepting an offer also counts as healthy: the bootloader sets tries to 0 when it finds the
   UPDT request.
 
-Under the v1 bootloader the confirmation finds no valid word and does nothing.
+Under the v1 bootloader the confirmation finds no valid word and does nothing, and the link
+watchdog stays off (no `boot_id`, so no `BOOT_FEAT_LINK`).
 
 ---
 
@@ -784,7 +889,7 @@ Under the v1 bootloader the confirmation finds no valid word and does nothing.
 | Paced rejects | `on_block()` returns TOOK / STRAY / OTHER / DONE. TOOK: next request at once. STRAY (offset, length or duplicate): after 50 ms. OTHER (not the pinned image): stays at the 500 ms pace. | Noisy link (5 % drop, 5 % late duplicate, 2 % bit flip), 50 seeds: 0 failures, mean 14.6 s, max 19.1 s (128-byte blocks: 8.1 / 13.1 s) |
 | Half-duplex requests | A request goes out only when no frame is half received (`g_rx_len == 0`). The USART has a one-byte data register and `send()` busy-waits ~2.2 ms for a 25-byte request without reading RX, so a request sent into an arriving answer destroyed it. | *Measured*: 20 of 20 power-ups at every ZTU latency 20-201 ms; before, 3 of 20 at ~97 ms |
 | Image change mid-transfer | The pinned image's blocks stop coming (OTHER); after the give-up the intact old app starts, or, if pages were written, the new image is taken from offset 0. | as above |
-| Request v2 (16 bytes) | offset (4, BE), max_len (2, BE), bootloader version (1), mode (1, `OTA_MODE_*`), the installed header's bytes 8..15 as in flash (CRC LE, version byte, flags, build LE; meaningless in mode 2). A phase-1 ZTU reads bytes 0-5 only (`tuya_mcu_ota.c:273`); a 6-byte request means a v1 bootloader. The frozen requests thus tell a future ZTU which bootloader asks, why, and what is installed: it can report a crash loop, or serve a last-good image to a rescue, without any bootloader change. | +24 bytes |
+| Request v2 (16 bytes) | offset (4, BE), max_len (2, BE), bootloader version (1), mode (1, `OTA_MODE_*`, 1..6; 6 = link probe), the installed header's bytes 8..15 as in flash (CRC LE, version byte, flags, build LE; meaningless in mode 2). A phase-1 ZTU reads bytes 0-5 only (`tuya_mcu_ota.c:273`); a 6-byte request means a v1 bootloader. The frozen requests thus tell a future ZTU which bootloader asks, why, and what is installed: it can report a crash loop, or serve a last-good image to a rescue, without any bootloader change. | +24 bytes |
 | Result v2 (4 bytes) | status, version byte, build of the written image (BE). Phase-1 ZTUs read bytes 0-1. | (in the line above) |
 | Block size | Requests stay `min(left, room in page)` ≤ 128. Any 1..128-byte block that fits the page is taken. The ZTU stays at `BLOCK_MAX 64` (fork `tuya_mcu_ota.c:21`, `tuya_secondary_mcu.c:117`) until its main-loop blocking with 150-byte frames (~13 ms busy-wait per frame at 115200) has been measured; it can change later without SWD. | *Measured* with 128: 92 instead of 183 requests, asked update 1.84 instead of 2.52 s |
 | Flash driver | The `BOOTLOADER` SR-flag shim goes (`flash_drv.c:54-58, 90-94`): flags are cleared before each operation, as in the app since phase 2. Each page is still tried twice before `OTA_RESULT_FLASH`. The busy wait is bounded at 150 000 passes, ~50 ms (it is 2 000 000, ~0.67 s at ~8 cycles a pass, `flash_drv.c:46`: a controller that never finished would reset-loop the bootloader before it could report). A write-range guard comes from linker symbols (section 9). Shared with the app. | `test_flash_drv`, built today with and without `BOOTLOADER`, then needs one variant plus the guard and a BSY-never-clears case |
@@ -817,7 +922,7 @@ already be in release R's app.
 
 *Measured* for items 1-7 of the first version: +256 bytes on 2.1.12's 11 472. Items marked
 "new" came with the review; estimated ~60 bytes together, plus ~20 for the stock-ZTU
-confirmation (estimate).
+confirmation and ~80 for the link watchdog (item 11; estimates).
 
 1. **Header.** `{ APP_MAGIC, 0, 0, FW_VERSION, APP_FLAG_CONFIRMS | (RING_HIGH ? APP_FLAG_RING_HIGH
    : 0) | bench flags, FW_BUILD }` (`src/main.c:27-30`). `FW_BUILD` sits in `src/tuya.h`; `make
@@ -829,7 +934,8 @@ confirmation (estimate).
    cmd 0x01 in `handle_frame()` (`src/tuya.c:162-237` has none today) counts well-formed
    product queries and still sends no answer. The main loop calls `boot_confirm()` at 30 s of
    uptime once `g_ident_answered` is set, or once the count is ≥ 2 with no 0xA3 in this run
-   (every 0xA3 is answered, so that is `g_ident_answered` still 0).
+   (every 0xA3 is answered, so that is `g_ident_answered` still 0). It clears only the tries
+   (`BOOT_TRIES_MASK`).
 4. **Identity v2** (10 bytes, section 2).
 5. **Offer rule** (section 2), with `app_limit()` from `_settings_start` and `boot_id`, and the
    lower bound aligned with the bootloader (`size >= APP_HEADER_OFFSET + sizeof(app_header_t)`,
@@ -839,7 +945,7 @@ confirmation (estimate).
    - DP 136: CRC-32 of the whole 4 KB boot sector, computed once at start (~15 ms). The released
      v1 bootloader (2136 bytes, 0xFF-padded) gives **0xEAC45031**; each v2 build's value goes
      into STATUS.md with the release.
-   - DP 137: the boot word at start, low 24 bits (probe time, rescue info, tries).
+   - DP 137: the boot word at start, low 24 bits (probe time, rescue info, LINK, tries).
    - Both are sent with the health report (`src/health.c:34-41`, first at 60 s). Under an own
      ZTU they are, like DPs 130..135, only logged by the ZTU's MCU link diagnostics: no
      converter change. Under a stock Tuya ZTU all of 130..137 probably reach Zigbee2MQTT as
@@ -856,6 +962,49 @@ confirmation (estimate).
 9. **New: first query.** Network queries keep seq 0 until the ZTU has answered one, so a lost
    first query still makes the ZTU see the restart and ask for the identity (section 7).
 10. **Later, release M only:** the ring move of section 1.
+11. **New: link watchdog** (user decision U4; defaults `LINK_WDG_*` in `src/ota_proto.h`). In
+    release R's app, the first v2 app, because a unit under a stock Tuya ZTU never gets another
+    one.
+    - **Armed** only with a valid `boot_id` whose features have `BOOT_FEAT_LINK`, a valid boot
+      word at the moment it fires, and in normal builds: never in SIM, MEASURE or DIAG builds
+      (the bootloader skips the probe for them, so the restart would buy nothing). Off under
+      the v1 bootloader.
+    - **Silence** = time since the last well-formed frame from the ZTU (55 AA 02, length and
+      checksum good, any command), or since the start of the run. Bytes that form no frame
+      (noise, a stock ZTU's 9600-baud phases) do not count. An own ZTU answers every 0x20, which
+      the app sends every 30 s (contract item 8); a stock Tuya ZTU sends its 0x01 every 1 s
+      while unanswered. So a working ZTU of either kind never lets it grow past ~30 s.
+    - **Fires** when all of these hold at one main-loop pass:
+      - silence ≥ `LINK_WDG_SILENCE_MS` = 30 min;
+      - uptime of this run ≥ `LINK_WDG_UPTIME_MS` = 4 h (kept as a sticky flag, so the 32-bit
+        ms counter's wrap after 49.7 days does not matter). This is the back-off: every restart
+        begins a new run, so link restarts are at least 4 h apart. In a long run the first one
+        comes 30 min after the last frame; after a power-up, whose own probe just ran, not
+        before 4 h;
+      - every channel is off and dark (no fade or hold running), and no wall-switch or
+        module-button input is pressed.
+    - **Action**, the planned-restart path of an accepted offer: `phase_shutdown()` (gates low
+      first, although they are low already), `dimmer_prepare_restart()` (a due settings save,
+      the light state into the mailbox, `restored` = 0), then
+      `w = (boot & ~BOOT_TRIES_MASK) | BOOT_PROBE_REQ; boot = w; boot_check = ~w;` and
+      `NVIC_SystemReset()`. Nothing else is written; the mailbox magic stays clear.
+    - **Effect.** The bootloader runs the link probe (section 5). Nothing newer carried: the app
+      is back after ~0.05 s when the ZTU answers 0xA1, after ~3.1 s when it does not. A newer
+      build carried: it is installed (~2.5 s with 64-byte blocks) and starts instead. Either
+      way the restore rule brings back the state (all off, levels kept), never the power-on
+      behaviour. The wall switch and the button are not read meanwhile: ~3.1 s at most without
+      an update (user decision U4), plus the install time when a newer build comes, the same as
+      after a power cut.
+    - **Seen** in DP 137 (LINK, probe time) from the next health report that gets through, and
+      in the ZTU log (mode 6). The app adds no DP.
+    - **Tests** (host, with the decision as a pure function of silence, uptime, light and input
+      state, bench flags and the `boot_id` features): fires at exactly 30 min of silence with
+      4 h of uptime and everything off; any well-formed frame restarts the silence, garbage
+      bytes do not; never with a channel on, a fade or a hold running, an input pressed; never
+      before 4 h, also across the counter wrap; never without `BOOT_FEAT_LINK` (v1), with an
+      invalid word, or in SIM / MEASURE / DIAG; the word written is exactly `(w & ~0x0F) |
+      0x80` with its complement, after `phase_shutdown()` and before the reset; after the
+      restart `dimmer_init()` restores "off" with the power-on behaviour "on".
 
 All of this works under the v1 bootloader (compatibility matrix). The changes ship in the same
 release as v2, because the full image that `install.sh` writes must contain a counted app. The
@@ -903,8 +1052,9 @@ release on the spare (section 14, B2):
 5. **Results.** 0xA2 status 0 = written and valid; anything else a failure that counts toward
    the pause; the pause doubles up to a day and ends with a ZTU restart (item 41, phase 1).
 
-Items 6 and 7 protect factory firmware and the app's stock-ZTU rule. The frozen bootloader does
-not need them, but they are written down, pinned and checked the same way:
+Items 6 to 8 protect factory firmware, the app's stock-ZTU rule and its link watchdog. The
+frozen bootloader does not need them, but they are written down, pinned and checked the same
+way:
 
 6. **Factory MCUs.** To an MCU not identified as Open Dimmer the ZTU sends only the phase-1
    command set (section 15, rule 3; 0xA3 only within item 4 (b)), with one queued frame in
@@ -919,6 +1069,12 @@ not need them, but they are written down, pinned and checked the same way:
 7. **No 0x01.** An own ZTU never sends 0x01 (product query) to an MCU: the v2 app takes 0x01
    queries without an 0xA3 as the sign of a stock Tuya ZTU (section 7). This binds only the app
    and the ZTU, which both update over the air under an own ZTU. Nothing frozen depends on it.
+8. **Heard.** An MCU identified as Open Dimmer gets a well-formed frame at least every 30 min.
+   In practice: every 0x20 network query is answered, as phase 1 does (fork
+   `tuya_mcu_app.c:316-327`), and the app sends one every 30 s. The v2 app's link watchdog
+   takes 30 min without any frame as a dead link (section 9, item 11); a ZTU release that
+   stopped answering would cost every unit a 3 s dark-switch restart every 4 h while off. Like
+   item 7, it binds only parts that update over the air.
 
 ### Changes
 
@@ -962,7 +1118,8 @@ not need them, but they are written down, pinned and checked the same way:
 5. **Requests v2.** `answer_block()` keeps reading bytes 0-5. When the request has 16 bytes, the
    mode, the bootloader version and the installed build go to the link diagnostics; a 6-byte
    request is logged as a v1 bootloader. Counter-rescue and button requests are logged as such
-   ("MCU in rescue"), so a crash loop shows in the ZTU log. Reporting it to Z2M, or serving a
+   ("MCU in rescue"), so a crash loop shows in the ZTU log, and mode 6 as a link probe (the MCU
+   heard nothing from this ZTU for 30 min). Reporting it to Z2M, or serving a
    second image to a rescue, is a later ZTU change that needs nothing from the bootloader.
 6. **Boot timing diagnostic, dump retry, and stock rules for an earlier UART.**
    `hal_millis()` at the end of `tuya_mcu_app_init()` (UART up) and at the first answered 0xA1
@@ -1028,7 +1185,10 @@ not need them, but they are written down, pinned and checked the same way:
      `test_own_mcu_restarting_alone_is_noticed` stays;
    - the stock-compatibility gate, the frame-limit checks, the `ready_ms` sweep and the stub
      variant without `SECONDARY_MCU_IMAGE` of section 15 ("Tests that pin the rules");
-   - stub timing: the first 0xA1 answer within the contract from the stub's boot.
+   - stub timing: the first 0xA1 answer within the contract from the stub's boot;
+   - contract item 8: every 0x20 from an identified MCU gets its reply, also during a burst of
+     other traffic and during the failure pause; 16-byte requests with mode 6 are served like
+     any other.
 10. **py32-bump** (fork workflow): compare builds instead of version strings. Refuse a carried
     build ≤ the one `home-dimmer` carries unless `force` (force is the rollback path of section
     6). Print the OTA file size against the 212 992-byte limit (section 12).
@@ -1045,7 +1205,8 @@ not need them, but they are written down, pinned and checked the same way:
 | `tools/swd/install.sh` | Show the image's bootloader version (boot_id) and boot sector CRC. Refuse a full image without boot_id unless `OLD_BOOT=1`, and one over 12 KB unless `ERASE_SETTINGS=1`. `IMAGE=release` checks `SHA256SUMS` (item 53). Optional `WRP=1` (section 1). Write 0 to the boot word pair (0x20000BF8, 0x20000BFC) before every reset it issues. Tools that halt the core must set DBGMCU `DBG_IWDG_STOP` first: v2 starts the watchdog at every boot (install.sh:124 and `make flash` already do). |
 | `tools/ota_swd_emu.py` | Answer the header request (0xC0, 16) before the blocks, accept 16-byte requests, send the 11-byte 0xA0 (build) so that build-only test images are accepted, and clear the boot word pair before its resets. |
 | `Makefile` | `FW_TEST=` (a new BUILD dir like `VERSION_BYTE`). `make flash` clears the boot word pair before its reset. `make test-boot`, part of `make test`. Report the bootloader size from the ELF; warn above 3584 bytes. |
-| `tests/test_tuya.c` | The confirmation rule of section 7: (1) two 0x01 frames, 30 s, no 0xA3 → confirmed (boot word bits 7..0 = 0, `boot_check` = ~boot); (2) no 0x01 and no 0xA3 → not confirmed; (3) 0xA3 answered → confirmed as before; (4) one 0x01 only → not confirmed. 0x01 is never answered. |
+| `tests/test_tuya.c` | The confirmation rule of section 7: (1) two 0x01 frames, 30 s, no 0xA3 → confirmed (boot word bits 3..0 = 0, every other bit kept, `boot_check` = ~boot); (2) no 0x01 and no 0xA3 → not confirmed; (3) 0xA3 answered → confirmed as before; (4) one 0x01 only → not confirmed. 0x01 is never answered. The link watchdog cases of section 9, item 11 (here or in a test of their own). |
+| `tests/test_ota_proto.c` | New, with the header: the layouts and constants of `src/ota_proto.h` against this document (offsets the v1 bootloader reads, the boot word fields, the frame examples of section 5 byte for byte). |
 | `tests/test_stock_ztu_dump.py` | New, skipped when the dump is absent (path in `STOCK_ZTU_DUMP`; the file is the one `docs/stock-firmware-analysis.md` names). Pins the stock ZTU facts of section 15 against the file: the 10 entries at 0x487E0; the 58-entry table at 0x48808 with handlers only for 0x01, 0x03, 0x05, 0x06, 0x08, 0x0B, 0x0D, 0x0E, 0x20, 0x24-0x27, 0x29, 0x2C, 0x36-0x38, 0x3A and 0xC8E4 for the rest; the `cmp r3,#57` encoding `ab39` at 0xCA0A; no branch to 0xDCD8 in 0xC8E4..0xC8F0. |
 | `.github/workflows/ci.yml` | The host test job runs `make test`, which includes `test-boot`: plain `cc`, no ARM toolchain and no zlib (the harness has its own CRC), Linux ≥ 4.17 for `MAP_FIXED_NOREPLACE` (ubuntu-24.04 has it). The build job checks `boot.elf` with `arm-none-eabi-nm`/`objdump`: `k_boot_id` at 0x08000010 and 16 bytes; `_flash_write_start`/`_end` exactly 0x08001000/0x08004800; `boot.bin` ≤ 4096; `_ebss` + 512 bytes of stack ≤ 0x20000BE0. The ZTU's CI prints its OTA file size with the carried image (section 12). |
 
@@ -1111,8 +1272,9 @@ model):
 | Rescue | 3 unconfirmed boots then windows; same CRC skipped, 0 offset-0 requests; older image taken; window length 30 s; `restored` marked; 13 KB on a 12 KB-ring app refused; bench images refused (counter, button, no app); power cut during a rescue transfer; duty cycle of an app that hangs in init |
 | Button | Held and released at a cold boot: rescue, older taken; same image: app after ~30 s; released after 4.5 s: rescue; never released: app after 5.1 s, STUCK, nothing written; held at a warm boot: ignored; not held: no delay |
 | Counter | 2.1.x app (no CONFIRMS) with 8+ watchdog resets: never a window; bench build with CONFIRMS: never counted; confirming app with resets between confirmations: never a window; never confirmed: every warm reset after the third opens a window; asked update resets tries; written image resets tries; stale PWRRSTF + IWDG counts as warm |
-| Mailbox | Random RAM at power-up, 200 boots: never asked, word rebuilt, restore words untouched (byte compare); `restored` written only by a counter rescue; mode byte of every request |
-| Stock ZTU | `stockztu-cold`: ZTU ready at 300 ms, 20 power-ups: app at 3.05-3.15 s, 0 pages written, 28-31 header requests with mode byte 3, probe time 0 in the boot word, no request started while `g_rx_len != 0`, largest watchdog gap < 250 ms. `stockztu-button` (released at 0.5 s): window 30 s, app at ~30.6 s, nothing written. `stockztu-counter`: the app model confirms by the stock-ZTU rule, each run ≥ 30 s, 1 cold + 10 warm resets: 0 windows, `restored` untouched; the same run with the old rule gives 8 windows (documents the cost). `stockztu-noapp` (1 h model time): a request every 500 ms, no RX buffer growth, watchdog gaps < 250 ms, no request sent mid-frame. The four again with the 9600-baud garbage phases on |
+| Link | (section 5, "Probe asked by the app") Request on a warm boot: the carried cases of the power-on probe, each with mode 6 only, bit 7 cleared in the stored word, LINK set, the probe time replaced, restore words untouched; newer build taken, no second probe after its reset, tries 1; ZTU not answering 0xA1: app at ~3.1 s, nothing written; DIAG / MEASURE / SIM installed: no request, bit 7 cleared; request + asked update: asked; request + tries 3: counter rescue; cold boot with a stale request: mode 3, LINK clear; request in an invalid word: no probe; LINK set + crash loop: first window at the 4th unconfirmed boot; 10 link restarts (the app's tries = 0 policy) under a ZTU that never answers 0xA1, with foreign frames: 0 windows, each ≤ 3.2 s |
+| Mailbox | Random RAM at power-up, 200 boots: never asked, word rebuilt, restore words untouched (byte compare); `restored` written only by a counter rescue; mode byte of every request (1..6); tries always read through `BOOT_TRIES_MASK` |
+| Stock ZTU | `stockztu-cold`: ZTU ready at 300 ms, 20 power-ups: app at 3.05-3.15 s, 0 pages written, 28-31 header requests with mode byte 3, probe time 0 in the boot word, no request started while `g_rx_len != 0`, largest watchdog gap < 250 ms. `stockztu-button` (released at 0.5 s): window 30 s, app at ~30.6 s, nothing written. `stockztu-counter`: the app model confirms by the stock-ZTU rule, each run ≥ 30 s, 1 cold + 10 warm resets: 0 windows, `restored` untouched; the same run with the old rule gives 8 windows (documents the cost). `stockztu-noapp` (1 h model time): a request every 500 ms, no RX buffer growth, watchdog gaps < 250 ms, no request sent mid-frame. `stockztu-link`: a link request: app at ~3.1 s, mode 6 requests only, nothing written, LINK set with probe time 0. The five again with the 9600-baud garbage phases on |
 | Fuzz | 300 boots in every mode with mutated and random ZTU frames that pass the frame checksum (bytes, lengths, offsets, sizes, CRCs, other commands), each followed by a clean ZTU: no fault, no write outside the app area, largest watchdog gap < 250 ms, every unit ends with an intact app (*measured*: 0 of 300 failed, ~43 000 answers) |
 
 CI runs it with every push. It is the gate before any SWD install on a module.
@@ -1140,15 +1302,19 @@ overlap (the parts add up to 3204).
 | WRITTEN / STUCK info bits | +12 |
 | Bench builds not counted | 0 |
 | Write-range guard (flash driver) | +36 |
-| **Prototype total** | **3216 of 4096 (880 free)** |
+| **Prototype total before the user decisions** | **3216 of 4096 (880 free)** |
+| Link-watchdog hook (user decision U4): bit 7 read and cleared, the probe on a warm boot, probe time reset, LINK bit, mode 6 | +24 |
+| Tries read and written through `BOOT_TRIES_MASK` (needed since bits 7 and 6 carry other things) | +12 |
+| **Prototype total** | **3252 of 4096 (844 free)** |
 
 The three user-requested paths (counter with watchdog, button, probe) took 464 bytes in the
 first prototype, above the ~300-byte estimate. The review's fixes add 436 bytes more, mostly
 for the shared update path (header first, page-0 check, half-duplex, watchdog period) rather
-than for the three paths. The slot is the bootloader's alone, so the extra costs nothing else.
-The implementation re-measures; the half-duplex guard's 52 bytes for one condition look like a
-code-layout effect. If it must shrink, the order is: info bits (-12), LED blink pattern (-20),
-boot info (-44). This design keeps all of them.
+than for the three paths, and the link hook 36. The slot is the bootloader's alone, so the
+extra costs nothing else. The implementation re-measures; the half-duplex guard's 52 bytes for
+one condition look like a code-layout effect. If it must shrink, the order is: info bits (-12),
+LED blink pattern (-20), boot info (-44). This design keeps all of them, and the link hook is
+not on the list (it is a user decision).
 
 RAM: `.data` 48 bytes (the RAM flash routine), `.bss` 520 bytes (RX buffer 150, injection
 buffer 150, page buffer 128, request 16, state), stack 512. That is ~1.08 KB of the 3040 bytes
@@ -1187,13 +1353,15 @@ take a compressed image, so this limit does not move from the MCU side.
 | 16 | LSI never ready | - (the app would hang in `watchdog_start`) | Bounded waits; the watchdog then does not run | Hardware fault |
 | 17 | Button stuck pressed | - | 5 s per power-up, then the normal boot; nothing installed; STUCK in DP 137 | 5 s delay per power cut |
 | 18 | ZTU that never asks 0xA3 above an Open Dimmer MCU | Never updated | Own ZTU without Open Dimmer support: every warm reset after the third gives a 30 s window, then the power-on behaviour. Stock Tuya ZTU: confirmed by the 0x01 rule (section 7), no windows | An own ZTU without support is forbidden (STATUS). Every ZDMS16 ZTU build carries an image, so no image-less case exists (section 10, change 2). Stock Tuya ZTU: not supported, no updates until the ZTU is converted (section 15). Without the 0x01 rule there: windows from the 3rd warm reset, each installing nothing |
-| 19 | App whose UART is dead and which never resets | SWD | Power cut (probe, if newer is carried) or the button | No automatic path; an app-side link watchdog is possible later (section 7) |
+| 19 | App whose UART is dead and which never resets | SWD | Link watchdog (user decision U4): after 30 min without a ZTU frame, with every channel off and 4 h of uptime, a restart with a probe that takes a newer build; also a power cut or the button | Only newer builds without the button; it waits while a channel stays on; under the v1 bootloader none (spare only) |
 | 20 | Defect in v2 itself | - | Harness gate (section 11), spare trial (section 14) | Frozen: SWD, or a boot-updater app (~150 ms brick window) while WRP is off |
 | 21 | Brown-outs in a row | Each boots the app | Each is a cold boot with one probe (an own ZTU usually answers at once if it did not reset; a stock Tuya ZTU never answers: 3.1 s per dip) | ≤ window delay per dip |
 | 22 | Flash page that never verifies, or a controller that stays busy | FLASH results, ZTU pause (busy: watchdog loop) | FLASH results, ZTU pause; the busy wait is bounded | Hardware: SWD cannot fix it either |
 | 23 | Wrong assumption about the reset flags (B8) | - | Worst case: a cold boot read as warm skips one probe and keeps counting tries | Verified on the spare before the modules |
 | 24 | Open Dimmer under a stock Tuya ZTU (installed before the ZTU was converted, or the ZTU put back to stock) | 0x01 unanswered; no updates | Same; 3.1 s dark per power-up; no window and nothing written | Not supported but safe: convert the ZTU over the air without re-pairing or resetting first (section 15) |
 | 25 | A ZTU change sends a stock MCU something new (an extra 0xA3 or dump, a long frame) | - | Rules and gate of section 15; contract items 4 and 6; rollout step 3 diag check | A frame of 32..38 bytes would wedge a stock MCU's RX until a power cut (WiFi 1.0.3 parser; Zigbee 1.0.7 inferred) |
+| 26 | ZTU link dead while the app is fine (the ZTU is the broken side) | Nothing happens | A link restart at most every 4 h, only while every channel is off; the state comes back; LINK in DP 137 (probe time 0 if the ZTU does not answer 0xA1) | ~3.1 s without wall-switch input per restart while dark. A ZTU release that stops answering 0x20 would cause it on every unit: contract item 8 |
+| 27 | Bug in the app's link watchdog (fires too often or too early) | - | Every restart runs a probe (a newer, fixed build is taken at once); the restore keeps the light state | The app's tries = 0 with each request also defeats the counter for such a bug: an older image then needs the button. Mitigation: the decision is a pure function with host tests (section 9, item 11), and the spare runs every release first |
 
 ---
 
@@ -1203,7 +1371,9 @@ take a compressed image, so this limit does not move from the MCU side.
    - `boot/boot.c`, `boot/boot.ld`, `src/ota_proto.h` (with the ZTU contract), `src/flash_drv.c`;
    - the app changes of section 9;
    - `tests/boot/` and `make test-boot`;
-   - the tools of section 11; STATUS.md; an INSTALL.md section on the button rescue;
+   - the tools of section 11; STATUS.md; an INSTALL.md section on the button rescue, with the
+     wording of user decision U2 (the button is pressed through the insulated case, which is
+     never opened while the mains is connected);
    - in the fork, the phase-3 ZTU with the tests of section 15;
    - docs that this design step does not edit:
      - `docs/stock-firmware-analysis.md`: "Stock ZTU and unknown commands" and "Stock MCU
@@ -1240,7 +1410,8 @@ take a compressed image, so this limit does not move from the MCU side.
 4. **Spare** (mains off, probe on CN2): `IMAGE=<R's zdms16_py32_full.bin> tools/swd/install.sh`.
    This also exercises install.sh's re-flash path (item 8 / STATUS hardware gate). The settings
    in sector 4 stay untouched.
-5. **Bench tests on the spare** (mains rules apply; the button and SWD steps with mains off):
+5. **Bench tests on the spare** (mains rules apply: with the mains connected the case stays
+   closed and the button is pressed through it; SWD steps with the mains off):
 
 | # | Test | Pass |
 |---|---|---|
@@ -1253,14 +1424,15 @@ take a compressed image, so this limit does not move from the MCU side.
 | B7 | Mains cut at ~50 % of a probe-started update (fast LED blink), 3 times | Each recovers on the next power-up |
 | B8 | Reset flags: DP 131 after a power cycle that follows a software reset; flags unchanged by the bootloader's LSION write; IWDG running or not after `NVIC_SystemReset` (SWD) | PWR only (cold); results recorded in STATUS |
 | B9 | Normal offered OTA with both channels lit | Light restored; dark time measured |
-| B10 | 1-2 weeks trial: health DPs 131-137 | No unexpected resets; DP 137 shows tries 1 at every start (each run before it confirmed) |
+| B10 | 1-2 weeks trial: health DPs 131-137 | No unexpected resets; DP 137 shows tries 1 at every start (each run before it confirmed) and LINK clear (no link restart under a working ZTU) |
+| B11 | Link watchdog: a spare test build (below R) with the thresholds cut to 2 min silence / 5 min uptime and its frame counter fed nothing (an SWD build switch: frames are still handled, only the watchdog does not see them); the ZTU carries R, then the same build. With a channel on, then with both off | Never fires while a channel is on. With both off: a restart, the light state unchanged, mode-6 requests in the ZTU log; R installed by the probe; with nothing newer, the switch answers again within ~0.2 s; DP 137 shows LINK and the probe time; never a rescue window over 10 cycles |
 
 6. **Further modules**, each at its migration slot (STATUS migration order): install.sh stock
    path with the same release full image, then record DP 136 and 137 per module. From then on
    their bootloader never changes. App and ZTU updates go over Zigbee, the spare first, as the
-   process rule says. After every ZTU rollout, a cold boot with probe time 0 in DP 137 on any
-   module under an own ZTU of phase 3 or later is a contract miss. A stock Tuya ZTU never
-   answers, so the rule does not apply there.
+   process rule says. After every ZTU rollout, a cold boot with probe time 0 (and LINK clear) in
+   DP 137 on any module under an own ZTU of phase 3 or later is a contract miss. A stock Tuya
+   ZTU never answers, so the rule does not apply there.
 7. **Later, only when the app approaches 12 KB:** the ring-move release M (section 1), its
    preconditions, spread and verified everywhere, before any larger app.
 
@@ -1338,7 +1510,12 @@ suits its mode (section 8), and it needs nothing from a stock ZTU.
    `device_db`, so `mcu_firmware` stays "Tuya (stock)" and the exposes stay as they are.
 8. **Open Dimmer under a stock ZTU: bounded costs, nothing written.** The v2 app confirms by
    the stock-ZTU rule (section 7). The bootloader's probe and windows cost time and install
-   nothing. The combination is not supported (below).
+   nothing. The link watchdog stays quiet while the stock ZTU sends anything (its 0x01 every
+   1 s) and costs at most one 3.1 s probe per 4 h, while dark, if it goes silent. The
+   combination is not supported (below).
+9. **The link watchdog adds nothing towards a stock MCU.** It lives in the Open Dimmer app.
+   The ZTU serves its mode-6 requests by contract item 1 like every 0xA1, and only to the MCU
+   that sent them. Its contract item 8 (answer 0x20) is phase 1's behaviour.
 
 ### What each side sees, and why it is harmless
 
@@ -1354,7 +1531,9 @@ so on the real modules even less happens.
 **The stock Tuya ZTU under Open Dimmer** sees:
 - from the v2 bootloader: 16-byte 0xA1 header requests, 10 per second for 3 s after every
   power-up (the probe), 2 per second in a button or counter window (30 s), and 2 per second
-  for good with no valid app. Never an 0xA2: nothing is written without an answer;
+  for good with no valid app. The same 10 per second for 3 s after a link restart (mode 6),
+  which needs 30 min without any valid frame from it, so normally never. Never an 0xA2:
+  nothing is written without an answer;
 - from the app: 0x20 network queries, DP reports (0x05 / 0x06) with the health DPs 130..137
   every 2 min, and 0x03 after a 3 s module-button hold (`controls.c:167`). It gets no answer to
   its 0x01.
@@ -1443,6 +1622,10 @@ forbids it, but nothing enforces it), or a ZTU put back to stock.
     warm reset from the third after a power-up until the next power cut would give 30 s dark
     and then the power-on behaviour: with "off" a lamp that was on stays off, with "on" it
     switches on by itself, at night too;
+  - a link restart only if the stock ZTU sends no valid frame for 30 min (it sends its 0x01
+    every 1 s while unanswered, and a quarter of the time even while it cycles its UART
+    setting): at most one per 4 h, only with every channel off, 3.1 s without wall-switch
+    input, the state restored, nothing written (scenario `stockztu-link`);
   - the health DPs show in Zigbee2MQTT as unknown DPs.
 
 **Recovery:** convert the ZTU over the air first (INSTALL section 0, `tuya_with_ota.js`),
@@ -1482,6 +1665,8 @@ checks every frame it receives from a ZTU that has not identified it.
 | 7 | The converter tests (`test_converter_own_mcu.py`) on the stock fingerprint; optionally unknown DPs 130..137 on it | Exposes and `mcu_firmware` "Tuya (stock)" unchanged; unknown DPs ignored without an exception |
 | 8, app | `tests/test_tuya.c` (section 11) | Confirmed with two 0x01 and no 0xA3; not with one 0x01 or none |
 | 8, bootloader | `make test-boot`, group "Stock ZTU" (section 11), with and without the 9600-baud garbage phases | As stated there |
+| 8, link watchdog | The link watchdog's host tests (section 9, item 11) fed a stock-ZTU frame stream (0x01 every 1 s, 1 s phases of 9600-baud garbage) for 24 model hours | Never fires; with the stream stopped it fires once per 4 h and only while dark |
+| 9 | `tests/test_stock_mcu_compat.py` (rule 3) with 16-byte mode-6 requests injected from the MCU side | The stock-MCU trace unchanged; mode-6 requests answered like mode 3 |
 | Stock ZTU facts | `tests/test_stock_ztu_dump.py` (section 11) | The parser and table facts above match the file |
 | All, on the modules | Section 14, step 3: diag decode per stock module before and after its ZTU OTA | No 0xA0..0xA3 entries; the dump DPs present; entities unchanged |
 
@@ -1507,7 +1692,7 @@ several reviewers made are resolved once and cross-referenced.
 | R1-9 | minor | A stuck button gives a 30 s window and an unintended install at every power cut | Adopted: held 100 ms, then released within 5 s; a stuck button costs 5 s and installs nothing (+52 B with R2-6). Section 4; scenario `stuck`. |
 | R1-10 | minor | The harness cannot see IWDG gaps, parser faults or a wrong guard range | Adopted: IWDG key model with a 250 ms bound, CRC time, frame fuzz, the real flash driver against a fake FLASH peripheral, `nm` checks of the guard range. Section 11; the prototype ran the fuzz (0 of 300 failed). |
 | R1-11 | minor | No tool requires CONFIRMS; no build wrap rule; test builds can outnumber the next release | Adopted: `mkimage`/`embed_ztu` require CONFIRMS for builds ≥ 256; releases exactly +100; test builds +1..99 (`FW_TEST`). Sections 2, 11. |
-| R1-12 | minor | An app with a dead UART that never resets is never rescued automatically | Not adopted in frozen code (none needed). An app-side link watchdog would disturb a working light whenever the ZTU is the broken side; left for a later OTA decision. Sections 7, 13 #19. |
+| R1-12 | minor | An app with a dead UART that never resets is never rescued automatically | First not adopted (an app-side link watchdog would disturb a working light whenever the ZTU is the broken side). Superseded by user decision U4: a frozen hook (+36 B) and a watchdog in R's app that fires only while dark, at most once per 4 h, and never feeds the counter. Sections 5, 7, 9 (item 11), 13 #19, #26, #27. |
 | R2-1 | major | Build-0 rules contradict each other; rollout step 2 left the phase-3 ZTU nothing to carry | One rule (R1-6); rollout reordered: release R first, the phase-3 ZTU carries R's app, the spare takes it under v1; matrix row "2.1.x / v1 / phase 3" added. Sections 2, 10, 14. |
 | R2-2 | major | Frozen requests say nothing about the bootloader or its mode, so no future ZTU can tell a crash loop from an update | Adopted: 16-byte request (bootloader version, mode, installed header bytes 8..15) and a 4-byte result with the build (+24 B); a 6-byte request means v1. Header-first also cut a rescue window's offset-0 requests from 61 to 0. Section 8. |
 | R2-3 | major | ZTU timing and 0xA3 behaviour are not written down; "the UART cannot start earlier" is wrong | Contract and tests as R1-2; identity asked without a carried image (phase 3; withdrawn by FA-4: every ZDMS16 build carries one); boot timing diagnostic; the claim corrected (the pins are parsed at `config_parser.c:359`, but an earlier start only buffers without a poll during init; kept as a ZTU-side option). Sections 5, 7, 10. |
@@ -1559,3 +1744,31 @@ and minor finding is listed with its resolution.
 | FB-5 | minor | The harness had no ZTU that never answers 0xA1 while sending its own frames (and 9600-baud garbage when it cycles its UART) | Adopted: stock mode in the ZTU model and the "Stock ZTU" group in `make test-boot`. Section 11. |
 | FB-6 | minor | The only way out is the conversion OTA, which needs the stock ZTU's full name; a reset or re-pair may lose it | Adopted as doc rules: do not re-pair or reset, convert the ZTU first; ZTU first stays a hard rule in INSTALL. Answering 0x01 in R's app is listed as a product decision, not adopted (not needed for safety). Section 15. |
 | FB-7 | minor | DPs 130..137 reach Zigbee2MQTT as unknown DPs under a stock ZTU | Adopted: noted in section 9, item 6, and section 15. |
+
+### User decisions (2026-11-18)
+
+The user decided the open points of the revised design. They are binding, and this document
+follows them everywhere.
+
+| ID | Topic | Decision | Where |
+|---|---|---|---|
+| U1 | Probe window | 3 s (`PROBE_WINDOW_MS` 3000, frozen), as designed. | Sections 4, 5 |
+| U2 | Button rescue | As specified (held at power-on, released within 5 s, 30 s window). Wording: the module sits in an insulated case, the button is pressed through the case, and the case is never opened while the mains is connected. | Sections 4, 14 (INSTALL.md) |
+| U3 | Rescue windows and the light after them | 30 s windows (`RESCUE_WINDOW_MS`), and after a counter rescue the light takes the power-on behaviour (`restored` = RST1), as designed. | Sections 3, 4, 6 |
+| U4 | Link watchdog | The frozen bootloader gets a hook: through a mailbox bit the app can ask for the power-on probe at its next start (newer build only, 3 s window). The first v2 app ships the watchdog with defaults: it fires only after 30 min without a frame or answer from the ZTU, only while every channel is off, at most once per ~4 h (back-off); it then sets the bit and resets. The warm reset restores the state by the existing restore logic; the wall switch is unresponsive for at most ~3 s. Supersedes the resolution of R1-12. | Decisions row 14; sections 3, 4, 5, 7, 9 (item 11), 10 (item 8), 11, 12, 13, 14 (B11), 15 |
+| U5 | Factory firmware | Compatibility with the factory firmware (section 15) is a hard requirement. | Section 15 (rule 9 added for U4) |
+
+Readings this document chose where U4 left the details open, each on the safe side:
+
+| Point | Chosen | Why |
+|---|---|---|
+| The mailbox bit | Boot word bit 7 (`BOOT_PROBE_REQ`); bit 6 (`BOOT_INFO_LINK`) records that a link probe ran; the tries move to bits 3..0 and are always read through `BOOT_TRIES_MASK`. | The info nibble was full; the tries byte held 0..3 only. The mask is frozen code: an unmasked compare would read bit 6 as 64 tries and open windows (*measured* with the mask: `..WWWW` as before). |
+| "Same rules as the power-on probe" | The request only adds "or a requested warm boot" to the probe's condition; everything else is the probe's code (header first, newer build, layout, no bench, page-0 check, 3 s, first answer ends it). | Nothing new in `run()`, nothing new to get wrong. |
+| "Counts as a probe, not a rescue" | No window, no `restored` mark, no skip, no older image; for the counter an ordinary warm boot (+1), with the app writing tries 0 together with the request, so the app runs with tries 1 as after a power-on probe. The order update > rescue > probe stays: a request never displaces an asked update or a due counter rescue. | Without tries 0 a link restart every 4 h under a dead ZTU would open a counter window from the 4th one, then use the power-on behaviour (a lamp set to "on" would switch on at night), against U4's "restores the state". Keeping the tries rule in the app rather than the frozen code leaves it changeable over the air. Cost: section 7, "Link watchdog", and section 13 #27. |
+| "Cleared by the bootloader" | At every boot, honoured or not, before anything else uses the word; a cold boot rebuilds the word anyway. | A stale request can never make every later warm reset a probe. |
+| The back-off | A minimum run length of 4 h before a link restart; no state across resets. | Every restart begins a new run, so "at most once per ~4 h" holds without any extra mailbox state; the first restart in a long run still comes 30 min after the last frame. |
+| Where the watchdog is armed | Only with a v2 bootloader that announces `BOOT_FEAT_LINK`, a valid boot word, in normal builds. Off under v1 and in SIM / MEASURE / DIAG builds. | Without the probe the restart buys nothing; bench builds skip the probe. |
+| "Every channel off" | Both channels off and dark (no fade or hold), and no wall-switch or button input pressed. | A press at the moment of the restart would be lost. |
+| "Frame or answer from the ZTU" | Any well-formed frame (header, length, checksum), any command; noise bytes do not count. | Covers own ZTUs (0x20 answers every 30 s; contract item 8 added) and the stock ZTU (0x01 every 1 s), so the watchdog never fires under a working ZTU of either kind. |
+| "Unresponsive for at most ~3 s" | Holds when nothing newer is carried (*measured* 3.12 s when the ZTU does not answer 0xA1, 0.05 s when it does). When a newer build is carried, its install adds ~2.5 s (64-byte blocks), as after a power cut. | Installing a fix is the point of the hook; it happens only while the light is off. |
+| Request byte 7 | `OTA_MODE_LINK` (6) instead of 3, also for the update it starts. | The ZTU log can tell a link probe from a power-on probe (R2-2's purpose); every ZTU serves it by contract item 1. |
