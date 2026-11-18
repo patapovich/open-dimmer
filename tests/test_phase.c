@@ -276,26 +276,32 @@ static void after_isr(unsigned from) {
     }
 }
 
+/* A lock loss in one ISR or poll: the counter changed. Read at its own width,
+ * whatever that is (it passes 255 in the long noisy runs). */
+static int lock_lost_since(uint32_t before) {
+    return (uint32_t)g_phase_dbg.lock_losses != before;
+}
+
 static void run_exti(long t) {
     set_now(t);
     unsigned from   = fake_egr_writes;
-    uint8_t  losses = g_phase_dbg.lock_losses;
+    uint32_t losses = g_phase_dbg.lock_losses;
     fake_exti.PR |= ZC_MASK;
     g_in_isr = 1;
     EXTI4_15_IRQHandler();
     g_in_isr     = 0;
     fake_exti.PR = 0;
     after_isr(from);
-    if (g_phase_dbg.lock_losses != losses && (phase_current(0) || phase_current(1))) {
+    if (lock_lost_since(losses) && (phase_current(0) || phase_current(1))) {
         g_st.lit_after_loss++;
     }
 }
 
 static void poll(long t) {
     set_now(t);
-    uint8_t losses = g_phase_dbg.lock_losses;
+    uint32_t losses = g_phase_dbg.lock_losses;
     phase_poll();
-    if (g_phase_dbg.lock_losses != losses && (phase_current(0) || phase_current(1))) {
+    if (lock_lost_since(losses) && (phase_current(0) || phase_current(1))) {
         g_st.lit_after_loss++;
     }
 }
