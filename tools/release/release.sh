@@ -11,7 +11,7 @@
 # with a green CI run is carried on; a tag is never moved or deleted here. The CI run counts
 # as green when its tests, builds and release succeeded: the optional hand-over job may fail
 # (expired token), then this script starts py32-bump itself.
-# Deploying to modules is a separate, local step: tools/ha/deploy_ota.sh <ieee>...
+# Deploying to modules is a separate, local step: tools/ha/deploy_ota.sh <ieee | friendly_name:ieee>...
 # Usage: tools/release/release.sh            (bump FW_VERSION in src/tuya.h first)
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")/../.."
@@ -310,4 +310,4 @@ else
             --workflow build.yml --branch home-dimmer_build
     fi
 fi
-echo "== done: $TAG is in the OTA image on home-dimmer_build. Deploy: tools/ha/deploy_ota.sh <ieee>..."
+echo "== done: $TAG is in the OTA image on home-dimmer_build. Deploy: tools/ha/deploy_ota.sh <ieee | friendly_name:ieee>... (tools/ha/README.md)"

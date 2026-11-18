@@ -83,10 +83,13 @@ Min and max are physical conduction limits for every curve (same meaning as the 
   not fail the run: `release.sh` warns and starts py32-bump itself. Without the token the
   hourly check picks the release up (best effort: GitHub may delay scheduled runs and disables
   them after 60 days without activity; `release.sh` enables it again).
-- **Deploy (local, home network):** `tools/ha/deploy_ota.sh <ieee> [...]`: newest OTA image
-  from `home-dimmer_build`, shows the PY32 version it carries, asks, then fast OTA one module at
-  a time with the guard. The ZTU updates the MCU only if it is our firmware and older. Then
-  read the health DPs 130..134 of the module (they come every 2 min).
+- **Deploy (local, home network):** `tools/ha/deploy_ota.sh <ieee | friendly_name:ieee>...`
+  with the local OTA series and guard helpers in `$HA_HELPERS` (settings: `tools/ha/README.md`):
+  newest OTA image from `home-dimmer_build`, refused unless it carries a valid PY32 image; shows
+  the PY32 version it carries and each module's installed vs the image's file version, asks
+  (once more if the image is not newer), then fast OTA one module at a time with the guard; the
+  250 ms block delay is put back on every exit. The ZTU updates the MCU only if it is our
+  firmware and older. Then read the health DPs 130..134 of the module (they come every 2 min).
 - By hand (what the scripts do): `make test && make`, `tools/embed_ztu.py build/zdms16_py32.img
   <fork>/src/zigbee/secondary_mcu_image.c`, stub tests in the fork, push, build branch =
   home-dimmer + `fork-ci`, `gh workflow run build.yml --ref home-dimmer_build`, then the OTA as
