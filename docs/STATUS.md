@@ -35,7 +35,7 @@ MEASURE 11 060, SIM 10 744 bytes. CI warns when a build has under 512 bytes free
 | 101 / 102 | dimming curve: incandescent, led, led_deep, led_deeper, led_soft (default for new channels), linear |
 | 103 / 104 | power-on per channel |
 | 105 / 106 | wall switch gesture (momentary type), event: 1 single, 2 double, 3 triple, 4 hold, 5 release |
-| 130..134 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, saves |
+| 130..135 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, saves, UART receive losses |
 | 150..154 / 155..159 | per channel: fade on ms, fade off ms, soft dim end %, hold ms, hold dim end % (saved) |
 | 110..123 | DIAG / MEASURE builds only (statistics every 10 s) |
 | 0xA0..0xA3 | Open Dimmer commands (not Tuya's): update notify / block / result, identity |
@@ -84,8 +84,9 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
 
 ## Build and deploy (CI / CD)
 
-- **CI** (`.github/workflows/ci.yml`, every push / PR, read-only token): host tests (C logic and
-  the image tools); normal, DIAG, MEASURE and SIM builds with the pinned SDK; curve tables vs
+- **CI** (`.github/workflows/ci.yml`, every push / PR, read-only token): host tests (C logic,
+  the settings store, the flash driver against a register model, the serial protocol, UART
+  receive, health report, the MCU's start burst size, and the image tools); normal, DIAG, MEASURE and SIM builds with the pinned SDK; curve tables vs
   generator; ZTU embedding refuses bench and measurement builds; size report; artifacts.
 - **Release:** bump `FW_VERSION` in `src/tuya.h` (never 0xBF, reserved for SIM, or 0xFF; a
   warning comes when fewer than 16 codes are left), commit on `main`,
@@ -120,7 +121,7 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
   the PY32 version it carries and each module's installed vs the image's file version, asks
   (once more if the image is not newer), then fast OTA one module at a time with the guard; the
   250 ms block delay is put back on every exit. The ZTU updates the MCU only if it runs an
-  older version of Open Dimmer. Then read the health DPs 130..134 of the module (they come
+  older version of Open Dimmer. Then read the health DPs 130..135 of the module (they come
   every 2 min).
 - By hand (what the scripts do): `make test && make`, `tools/embed_ztu.py build/zdms16_py32.img
   <fork>/src/zigbee/secondary_mcu_image.c`, stub tests in the fork, push, build branch =
@@ -212,7 +213,7 @@ spare: OnLevel kept across a power cycle.
    2026-11-18 (home-dimmer 8ea5a25e): configure waits for a real `mcu_version` first (checked
    with `tools/ha/configure_check.js`; on hardware at the next OTA).
 2. Long trial of the spare: read the health DPs now and then (131 reset cause, 132 lock losses,
-   133 ignored edges).
+   133 ignored edges, 135 UART receive losses).
 3. Fade / hold defaults: the user set channel 1 to `led_soft`; settle the defaults after use.
 4. Further modules: see "Before further modules". Install with
    `FREQ=400000 IMAGE=release tools/swd/install.sh` (one contact; **untested on hardware**, the

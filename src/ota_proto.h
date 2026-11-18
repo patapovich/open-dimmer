@@ -70,6 +70,11 @@ typedef struct {
 
 #define OTA_RESTORE_MAGIC     0x52535452u   /* "RSTR" */
 
+#ifdef HOST_TEST
+extern volatile ota_mailbox_t host_mailbox;   /* host tests (make test): no fixed RAM */
+#define OTA_MAILBOX           (&host_mailbox)
+#else
 #define OTA_MAILBOX           ((volatile ota_mailbox_t *)OTA_MAILBOX_ADDR)
+#endif
 
 #endif

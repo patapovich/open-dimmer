@@ -16,11 +16,11 @@
 typedef struct {
     uint32_t zc_edges;      /* zero crosses acted on */
     uint32_t zc_ignored;    /* edges dropped as noise or after a gap */
+    uint32_t lock_losses;   /* since start (health DP 132): never wraps in a trial */
     uint16_t half_period;   /* ticks of 20 us */
-    uint8_t  locked;
-    uint8_t  lock_losses;
     uint16_t current[2];    /* value applied, 0..1000 */
     uint16_t compare[2];    /* TIM1 compare (2 us ticks) loaded at the last zero cross */
+    uint8_t  locked;
 } phase_debug_t;
 
 extern volatile phase_debug_t g_phase_dbg;   /* read over SWD */

@@ -7,14 +7,16 @@
 #include <string.h>
 
 #define FRAME_HEADER       8      /* 55 AA ver seq:2 cmd len:2 */
+#define FRAME_VERSION      0x02   /* Tuya Zigbee framing, both ways */
 #define RX_MAX_DATA        96
 #define RX_STALE_MS        50     /* bytes of one frame arrive back to back */
 #define REPORT_MAX_DATA    64
 
 static uint8_t  g_rx[FRAME_HEADER + RX_MAX_DATA + 1];
 static uint16_t g_rx_len;
-static uint32_t g_rx_last_ms;
+static uint32_t g_rx_last_ms;     /* last byte received, or our network query sent */
 static uint16_t g_seq;
+static uint16_t g_query_seq;      /* 0 only for the first query after our start */
 static uint8_t  g_network = 0xFF;   /* unknown until the module tells us */
 static uint8_t  g_told_state;
 
@@ -62,7 +64,7 @@ uint32_t tuya_rx_quiet_ms(uint32_t now_ms) {
 }
 
 void tuya_send(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_t len) {
-    uint8_t head[FRAME_HEADER] = { 0x55, 0xAA, 0x02, (uint8_t)(seq >> 8), (uint8_t)seq, cmd,
+    uint8_t head[FRAME_HEADER] = { 0x55, 0xAA, FRAME_VERSION, (uint8_t)(seq >> 8), (uint8_t)seq, cmd,
                                    (uint8_t)(len >> 8), (uint8_t)len };
     uint8_t sum = 0;
 
@@ -76,6 +78,17 @@ void tuya_send(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_t len) {
     }
     uart_putc(sum);
     uart_flush();
+}
+
+void tuya_query_network(uint32_t now_ms) {
+    tuya_send(TUYA_CMD_QUERY_NETWORK, g_query_seq, NULL, 0);
+    /* The module takes a query with seq 0 for our restart (a new contact):
+     * after 65535 the count goes on at 1. */
+    g_query_seq = (uint16_t)(g_query_seq + 1u);
+    if (g_query_seq == 0) {
+        g_query_seq = 1;
+    }
+    g_rx_last_ms = now_ms;   /* its answer is due: no save stall right now */
 }
 
 /* ---- report builder ------------------------------------------------------ */
@@ -165,11 +178,12 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
     case OTA_CMD_NOTIFY: {
         /* The module has a newer firmware for us: say yes, then restart into
          * the bootloader, which fetches it. Anything else is declined, so a
-         * bad offer cannot keep the light restarting. */
+         * bad offer cannot keep the light restarting. 0xBF is the SIM bench
+         * build's version and 0xFF is never made (tools/mkimage.py). */
         uint32_t size = len >= 9 ? ((uint32_t)data[1] << 24) | ((uint32_t)data[2] << 16) |
                                    ((uint32_t)data[3] << 8) | data[4] : 0;
-        uint8_t  ok   = (len >= 9 && data[0] > FW_VERSION && size >= APP_HEADER_OFFSET &&
-                         size <= APP_MAX_SIZE) ? 0 : 1;
+        uint8_t  ok   = (len >= 9 && data[0] > FW_VERSION && data[0] != 0xBF && data[0] != 0xFF &&
+                         size >= APP_HEADER_OFFSET && size <= APP_MAX_SIZE) ? 0 : 1;
         tuya_send(OTA_CMD_NOTIFY, seq, &ok, 1);
         if (ok != 0) {
             break;
@@ -234,7 +248,7 @@ static void rx_process(void) {
             return;
         }
         uint16_t dlen = (uint16_t)((g_rx[6] << 8) | g_rx[7]);
-        if (dlen > RX_MAX_DATA) {
+        if (g_rx[2] != FRAME_VERSION || dlen > RX_MAX_DATA) {
             rx_drop(2);          /* not a frame we can take, resync */
             continue;
         }
@@ -275,6 +289,10 @@ void tuya_poll(uint32_t now_ms) {
         g_rx_last_ms = now_ms;
         rx_process();
     } else if (g_rx_len && (now_ms - g_rx_last_ms) > RX_STALE_MS) {
-        g_rx_len = 0;            /* half a frame that will never complete */
+        /* A header whose frame never completes (a damaged length): a good
+         * frame may sit behind it, so drop only its sync bytes and look again
+         * (once per poll until the buffer is clean). */
+        rx_drop(2);
+        rx_process();
     }
 }

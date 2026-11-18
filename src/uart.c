@@ -8,11 +8,20 @@
 static volatile uint8_t  g_rx[RX_SIZE];
 static volatile uint8_t  g_head;   /* written by the ISR */
 static volatile uint8_t  g_tail;   /* read by the main loop */
-static volatile uint16_t g_dropped;
+static volatile uint32_t g_dropped;
 
+/* One read of SR, then one of DR: that pair clears both RXNE and ORE, so ORE
+ * must be taken from the same SR read (a check after the data read never
+ * sees it). An overrun (a byte came while DR was still full, as during a
+ * flash stall) lost at least one byte and counts once. */
 void USART1_IRQHandler(void) {
-    if (LL_USART_IsActiveFlag_RXNE(USART1)) {
-        uint8_t b    = LL_USART_ReceiveData8(USART1);
+    uint32_t sr = LL_USART_ReadReg(USART1, SR);
+    uint8_t  b  = LL_USART_ReceiveData8(USART1);
+
+    if (sr & USART_SR_ORE) {
+        g_dropped++;
+    }
+    if (sr & USART_SR_RXNE) {
         uint8_t next = (uint8_t)((g_head + 1) & (RX_SIZE - 1));
         if (next != g_tail) {
             g_rx[g_head] = b;
@@ -20,10 +29,6 @@ void USART1_IRQHandler(void) {
         } else {
             g_dropped++;
         }
-    }
-    if (LL_USART_IsActiveFlag_ORE(USART1)) {
-        LL_USART_ClearFlag_ORE(USART1);
-        g_dropped++;
     }
 }
 
@@ -75,6 +80,6 @@ void uart_flush(void) {
     }
 }
 
-uint16_t uart_dropped(void) {
+uint32_t uart_dropped(void) {
     return g_dropped;
 }

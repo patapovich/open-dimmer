@@ -113,9 +113,9 @@ clean:
 
 .PHONY: all flash flash-all clean
 
-# Hardware-free logic on the PC. The store test builds the real source against stand-in device
-# headers (tests/host, HOST_TEST); the flash driver test is built as C++ so that its register
-# model sees every access.
+# Hardware-free logic on the PC. The protocol, store, UART and health tests build the real
+# sources against stand-in device headers (tests/host, HOST_TEST: the mailbox is a variable);
+# the flash driver test is built as C++ so that its register model sees every access.
 HOST_CFLAGS := -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -DHOST_TEST -Itests/host -Isrc
 test:
 	mkdir -p $(BUILD)/host
@@ -133,6 +133,15 @@ test:
 	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -Itests/host -Isrc \
 	   -x c++ src/flash_drv.c tests/test_flash_drv.cpp -o $(BUILD)/host/test_flash_drv
 	$(BUILD)/host/test_flash_drv
+	cc $(HOST_CFLAGS) tests/test_tuya.c src/tuya.c -o $(BUILD)/host/test_tuya
+	$(BUILD)/host/test_tuya
+	cc $(HOST_CFLAGS) tests/test_uart.c src/uart.c -o $(BUILD)/host/test_uart
+	$(BUILD)/host/test_uart
+	cc $(HOST_CFLAGS) tests/test_health.c src/health.c -o $(BUILD)/host/test_health
+	$(BUILD)/host/test_health
+	cc $(HOST_CFLAGS) tests/test_contact_burst.c src/tuya.c src/dimmer.c src/dim_core.c \
+	   -o $(BUILD)/host/test_contact_burst
+	$(BUILD)/host/test_contact_burst
 	python3 tests/test_tools.py
 
 .PHONY: test
