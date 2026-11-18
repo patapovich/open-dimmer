@@ -8,7 +8,7 @@ branch `home-dimmer`).
 
 | What | Version / place |
 |---|---|
-| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-b2f77929 (0x1103301d), MCU **Open Dimmer 2.1.10**; latest release v2.1.11 (default curve led_soft for unsaved channels only, so not deployed) |
+| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-194952ee (0x1103304c, phase 1 fixes, 2026-11-18), MCU **Open Dimmer 2.1.11** (updated by the ZTU over the UART) |
 | Other modules | none runs Open Dimmer yet: see "Before further modules" |
 | PY32 source | this repo (github.com/patapovich/zdms16-py32) |
 | ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (carries PY32 v2.1.11); `home-dimmer_build` has the generated converter and the OTA images |
@@ -189,7 +189,12 @@ the fork. Fix plan, in phases:
 4. Hardware verification on the spare (the gate above).
 5. Migration of further modules (the order above).
 
-Phases 0 and 1 are in progress.
+Phase 0 is done (2026-11-18). Phase 1 is released as ZTU 1.1.3-194952ee (fork home-dimmer
+aa5f02e4, build branch 194952ee) and the converter from it: on the spare since 2026-11-18 (MCU
+took 2.1.11 by itself; On to a lit channel keeps its level, OnLevel from off, gestures
+change-only after a Reconfigure) and on one further module with its stock MCU (no entity
+change, on/off checked), which is watched for a day before the others. Still to check on the
+spare: OnLevel kept across a power cycle.
 
 ## Open (for the next session)
 
