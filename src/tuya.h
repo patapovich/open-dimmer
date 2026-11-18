@@ -38,25 +38,45 @@
 #endif
 
 /* Build number (docs/BOOTLOADER.md section 2; header 0xCE, identity bytes 7-8). FW_BUILD is the
- * release build: a release sets it to the previous release + 100 (the first, release R, is 300;
- * tools/release/release.sh checks it). make FW_TEST=n (1..99) makes a spare test build
- * FW_BUILD + n, below the next release. The version byte stays for display and for byte-only
- * peers (2.1.x apps, phase-1 ZTUs): releases bump it, test builds keep it. SIM builds carry
- * 0xFFFE (OTA_BUILD_SIM): no image is newer, so nothing is ever offered to them. */
-#ifndef FW_BUILD
-#define FW_BUILD                 300
+ * release build, a literal here and nowhere else (tools/check_app.py reads it for CI and
+ * tools/release/release.sh): a release sets it to the previous release + 100 (the first, release
+ * R, is 300). Test builds move it only by 1..99, so no typo can jump the build space:
+ *  - make FW_TEST=n (1..99): FW_BUILD + n, a spare test build below the next release;
+ *  - make FW_PREV=1 FW_TEST=n: FW_BUILD - 100 + n, below this release (bench tests B3 and B11,
+ *    whose image must lie below the release the module carries). LINK_WDG_TEST needs it, so a
+ *    B11 image, carried by mistake, is never offered to a unit on the release.
+ * The version byte stays for display and for byte-only peers (2.1.x apps, phase-1 ZTUs):
+ * releases bump it, test builds keep it. SIM builds carry 0xFFFE (OTA_BUILD_SIM): no image is
+ * newer, so nothing is ever offered to them. */
+#ifdef FW_BUILD
+#error "FW_BUILD is the release build in src/tuya.h; test builds: make FW_TEST=n [FW_PREV=1]"
 #endif
+#define FW_BUILD                 300
 #ifndef FW_TEST
 #define FW_TEST                  0
+#elif FW_TEST < 1 || FW_TEST > 99
+#error "make FW_TEST=n: n is 1..99"
 #endif
+#ifndef FW_PREV
+#define FW_PREV                  0
+#elif FW_PREV != 1 || FW_TEST == 0
+#error "make FW_PREV=1 FW_TEST=n: test build n above the previous release (FW_BUILD - 100 + n)"
+#endif
+#define FW_BUILD_NUMBER          (FW_BUILD - 100 * FW_PREV + FW_TEST)   /* in normal builds */
 #if SIM_ZC
 #define FW_IMAGE_BUILD           0xFFFEu
 #else
-#define FW_IMAGE_BUILD           ((unsigned)(FW_BUILD + FW_TEST))
+#define FW_IMAGE_BUILD           ((unsigned)FW_BUILD_NUMBER)
 #endif
-#if FW_TEST < 0 || FW_TEST > 99 || FW_BUILD % 100 != 0 || FW_BUILD + FW_TEST < 256 || \
-    FW_BUILD + FW_TEST > 0xFFFD
-#error "FW_BUILD: a release build (multiple of 100); FW_TEST: 1..99 above it (builds 256..0xFFFD)"
+#if FW_BUILD % 100 != 0 || FW_BUILD_NUMBER < 256 || FW_BUILD_NUMBER > 0xFFFD
+#error "FW_BUILD: a multiple of 100; the build (FW_PREV, FW_TEST) must be 256..0xFFFD"
+#endif
+/* Bench test B11's switch (link_core.h): a normal build below the release only. */
+#if LINK_WDG_TEST && (SIM_ZC || MEASURE || DIAG_REPORT)
+#error "LINK_WDG_TEST is a normal build's bench switch"
+#endif
+#if LINK_WDG_TEST && FW_BUILD_NUMBER >= FW_BUILD
+#error "LINK_WDG_TEST builds lie below the release: make LINK_WDG_TEST=1 FW_PREV=1 FW_TEST=n"
 #endif
 
 void    tuya_init(void);

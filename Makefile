@@ -19,15 +19,23 @@ MEASURE  ?= 0
 # SWD: make flash-all. Their image header flags (MEASURE 0x02, DIAG 0x04) make
 # tools/embed_ztu.py refuse them, so no Zigbee firmware ever carries one.
 DIAG     ?= 0
-# Build number (src/tuya.h, docs/BOOTLOADER.md section 2): FW_BUILD is the release build in
-# src/tuya.h. make FW_TEST=n (1..99): a spare test build FW_BUILD + n, below the next release.
-# make FW_BUILD=200 FW_TEST=99: a test build below release 300 (bench tests B3, B11).
+# Build number (src/tuya.h, docs/BOOTLOADER.md section 2): FW_BUILD is the release build, a
+# literal in src/tuya.h that no make variable overrides. make FW_TEST=n (1..99): a spare test
+# build FW_BUILD + n, below the next release. make FW_PREV=1 FW_TEST=n: FW_BUILD - 100 + n, below
+# this release (bench tests B3, B11: e.g. 299 below release 300). Anything else is a compile error.
 FW_TEST  ?=
-FW_BUILD ?=
-# make LINK_WDG_TEST=1: bench test B11 only (SWD): the link watchdog fires after 2 min without a
-# frame in a run of 5 min, and sees no frame at all (src/link_core.h). Never carried.
+FW_PREV  ?=
+ifneq ($(FW_BUILD),)
+$(error FW_BUILD is the release build in src/tuya.h; test builds: make FW_TEST=n [FW_PREV=1])
+endif
+# make LINK_WDG_TEST=1 FW_PREV=1 FW_TEST=n: bench test B11 (spare): the link watchdog fires after
+# 2 min without a frame in a run of 5 min, and sees no frame at all (src/link_core.h). Only below
+# the release (src/tuya.h), so a unit on the release never takes it.
 LINK_WDG_TEST ?=
-BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)$(if $(FW_BUILD),-b$(FW_BUILD))$(if $(FW_TEST),-t$(FW_TEST))$(if $(filter 1,$(LINK_WDG_TEST)),-linktest)
+ifneq ($(filter-out 0 1,$(LINK_WDG_TEST)),)
+$(error LINK_WDG_TEST=1 (bench test B11) or 0)
+endif
+BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)$(if $(FW_PREV),-prev)$(if $(FW_TEST),-t$(FW_TEST))$(if $(filter 1,$(LINK_WDG_TEST)),-linktest)
 
 CC       := arm-none-eabi-gcc
 OBJCOPY  := arm-none-eabi-objcopy
@@ -44,7 +52,7 @@ LDSCRIPT := py32f002a_app.ld
 INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Include \
             -I$(SDK)/PY32F0xx_LL_Driver/Inc
 DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) -DMEASURE=$(MEASURE) -DDIAG_REPORT=$(DIAG) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE),$(if $(filter 1,$(MEASURE)),-DFW_VERSION=0x8F,$(if $(filter 1,$(DIAG)),-DFW_VERSION=0x8E))) \
-            $(if $(FW_TEST),-DFW_TEST=$(FW_TEST)) $(if $(FW_BUILD),-DFW_BUILD=$(FW_BUILD)) \
+            $(if $(FW_TEST),-DFW_TEST=$(FW_TEST)) $(if $(FW_PREV),-DFW_PREV=$(FW_PREV)) \
             $(if $(filter 1,$(LINK_WDG_TEST)),-DLINK_WDG_TEST=1)
 ARCH     := -mcpu=cortex-m0plus -mthumb
 CFLAGS   := $(ARCH) $(DEFS) $(INCLUDES) -Os -g -Wall -Wextra -Wno-unused-parameter \
@@ -171,8 +179,9 @@ test:
 	cc $(HOST_TEST_FLAGS) tests/test_dimmer.c tests/host_stubs.c tests/host_boot.c src/dimmer.c \
 	   src/dim_core.c src/bootif.c -o $(BUILD)/host/test_dimmer
 	$(BUILD)/host/test_dimmer
-	cc $(HOST_TEST_FLAGS) tests/test_controls.c tests/host_stubs.c src/controls.c src/dimmer.c \
-	   src/dim_core.c src/input_core.c src/gesture_core.c -o $(BUILD)/host/test_controls
+	cc $(HOST_TEST_FLAGS) tests/test_controls.c tests/host_stubs.c tests/host_boot.c src/controls.c \
+	   src/dimmer.c src/dim_core.c src/input_core.c src/gesture_core.c src/bootif.c \
+	   -o $(BUILD)/host/test_controls
 	$(BUILD)/host/test_controls
 	cc $(HOST_CFLAGS) tests/test_store.c src/store.c -o $(BUILD)/host/test_store
 	$(BUILD)/host/test_store
@@ -192,12 +201,13 @@ test:
 	@# tuya.c with bootif.c (offers, identity, confirmation) in every build kind
 	$(call tuya_test,normal,)
 	$(call tuya_test,fwtest,-DFW_TEST=7)
+	$(call tuya_test,prev,-DFW_PREV=1 -DFW_TEST=99)
 	$(call tuya_test,sim,-DSIM_ZC=1)
 	$(call tuya_test,measure,-DMEASURE=1 -DFW_VERSION=0x8F)
 	$(call tuya_test,diag,-DDIAG_REPORT=1 -DFW_VERSION=0x8E)
 	@# the link watchdog (link_core.h through tuya.c and bootif.c) in every build kind and B11's
 	$(call link_wdg_test,normal,)
-	$(call link_wdg_test,b11,-DLINK_WDG_TEST=1)
+	$(call link_wdg_test,b11,-DLINK_WDG_TEST=1 -DFW_PREV=1 -DFW_TEST=99)
 	$(call link_wdg_test,sim,-DSIM_ZC=1)
 	$(call link_wdg_test,measure,-DMEASURE=1 -DFW_VERSION=0x8F)
 	$(call link_wdg_test,diag,-DDIAG_REPORT=1 -DFW_VERSION=0x8E)
@@ -209,5 +219,12 @@ test:
 	   -o $(BUILD)/host/test_contact_burst
 	$(BUILD)/host/test_contact_burst
 	python3 tests/test_tools.py
+	@# the build number rules of src/tuya.h and this Makefile (what must not compile)
+	python3 tests/test_build_rules.py
 
-.PHONY: test
+# The build directory and the defines of a build (make -s print-defs FW_TEST=7): for
+# tests/test_build_rules.py, which compiles src/tuya.h with them.
+print-defs:
+	@echo $(BUILD) $(DEFS)
+
+.PHONY: test print-defs

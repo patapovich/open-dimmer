@@ -463,6 +463,7 @@ static void test_arming(void) {
 static void b11_fires_at_5_min(void) {
     run_start(1, BOOT_FEATURES_V2, WORD_AT_START);
     CHECK(LINK_SILENCE_MS == 2u * MINUTE && LINK_UPTIME_MS == 5u * MINUTE);
+    CHECK(FW_IMAGE_BUILD < FW_BUILD);             /* below the release: never offered to it */
     CHECK(run_loop(ZTU_OWN, 0, HOUR, 0, 0) == 5u * MINUTE);
     CHECK(g_tuya_frames == 10u + 1u);             /* the frames were handled all the same */
 }

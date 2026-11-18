@@ -18,8 +18,9 @@
 #include <stdint.h>
 #include "ota_proto.h"
 
-/* Bench test B11 (docs/BOOTLOADER.md section 14; make LINK_WDG_TEST=1, SWD only): 2 min of
- * silence in a run of 5 min, and the watchdog sees no frame at all (they are still handled). */
+/* Bench test B11 (docs/BOOTLOADER.md section 14; make LINK_WDG_TEST=1 FW_PREV=1 FW_TEST=n, a
+ * build below the release: src/tuya.h refuses it otherwise): 2 min of silence in a run of
+ * 5 min, and the watchdog sees no frame at all (they are still handled). */
 #ifndef LINK_WDG_TEST
 #define LINK_WDG_TEST        0
 #endif

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Host tests of the image tools: tools/mkimage.py (version byte rules),
 tools/embed_ztu.py (what the Zigbee module may carry) and tools/gen_curves.py
-(curve tables), tools/changelog.py (release notes). Synthetic images, no toolchain needed. Run: python3 tests/test_tools.py"""
+(curve tables), tools/changelog.py (release notes), tools/check_app.py (header flags and build
+of each build kind, the watchdog first in main()). Synthetic images and disassembly, no
+toolchain needed. Run: python3 tests/test_tools.py"""
 import contextlib, importlib.util, io, os, re, struct, subprocess, sys, tempfile, unittest, zlib
 
 TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
@@ -154,6 +156,111 @@ class Curves(unittest.TestCase):
             gen.main()
         self.assertIn("curve dip falls at point", str(e.exception.code))
         self.assertEqual(out.getvalue(), "")       # nothing half-written to curves.h
+
+def load_check_app():
+    sys.dont_write_bytecode = True                # no __pycache__ in tools/
+    spec = importlib.util.spec_from_file_location("check_app", os.path.join(TOOLS, "check_app.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# main() as arm-none-eabi-objdump -d --disassemble=main shows it (normal build, trimmed): the
+# reset flags, the watchdog (LSI wait, keys, PR, RLR, SR wait, reload), health_init, the clock.
+MAIN_OK = """
+08002c20 <main>:
+ 8002c20:\tb5f0      \tpush\t{r4, r5, r6, r7, lr}
+ 8002c22:\t4c86      \tldr\tr4, [pc, #536]\t@ (8002e3c <main+0x21c>)
+ 8002c26:\t6e23      \tldr\tr3, [r4, #96]\t@ 0x60
+ 8002c32:\t6623      \tstr\tr3, [r4, #96]\t@ 0x60
+ 8002c4c:\t4f7d      \tldr\tr7, [pc, #500]\t@ (8002e44 <main+0x224>)
+ 8002c4e:\t4b7e      \tldr\tr3, [pc, #504]\t@ (8002e48 <main+0x228>)
+ 8002c50:\t603b      \tstr\tr3, [r7, #0]
+ 8002c52:\t4b7e      \tldr\tr3, [pc, #504]\t@ (8002e4c <main+0x22c>)
+ 8002c54:\t603b      \tstr\tr3, [r7, #0]
+ 8002c6e:\t4b78      \tldr\tr3, [pc, #480]\t@ (8002e50 <main+0x230>)
+ 8002c70:\t603b      \tstr\tr3, [r7, #0]
+ 8002c76:\tf7ff fee7 \tbl\t8002a48 <health_init>
+ 8002c84:\t4b73      \tldr\tr3, [pc, #460]\t@ (8002e54 <main+0x234>)
+ 8002c9c:\tf000 ff5c \tbl\t8003b58 <SystemCoreClockUpdate>
+ 8002d80:\tf000 f922 \tbl\t8002fc8 <phase_init>
+ 8002e3c:\t40021000 \t.word\t0x40021000
+ 8002e44:\t40003000 \t.word\t0x40003000
+ 8002e48:\t0000cccc \t.word\t0x0000cccc
+ 8002e4c:\t00005555 \t.word\t0x00005555
+ 8002e50:\t0000aaaa \t.word\t0x0000aaaa
+ 8002e54:\t1fff0f10 \t.word\t0x1fff0f10
+""".replace("\\t", "\t")
+
+
+def header_img(flags, build):
+    d = bytearray(finished_img(0x9C, flags))
+    struct.pack_into("<H", d, HDR + 0x0E, build)
+    return bytes(d)
+
+
+class CheckApp(unittest.TestCase):
+    """tools/check_app.py: the header of each build kind and the watchdog first in main()."""
+
+    def test_header_of_each_build_kind(self):
+        ca = load_check_app()
+        for kind, flags, build in (("normal", 0x08, 300), ("diag", 0x0C, 300),
+                                   ("measure", 0x0A, 300), ("sim", 0x09, 0xFFFE)):
+            self.assertEqual(ca.check_header(header_img(flags, build), kind, 300), [], kind)
+        self.assertEqual(ca.check_header(header_img(0x08, 307), "normal", 307), [])
+
+    def test_header_refusals(self):
+        ca = load_check_app()
+        for kind, flags, build, msg in (
+                ("normal", 0x00, 300, "flags 0x00"),          # no CONFIRMS (a 2.1.x header)
+                ("normal", 0x18, 300, "flags 0x18"),          # RING_HIGH before release M
+                ("normal", 0x28, 300, "flags 0x28"),          # a reserved flag
+                ("normal", 0x0C, 300, "flags 0x0C"),          # a bench flag in a normal build
+                ("diag", 0x04, 300, "flags 0x04"),
+                ("sim", 0x09, 300, "build 300"),              # SIM carries 0xFFFE
+                ("normal", 0x08, 0, "build 0"),
+                ("normal", 0x08, 301, "build 301"),
+                ("normal", 0x08, 0x2C01, "build 11265")):    # 300 written big-endian
+            errors = ca.check_header(header_img(flags, build), kind, 300)
+            self.assertTrue(any(msg in e for e in errors), (kind, flags, build, errors))
+        self.assertEqual(ca.check_header(b"\0" * 0x200, "normal", 300), ["no app header at 0xC0"])
+
+    def test_release_build_is_the_literal_in_tuya_h(self):
+        self.assertEqual(load_check_app().release_build() % 100, 0)
+
+    @staticmethod
+    def move(text, line_with, before_line_with):
+        """The disassembly with the line containing line_with moved up before another."""
+        lines = text.splitlines()
+        moved = next(ln for ln in lines if line_with in ln)
+        lines.remove(moved)
+        lines.insert(next(i for i, ln in enumerate(lines) if before_line_with in ln), moved)
+        return "\n".join(lines)
+
+    def test_watchdog_first_in_main(self):
+        ca = load_check_app()
+        self.assertEqual(ca.check_order(MAIN_OK), [])
+        # the clock set up before the watchdog (the calibration read moved up)
+        self.assertEqual(ca.check_order(self.move(MAIN_OK, " 8002c84:", " 8002c4c:")),
+                         ["main() sets up the clock before it starts the watchdog"])
+        # a call before the watchdog (health_init moved up)
+        self.assertEqual(ca.check_order(self.move(MAIN_OK, "<health_init>", " 8002c4c:")),
+                         ["main() calls health_init before it starts the watchdog"])
+        # clock_init not inlined and called first
+        not_inlined = MAIN_OK.replace(" 8002c26:", " 8002c24:\tf000 f800 \tbl\t8003000 <clock_init>\n"
+                                                   " 8002c26:")
+        self.assertEqual(ca.check_order(not_inlined),
+                         ["main() sets up the clock before it starts the watchdog",
+                          "main() calls clock_init before it starts the watchdog"])
+        # no watchdog at all
+        no_key = MAIN_OK.replace("0x0000cccc", "0x0000cccd")
+        self.assertIn("never starts the watchdog", ca.check_order(no_key)[0])
+        # watchdog_start not inlined, called first: fine
+        called = no_key.replace(" 8002c4c:", " 8002c4a:\tf000 f800 \tbl\t8003000 <watchdog_start>\n"
+                                             " 8002c4c:")
+        self.assertEqual(ca.check_order(called), [])
+        self.assertEqual(ca.check_order(""), ["no main() in the disassembly"])
+
 
 class Changelog(unittest.TestCase):
     def load(self):

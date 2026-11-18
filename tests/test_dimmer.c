@@ -213,38 +213,10 @@ static void test_reset_flags(void) {
     }
 }
 
-/* A reset as on the MCU: .bss zeroed (dimmer.c's statics, a pending save is
- * gone), only the flash and the mailbox kept. A process forked before
- * `before` ran gets them once it has run, and boots with csr into `after`. */
+/* A reset as on the MCU (.bss zeroed; flash, mailbox and pins kept): boots with csr into
+ * `after` once `before` has run. */
 static void across_real_reset(void (*before)(void), uint32_t csr, void (*after)(void)) {
-    int fd[2];
-    CHECK(pipe(fd) == 0);
-    fflush(stdout);
-    pid_t pid = fork();
-    if (pid == 0) {
-        close(fd[1]);
-        int ok = read(fd[0], g_host_flash, sizeof(g_host_flash)) == (ssize_t)sizeof(g_host_flash) &&
-                 read(fd[0], &g_host_flash_valid, 1) == 1 &&
-                 read(fd[0], (void *)&g_host_mailbox, sizeof(g_host_mailbox)) ==
-                     (ssize_t)sizeof(g_host_mailbox);
-        CHECK(ok);
-        boot(csr);
-        after();
-        fflush(stdout);
-        _exit(g_fail ? 1 : 0);
-    }
-    close(fd[0]);
-    before();
-    int ok = write(fd[1], g_host_flash, sizeof(g_host_flash)) == (ssize_t)sizeof(g_host_flash) &&
-             write(fd[1], &g_host_flash_valid, 1) == 1 &&
-             write(fd[1], (const void *)&g_host_mailbox, sizeof(g_host_mailbox)) ==
-                 (ssize_t)sizeof(g_host_mailbox);
-    CHECK(ok);
-    close(fd[1]);
-    int status = 0;
-    if (pid < 0 || waitpid(pid, &status, 0) != pid || !WIFEXITED(status) || WEXITSTATUS(status)) {
-        g_fail = 1;
-    }
+    host_across_real_reset(before, boot, csr, after);
 }
 
 /* A restore is saved where flash differs (power-on 'last': an off that came

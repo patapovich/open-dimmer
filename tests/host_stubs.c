@@ -3,6 +3,8 @@
 #include "phase.h"
 #include "tuya.h"
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 int g_fail;
 
@@ -176,4 +178,43 @@ uint8_t store_save_tries(const uint8_t *data, uint8_t attempts) {
 
 uint32_t store_save_count(void) {
     return g_host_saves;
+}
+
+/* ---- a reset as on the MCU --------------------------------------------------- */
+
+/* What a reset keeps: the flash, the mailbox, and the world outside (the input pins). */
+static int keep(int fd, int out, volatile void *p, size_t n) {
+    return (out ? write(fd, (const void *)p, n) : read(fd, (void *)p, n)) == (ssize_t)n;
+}
+
+static int kept(int fd, int out) {
+    return keep(fd, out, g_host_flash, sizeof(g_host_flash)) &&
+           keep(fd, out, &g_host_flash_valid, 1) &&
+           keep(fd, out, &g_host_mailbox, sizeof(g_host_mailbox)) &&
+           keep(fd, out, &g_host_gpioa, sizeof(g_host_gpioa)) &&
+           keep(fd, out, &g_host_gpiob, sizeof(g_host_gpiob));
+}
+
+void host_across_real_reset(void (*before)(void), void (*boot)(uint32_t csr), uint32_t csr,
+                            void (*after)(void)) {
+    int fd[2];
+    CHECK(pipe(fd) == 0);
+    fflush(stdout);
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(fd[1]);
+        CHECK(kept(fd[0], 0));
+        boot(csr);
+        after();
+        fflush(stdout);
+        _exit(g_fail ? 1 : 0);
+    }
+    close(fd[0]);
+    before();
+    CHECK(kept(fd[1], 1));
+    close(fd[1]);
+    int status = 0;
+    if (pid < 0 || waitpid(pid, &status, 0) != pid || !WIFEXITED(status) || WEXITSTATUS(status)) {
+        g_fail = 1;
+    }
 }

@@ -33,10 +33,11 @@ void controls_init(uint8_t cold_start);
 void controls_tick_1ms(void);
 /** From the main loop. */
 void controls_poll(uint32_t now);
-/** 1 when no input is pressed (closed, debounced) and no input event waits: a restart now
- * would lose no press or switch change (the link watchdog's condition). A state switch that
- * rests closed, or a toggle switch that does, keeps it 0: the first would light its channel
- * at the restart. */
+/** 1 when a restart now would lose no press or switch change (the link watchdog's condition):
+ * no input event waits, no input is changing (being debounced), and the button, momentary and
+ * state switches are open. A state switch resting closed keeps it 0 (it would light its channel
+ * at the restart); a toggle switch resting closed does not (the restart takes it as where it
+ * rests, and its next change toggles the light as before). */
 uint8_t controls_idle(void);
 
 #endif

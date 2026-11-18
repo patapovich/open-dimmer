@@ -2,9 +2,12 @@
  * through the pins (board.h host GPIO) every 1 ms like SysTick and the main
  * loop. Each test runs in its own process (a zeroed .bss, as after a reset). */
 #include "host_stubs.h"
+#include "bootif.h"
 #include "controls.h"
 #include "dimmer.h"
 #include "gesture_core.h"
+#include "host_boot.h"
+#include "phase.h"
 #include "tuya.h"
 #include <string.h>
 #include <sys/wait.h>
@@ -21,6 +24,18 @@
 #define MOMENTARY  2
 
 static uint32_t T;
+
+/* bootif.c's other side (tuya.c, phase.c, the reset): no frame from the module (a dead link), and
+ * the restart path recorded. */
+uint32_t g_tuya_frames;
+uint8_t  g_tuya_confirm;
+static unsigned g_shutdowns, g_resets;
+void phase_shutdown(void) {
+    g_shutdowns++;
+}
+void NVIC_SystemReset(void) {
+    g_resets++;
+}
 
 static void pin(GPIO_TypeDef *port, uint32_t mask, uint8_t closed) {
     if (closed) {
@@ -249,40 +264,64 @@ static void test_late_press_window_never_reopens(void) {
 
 /* ---- the link watchdog's input condition ---------------------------------------- */
 
+static void s2(uint8_t closed) {
+    pin(GPIOB, LL_GPIO_PIN_2, closed);
+}
+
+/* Ticks without the main loop: events wait in the ring. */
+static void ticks(int ms) {
+    while (ms--) {
+        T++;
+        controls_tick_1ms();
+    }
+}
+
+/* Busy while a press or a change is under way: the button and momentary inputs from the first
+ * closed sample to their release, every input while a change is being debounced, and while an
+ * event waits for the main loop. */
 static void test_controls_idle(void) {
     power_up(1);
-    run_ms(100);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, MOMENTARY);
+    host_write(10, TUYA_DP_TYPE_ENUM, MOMENTARY);  /* channel 2's switch type */
+    run_ms(3000);
     CHECK(controls_idle());
     s1(1);
-    run_ms(5);                                     /* bouncing, not yet a press */
-    CHECK(controls_idle());
+    run_ms(5);                                     /* bouncing, not yet a press: under way */
+    CHECK(!controls_idle());
     run_ms(30);                                    /* pressed */
     CHECK(!controls_idle());
     s1(0);
+    run_ms(5);                                     /* the release being debounced */
+    CHECK(!controls_idle());
     run_ms(100);
     CHECK(controls_idle());
     button(1);
+    run_ms(1);
+    CHECK(!controls_idle());
     run_ms(50);
     CHECK(!controls_idle());
     button(0);
     run_ms(100);
     CHECK(controls_idle());
-    pin(GPIOB, LL_GPIO_PIN_2, 1);                  /* S2 */
+    s2(1);
     run_ms(50);
     CHECK(!controls_idle());
-    pin(GPIOB, LL_GPIO_PIN_2, 0);
-    /* A release the main loop has not handled yet: an event waits. */
-    for (int i = 0; i < 40; i++) {
-        T++;
-        controls_tick_1ms();
-    }
+    s2(0);
+    ticks(40);                                     /* a release the main loop has not handled */
     CHECK(!controls_idle());
     controls_poll(T);
     CHECK(controls_idle());
+    s1(1);                                         /* one noise sample: under way for a moment */
+    ticks(1);
+    s1(0);
+    CHECK(!controls_idle());
+    ticks(1);
+    CHECK(controls_idle());
 }
 
-/* A toggle or state switch resting closed keeps it busy: the state switch would light its
- * channel at a restart (controls_init: it says what the light is). */
+/* Resting closed: a state switch keeps it busy (it would light its channel at a restart:
+ * controls_init, it says what the light is); a toggle switch does not (the restart takes it as
+ * where it rests, test_link_restart_toggle_closed). */
 static void test_controls_idle_resting_closed(void) {
     power_up(1);
     host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, STATE);
@@ -294,11 +333,96 @@ static void test_controls_idle_resting_closed(void) {
     CHECK(c1()->on == 0 && !controls_idle());
     boot(DIMMER_RESET_SOFT);                       /* what a restart now would do */
     CHECK(c1()->on == 1);
-    power_up(1);                                   /* a toggle switch resting closed */
+
+    power_up(1);                                   /* toggle switches (the default) */
     s1(1);
-    boot(DIMMER_RESET_POWER);
+    s2(1);
+    boot(DIMMER_RESET_POWER);                      /* resting closed at power-up */
     run_ms(100);
-    CHECK(c1()->on == 0 && !controls_idle());
+    CHECK(c1()->on == 0 && dimmer_channel(1)->on == 0 && controls_idle());
+    s1(0);                                         /* on, and resting open */
+    run_ms(100);
+    CHECK(c1()->on == 1 && controls_idle());
+    s1(1);                                         /* off again, resting closed */
+    run_ms(100);
+    CHECK(c1()->on == 0 && controls_idle());
+    s1(0);
+    run_ms(10);                                    /* a flip being debounced: busy */
+    CHECK(!controls_idle());
+    run_ms(100);
+    CHECK(c1()->on == 1 && controls_idle());
+}
+
+/* ---- the link watchdog with the wall switches (docs/BOOTLOADER.md section 9, item 11) ---- */
+
+/* A v2 bootloader's word after a power-on probe: tries 1. */
+#define LINK_WORD (BOOT_WORD_FRESH | (40u << BOOT_PROBE_MS_SHIFT) | 1u)
+
+/* The main loop over a long run with steady inputs, in 10 ms passes, until the restart. */
+static void loop_until(uint32_t until) {
+    while (T < until && !g_resets) {
+        T += 10;
+        controls_tick_1ms();
+        host_halfcycle();
+        controls_poll(T);
+        dimmer_poll(T, 1000, 1);
+        bootif_poll(T);
+    }
+}
+
+/* Toggle switch S1 (the default type): on from the switch, off from the network, so the switch
+ * rests closed while the light is off; then the link dies. */
+static void toggle_closed_link_dead(void) {
+    power_up(1);
+    host_boot_v2(BOOT_FEATURES_V2, BOOT_APP_MAX);
+    host_boot_word(LINK_WORD);
+    bootif_init();
+    s1(1);
+    run_ms(100);
+    CHECK(c1()->on == 1 && c1()->switch_type == TOGGLE);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);
+    loop_until(LINK_WDG_UPTIME_MS + 3600000u);
+    CHECK(g_resets == 1 && g_shutdowns == 1 && T == LINK_WDG_UPTIME_MS);   /* it fired */
+    CHECK(host_boot_word_now() == ((LINK_WORD & ~BOOT_TRIES_MASK) | BOOT_PROBE_REQ));
+}
+
+/* After the restart (SFTRSTF only): still off, the switch where it rests, and its next change
+ * toggles the light on, as it would have without the restart. */
+static void toggle_closed_after_restart(void) {
+    CHECK(c1()->on == 0 && dimmer_channel(1)->on == 0);
+    run_ms(1000);
+    CHECK(c1()->on == 0);
+    host_log_clear();
+    s1(0);
+    run_ms(100);
+    CHECK(c1()->on == 1 && host_log_find("A[1=1") >= 0);
+    s1(1);
+    run_ms(100);
+    CHECK(c1()->on == 0);
+}
+
+static void test_link_restart_toggle_closed(void) {
+    host_across_real_reset(toggle_closed_link_dead, boot, DIMMER_RESET_SOFT,
+                           toggle_closed_after_restart);
+}
+
+/* A state switch resting closed while its channel is off (off from the network) would light it
+ * at the restart: the watchdog waits, also over a day. */
+static void test_link_restart_waits_for_state_switch(void) {
+    power_up(1);
+    host_boot_v2(BOOT_FEATURES_V2, BOOT_APP_MAX);
+    host_boot_word(LINK_WORD);
+    bootif_init();
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, STATE);
+    s1(1);
+    run_ms(100);
+    CHECK(c1()->on == 1);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);
+    loop_until(24u * 3600000u);
+    CHECK(g_resets == 0 && c1()->on == 0);
+    s1(0);                                         /* opened: the restart comes */
+    loop_until(T + 1000u);
+    CHECK(g_resets == 1);
 }
 
 static void test_boot_held_momentary(void) {
@@ -450,6 +574,8 @@ int main(void) {
     RUN(test_late_press_window_never_reopens);
     RUN(test_controls_idle);
     RUN(test_controls_idle_resting_closed);
+    RUN(test_link_restart_toggle_closed);
+    RUN(test_link_restart_waits_for_state_switch);
     RUN(test_boot_held_momentary);
     RUN(test_boot_held_toggle);
     RUN(test_state_switch_over_restore);

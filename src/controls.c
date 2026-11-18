@@ -231,6 +231,15 @@ void controls_poll(uint32_t now) {
 }
 
 uint8_t controls_idle(void) {
-    _Static_assert(IN_COUNT == 3, "every input");
-    return !(g_in[0].pressed | g_in[1].pressed | g_in[2].pressed) && g_tail == g_head;
+    uint8_t busy = g_tail != g_head;              /* an event the main loop has not handled */
+    for (uint8_t i = 0; i < IN_COUNT; i++) {
+        busy |= g_in[i].run;                      /* a change being debounced: a press under way */
+        /* Closed: a press of the button or a momentary switch under way, or a state switch that
+         * would light its channel at the restart. A toggle switch resting closed loses nothing:
+         * controls_init takes it as where it rests, and its next change toggles. */
+        if (i == IN_BUTTON || g_type[i] != SWITCH_TOGGLE) {
+            busy |= g_in[i].pressed;
+        }
+    }
+    return !busy;
 }

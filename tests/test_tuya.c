@@ -5,7 +5,8 @@
  * network query's sequence numbers, the stock module's product query 0x01 (never answered)
  * and the confirmation of a run in the boot word (docs/BOOTLOADER.md sections 2, 7, 9, 11).
  * The dimmer is a stub that records the writes and answers each with one DP. Built for every
- * build kind: normal, FW_TEST, SIM, MEASURE and DIAG (the bench builds decline every offer).
+ * build kind: normal, FW_TEST, FW_PREV, SIM, MEASURE and DIAG (the bench builds decline every
+ * offer).
  * Each test runs in its own process: tuya.c keeps per-run state. Run: make test */
 #include <stdio.h>
 #include <stdint.h>
@@ -476,13 +477,17 @@ static void test_ident_and_version_answers(void) {
 }
 
 /* The build this image carries (header, identity): the release build, + FW_TEST for a spare
- * test build, 0xFFFE for SIM. */
+ * test build (below the next release), - 100 + FW_TEST with FW_PREV (below this release),
+ * 0xFFFE for SIM. (What must not compile: tests/test_build_rules.py.) */
 static void test_build_number(void) {
 #if SIM_ZC
     CHECK(FW_IMAGE_BUILD == OTA_BUILD_SIM && FW_VERSION == OTA_VERSION_SIM);
 #else
-    CHECK(FW_IMAGE_BUILD == FW_BUILD + FW_TEST && FW_BUILD % OTA_BUILD_STEP == 0 && FW_TEST <= 99);
+    CHECK(FW_IMAGE_BUILD == FW_BUILD - OTA_BUILD_STEP * FW_PREV + FW_TEST);
+    CHECK(FW_BUILD % OTA_BUILD_STEP == 0 && FW_TEST <= 99 && (FW_TEST >= 1 || !FW_PREV));
     CHECK(FW_IMAGE_BUILD >= OTA_BUILD_MIN && FW_IMAGE_BUILD <= OTA_BUILD_MAX);
+    CHECK(FW_IMAGE_BUILD < FW_BUILD + OTA_BUILD_STEP);           /* below the next release */
+    CHECK(!FW_PREV || FW_IMAGE_BUILD < FW_BUILD);                /* below this one */
     CHECK(FW_BUILD >= OTA_BUILD_FIRST);
 #endif
 }
@@ -733,7 +738,7 @@ int main(void) {
     RUN(test_confirm_late_ident);
     RUN(test_no_confirm_one_query);
     RUN(test_confirm_needs_a_valid_word);
-    const char *build = SIM_ZC ? "SIM" : MEASURE ? "MEASURE" : DIAG_REPORT ? "DIAG" : FW_TEST ? "FW_TEST" : "normal";
+    const char *build = SIM_ZC ? "SIM" : MEASURE ? "MEASURE" : DIAG_REPORT ? "DIAG" : FW_PREV ? "FW_PREV" : FW_TEST ? "FW_TEST" : "normal";
     if (g_failures) {
         printf("test_tuya (%s build): %d FAILED\n", build, g_failures);
         return 1;

@@ -64,6 +64,14 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: Image headers (CONFIRMS and the bench flag, the build) and the watchdog first in main()
+        # docs/BOOTLOADER.md section 9 items 1 and 2: checked on the images and ELFs themselves.
+        run: |
+          python3 tools/check_app.py build normal
+          python3 tools/check_app.py build-diag diag
+          python3 tools/check_app.py build-measure measure
+          python3 tools/check_app.py build-sim sim
+
       - name: Size report (a warning, not a failure, when a build has little room left)
         env:
           # Below this many free bytes a build gets a warning: room for the next fix is short.

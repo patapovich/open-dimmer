@@ -17,11 +17,9 @@ extern const uint8_t _settings_start[];   /* py32f002a_app.ld: the settings ring
 #endif
 
 /* The link watchdog restarts normal builds only: the bootloader runs no probe for a bench build
- * (SIM, MEASURE, DIAG), so their restart would buy nothing. */
+ * (SIM, MEASURE, DIAG), so their restart would buy nothing. (LINK_WDG_TEST, bench test B11,
+ * is a normal build's switch below the release: tuya.h refuses anything else.) */
 #define LINK_WDG_BUILT    (!(SIM_ZC || MEASURE || DIAG_REPORT))
-#if LINK_WDG_TEST && !LINK_WDG_BUILT
-#error "LINK_WDG_TEST is a normal build's bench switch"
-#endif
 
 /* The app header's flags where the link watchdog runs (main.c g_app_header): no bench class. */
 #define LINK_WDG_APP_FLAGS APP_FLAG_CONFIRMS
