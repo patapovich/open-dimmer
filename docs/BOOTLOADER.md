@@ -1,11 +1,14 @@
 # Bootloader v2: design (fix plan phase 3)
 
 Status: design, 2026-11-18, revised the same day after an adversarial review of this design
-(three reviewers; every finding and its resolution is in section 15). Nothing here is
-implemented yet. Code references are to this repo at 421685a and to the fork
-`patapovich/tuya-zigbee-switch`, branch `home-dimmer` at 51f5c95a (paths under `src/zigbee/`
-there are marked "fork"). Item numbers refer to the project review of 2026-11-18, which is kept
-privately (see STATUS.md).
+(three reviewers), and again after two factory-firmware compatibility reviews (section 15).
+Every finding and its resolution is in section 16. Nothing here is implemented yet. Code
+references are to this repo at 421685a and to the fork `patapovich/tuya-zigbee-switch`, branch
+`home-dimmer` at 51f5c95a (paths under `src/zigbee/` there are marked "fork"). Addresses marked
+"stock ZTU" are in the public dump of the `_TZE284_jtbgusdc` ZTU (sha256 f4afb7a8..., named in
+`docs/stock-firmware-analysis.md`), and "WiFi 1.0.3" ones in the WiFi PY32 dump of the same
+document. Item numbers refer to the project review of 2026-11-18, which is kept privately (see
+STATUS.md).
 
 The bootloader can only be replaced over SWD (mains off, probe on CN2). Every module installed
 from now on keeps the v2 bootloader for good, so v2 is designed to never need replacing: it
@@ -25,7 +28,10 @@ Numbers marked *measured* come from throwaway experiments that are not in the re
   and a page write 4.5 ms, records every watchdog key write, and fuzzes the ZTU's frames. All
   scenarios of section 11 pass (about 11 s of CPU time). Every time in this document comes from
   that byte-timed model; the first prototype's harness delivered frames instantly and gave
-  2-2.6 times shorter times.
+  2-2.6 times shorter times;
+- the compatibility reviews' runs (section 15): the fork's stub build of 51f5c95a against a
+  stock-like MCU model, and static disassembly of the WiFi 1.0.3 and stock ZTU dumps. Nothing
+  ran on hardware.
 
 ## Decisions in short
 
@@ -35,12 +41,13 @@ Numbers marked *measured* come from throwaway experiments that are not in the re
 | 2 | Versions | 16-bit build number in the app header's reserved bytes (0xCE..0xCF). Releases are multiples of 100 (the first 300), test builds take the 99 numbers after a release. The version byte stays for display, the converter and old peers. Identity (0xA3) and offer (0xA0) get the build appended; old peers ignore the extra bytes. Build 0 (2.1.x) images stay valid and servable. |
 | 3 | Mailbox | The two reserved words become the boot word (tries, rescue info, probe answer time) and its complement. The bootloader writes `restored` only when it opens a counter rescue, so a crash loop never brings back a stale light state. |
 | 4 | Boot flow | Gates low first; the reset flags are copied before any RCC write; the bootloader starts the watchdog with its own ~1 s period. Mode order: update (asked, or no valid app) > rescue (button, or 3 unconfirmed boots) > power-on probe > jump. |
-| 5 | Probe | After a cold reset only: header-only 0xA1 every 100 ms for up to 3 s (frozen, generous on purpose). The ZTU commits to answering within 1.5 s of power-up (contract, section 10). The light comes at the ZTU's answer time + ~50 ms; the full 3.1 s only when the ZTU cannot answer. Takes only a valid, larger build number that fits the installed settings layout. |
+| 5 | Probe | After a cold reset only: header-only 0xA1 every 100 ms for up to 3 s (frozen, generous on purpose). The ZTU commits to answering within 1.5 s of power-up (contract, section 10). The light comes at the ZTU's answer time + ~50 ms; the full 3.1 s only when the ZTU cannot answer (always under a stock Tuya ZTU, which is not supported). Takes only a valid, larger build number that fits the installed settings layout. |
 | 6 | Rescue | 30 s listening windows. Takes any non-bench image the ZTU serves whose CRC differs from the installed one and that fits the layout, older ones included. Button: held when the power comes, released within 5 s. |
-| 7 | Confirm | The app confirms after 30 s of uptime once it has answered a 0xA3 in this run. Only apps with the header flag CONFIRMS and no bench flag are counted, so 2.1.x apps and bench builds never fall into rescue loops. |
+| 7 | Confirm | The app confirms after 30 s of uptime once it has answered a 0xA3 in this run, or when no 0xA3 but at least two 0x01 product queries came (a stock Tuya ZTU). Only apps with the header flag CONFIRMS and no bench flag are counted, so 2.1.x apps and bench builds never fall into rescue loops. |
 | 8 | Update path | Every mode asks for the carried header first and pins the image it takes; page 0's vectors are checked before anything is written. Give-up is based on progress (item 28). No request while a frame is half received. Requests carry the bootloader version, the mode and the installed image (16 bytes). The SR-flag shim goes; the flash wait is bounded at ~50 ms. |
-| 9-11 | App, ZTU, tools | Listed in sections 9-11. Every change except the bootloader ships over the air. |
+| 9-11 | App, ZTU, tools | Listed in sections 9-11. Under an own ZTU every change except the bootloader ships over the air. Under a stock Tuya ZTU nothing reaches the MCU: the app installed over SWD stays until the ZTU is converted (section 15). |
 | 12 | Size | *Measured* prototype: 3216 of 4096 bytes (+1080 over v1's 2136); 880 bytes stay free. |
+| 13 | Factory firmware | A stock MCU behind the phase-3 ZTU gets exactly what phase 1 sends it, apart from one retry of a lost DP dump. Own commands go only to an MCU identified as Open Dimmer. Unidentified MCUs get bounded identity questions and short frames (contract items 4 and 6). Open Dimmer under a stock Tuya ZTU is not supported but safe, with its costs listed. Section 15. |
 
 ---
 
@@ -255,7 +262,10 @@ build. The app's answer stays 1 byte (0 = accepted).
 | 2.1.x | v2 | any | byte | yes (any build counts as newer than build 0) | no (no CONFIRMS) | Only after a rescue downgrade, or bench test B6. Button rescue still works. |
 | v2 app | v2 | phase 1 | byte | yes | yes | A module whose ZTU lags behind |
 | v2 app | v2 | phase 3 | build | yes | yes | Target |
-| stock 1.x | stock | any own ZTU | never asked | - | - | Unchanged |
+| stock 1.x | stock | own ZTU, phase 1 / 3 | never asked | - | - | Phase 3 is UART-identical to phase 1 towards it (section 15) |
+| Open Dimmer, any | v1 / v2 | stock Tuya ZTU | never (no 0xA0 / 0xA3 there) | v2: never answered, 3.1 s per power-up | none: the v2 app confirms by the stock-ZTU rule (section 7), 2.1.x has no CONFIRMS | NOT SUPPORTED, but safe (section 15) |
+
+Section 15 has the full matrix, factory firmware included.
 
 ---
 
@@ -315,8 +325,10 @@ keeps working, with one addition:
 - **Probe or button update**: the reset flags include PWRRSTF, so the new app uses the
   power-on behaviour.
 - **Offered update**: the light is restored as today.
-- Cost: under a ZTU that never confirms (section 7), every warm reset after the third also takes
-  the power-on behaviour instead of the restore.
+- Cost: when no run confirms (section 7), every warm reset after the third also takes the
+  power-on behaviour instead of the restore. With the default "off" a lamp that was on stays
+  off. With "on" a lamp that was off switches on by itself. Under a stock Tuya ZTU the app
+  confirms by the 0x01 rule (section 7), so this cost does not arise there.
 
 ---
 
@@ -432,7 +444,7 @@ button only with an insulated tool, never with a finger on the open board.
 | Constant | Value | Why |
 |---|---|---|
 | `PROBE_EVERY_MS` | 100 | The light comes at most ~100 ms after the ZTU can answer. Never sent while a frame is half received (section 8). |
-| `PROBE_WINDOW_MS` | 3000, frozen | Generous on purpose: the probe ends at the first answer, so the window costs light delay only when the ZTU cannot answer at all. The ZTU commits to 1500 ms, half of it (section 10). < 4096 (boot word field). Section 5. |
+| `PROBE_WINDOW_MS` | 3000, frozen | Generous on purpose: the probe ends at the first answer, so the window costs light delay only when the ZTU cannot answer at all (failure pause, no usable image, broken, or a stock Tuya ZTU). The ZTU commits to 1500 ms, half of it (section 10). < 4096 (boot word field). Section 5. |
 | `BUTTON_MS` | 100 | Rejects bounce and the pull-up settling |
 | `BUTTON_RELEASE_MS` | 5000 | Long enough to let go after the LED lights; the cost of a stuck button per power-up |
 | `REQUEST_EVERY_MS` | 500 | Unchanged (boot.c:34): the request pace when nothing comes |
@@ -554,19 +566,22 @@ So the answer time depends on the ZTU firmware, which changes over the air, and 
 NV content (bindings, groups, scenes): it is not a property of the spare alone, and it has not
 been measured. The UART pins are parsed before `hal_zigbee_init()` (`config_parser.c:359`), so
 the UART could start earlier, but without a poll during init that would only buffer requests,
-not answer them sooner. That ZTU change stays an option for later (section 10).
+not answer them sooner. That ZTU change stays an option for later, and only under the
+stock-MCU rules of section 10, change 6.
 
 **Window: 3000 ms, frozen.** The first version froze 1.5 × the spare's measured answer time.
 That would make the probe an unwritten timing contract with every later ZTU release: a release
 whose first answer comes after the window makes every probe on every unit time out and jump,
 and escape (b) is gone without any alarm (DP 137 just shows 0). The probe ends at the first
 answer, so a long window costs light delay only when the ZTU does not answer at all: during its
-failure pause, without a usable image, or broken. So:
+failure pause, without a usable image, broken, or a ZTU that does not speak the protocol (a
+stock Tuya ZTU, on every power-up). So:
 - `PROBE_WINDOW_MS` = 3000, below the 4095 the boot word field can hold;
 - the ZTU commits to its first header answer within 1500 ms of power-up, including the first
   boot after a ZTU OTA (contract, section 10);
 - every ZTU release is checked against that on the spare before it goes further (section 14,
-  B2), and DP 137 shows a miss on any unit (a cold boot with probe time 0).
+  B2), and DP 137 shows a miss on any unit under an own ZTU of phase 3 or later (a cold boot
+  with probe time 0). Under a stock Tuya ZTU every cold boot shows 0.
 
 A window that the installed app's header could set was considered and left out: it would take
 flag bits, and the escape's timing should not come from the app it escapes from.
@@ -580,6 +595,9 @@ The phase-3 ZTU adds the contract, its tests and a boot-time diagnostic (section
 | ZTU answers from (ms) | 0 | 100 | 300 | 600 | 1000 | 1400 | 2000 | 2900 | ≥3200 or silent |
 |---|---|---|---|---|---|---|---|---|---|
 | App starts at (s) | 0.05 | 0.15 | 0.35 | 0.66 | 1.06 | 1.46 | 2.07 | 2.98 | 3.12 |
+
+Under a stock Tuya ZTU the last column applies to every power-up and brown-out, and wall-switch
+presses in those 3.1 s are lost (v1 jumps at once, `boot/boot.c:343-345`). Section 15.
 
 With a newer build carried, the app started after the probe and the update: 2.82 s with the ZTU
 answering from 300 ms (2.14 s with 128-byte blocks), 3.93 s from 1400 ms. The other probe cases
@@ -625,7 +643,9 @@ treat the MCU as restarted).
 
 **Window.** 30 s from the start, or from the last accepted block (then 10 s). With nothing new
 the bootloader starts the app again. `tries` stays at 3, so every further warm reset opens
-another window until a run confirms or the power is cut.
+another window until a run confirms or the power is cut. Under a stock Tuya ZTU a window can
+install nothing, because that ZTU drops every 0xA1 (section 15). There the app's stock-ZTU
+confirmation (section 7) keeps the counter from reaching 3.
 
 **Why not stay listening for ever (the literal "stays listening")?**
 - For an app that crashes or hangs in init, the effect is the same: *measured* 96 % of the time
@@ -656,9 +676,11 @@ Button runs (released 0.5 s after power-up):
 
 ## 7. App confirmation
 
-**Rule.** A v2 app confirms once both hold:
-- its uptime is ≥ `BOOT_CONFIRM_MS` = 30 000;
-- it has answered at least one 0xA3 identity question in this run.
+**Rule.** A v2 app confirms once its uptime is ≥ `BOOT_CONFIRM_MS` = 30 000 and one of these
+holds:
+- it has answered at least one 0xA3 identity question in this run (an own ZTU);
+- no 0xA3 came in this run, and at least 2 well-formed 0x01 product queries did (`55 AA 02 seq
+  01 00 00 cs`: a stock Tuya ZTU, see "Stock-ZTU confirmation" below).
 
 It then clears bits 7..0 of a valid boot word and rewrites `boot_check`:
 
@@ -672,7 +694,7 @@ static void boot_confirm(void) {                /* main loop, once per run */
 }
 ```
 
-Why both conditions:
+Why both conditions on the first path:
 - The answered 0xA3 shows that UART RX/TX, framing and the identity handler work.
 - The ZTU makes its offer right after that answer, so a confirmed app has already had its chance
   to take a newer image.
@@ -680,16 +702,40 @@ Why both conditions:
   the zero-cross lock and the first fades.
 - A crash after 30 s needs no bootloader rescue: the app lives long enough to accept an offer.
 
-**What the confirmation depends on in the ZTU.** The ZTU asks for the identity after it notices
-an MCU start: the app's first network query has seq 0 (`tuya_mcu_app.c:208-221`), or a block
-request for offset 0, or an OK result. Then come the version question and 4 identity questions
-in 7.5 s, and 2 more at later network queries if all were lost (`tuya_mcu_ota.h:4-14`,
-`tuya_mcu_ota.c:162-196`). Two gaps, both closed over the air:
+**Stock-ZTU confirmation (second path).** A stock Tuya ZTU never asks 0xA3: every command byte
+it writes at frame offset 6 is ≤ 0x3C (stock ZTU, 0xAFCA-0xD926). Without this path, under a
+stock ZTU every warm reset from the third after a power-up would open a 30 s window and then
+take the power-on behaviour. Such a window can install nothing, because the stock ZTU drops
+every 0xA1 (section 15), so it is pure cost. The stock ZTU sends a 0x01 query every 1 s while it
+gets no answer (stock ZTU: timer event 0x27, 0xBAFE-0xBB4C, calls the 0x01 sender 0xC44C and
+re-arms after 1000 ms), and Open Dimmer never answers it. An own ZTU never sends 0x01: fork
+`tuya_secondary_mcu.h:34-43` has no 0x01, and the only `queue_cmd` callers are `dp_attr.c:230`
+(0x28), `tuya_mcu_ota.c:171` (0xA3), `:267` (0xA0), `tuya_mcu_app.c:119` (0x0B) and `:302`
+(0x02). Contract item 7 keeps it that way. So under an own ZTU nothing changes, and a crash
+before 30 s still counts as unconfirmed under either ZTU. The path is app code, but it must be
+in release R's app: a unit under a stock ZTU never gets another app (no offers there), so the
+app installed over SWD keeps its policy until the ZTU is converted.
+
+**What the confirmation depends on in an own ZTU.** The ZTU asks for the identity after it
+notices an MCU start: the app's first network query has seq 0 (`tuya_mcu_app.c:208-221`), or a
+block request for offset 0, or an OK result. Then come the version question and 4 identity
+questions in 7.5 s, and 2 more at later network queries if all were lost (`tuya_mcu_ota.h:4-14`,
+`tuya_mcu_ota.c:162-196`). Contract item 4 (section 10) sorts MCUs into three classes. Three
+points matter here:
 - If the first query is lost, a ZTU that already knew the MCU as its own never asks in that run.
   The v2 app therefore numbers its network queries 0 until the ZTU has answered one (section 9).
-- Today's ZTU asks only when it carries an image (`tuya_mcu_ota_may_be_own()` needs
-  `secondary_mcu_image_size != 0`, `tuya_mcu_ota.c:197`). The phase-3 ZTU asks any MCU of major
-  2 or later (section 10). Both obligations are part of the ZTU contract.
+  This is closed over the air.
+- The ZTU asks only in builds with Open Dimmer support (`#ifdef SECONDARY_MCU_IMAGE`), and every
+  such build carries an image: `tools/embed_ztu.py` has no empty mode, so
+  `secondary_mcu_image_size != 0` (`tuya_mcu_ota.c:197`) always holds there. The first version
+  of this design claimed a gap "without an image". No such build exists, and the question stays
+  tied to Open Dimmer boards (section 10, change 2).
+- An MCU of major ≥ 2 that has not said who it is is treated as restarted at most 3 times per
+  ZTU run (`UNIDENTIFIED_RESTARTS_MAX`, `tuya_mcu_app.c:203-221`), because a stock MCU may
+  number every query 0. An Open Dimmer app that stays unidentified through more than 3 of its
+  own restarts in one ZTU run (every identity answer lost each time) is not asked again until
+  the ZTU restarts (a power cut or a ZTU OTA). Its counter then opens windows, which is the
+  intended reaction to a link that loses every identity answer.
 
 **No fallback "confirm after N minutes without 0xA3".** A stable app is never pushed into rescue
 anyway (the counter moves only at resets). Without the fallback, an app with a broken UART that
@@ -700,12 +746,18 @@ need no frozen change, but it would also disturb a working light whenever the ZT
 is the broken side: after three such resets the counter window opens and the light takes the
 power-on behaviour. It is left out and can be added over the air later.
 
-**Cost when nothing confirms.** Under a ZTU that never asks 0xA3, every warm reset after the
-third unconfirmed boot opens a 30 s dark window, until a confirmed run or a power cut
-(*measured*: 7 windows in 1 cold + 9 warm boots, `...WWWWWWW`), and the light takes the power-on
-behaviour after it (section 3). Who is affected: a ZTU without own-MCU support (forbidden by the
-STATUS migration order), a ZTU of today that carries no image (fixed by the phase-3 ZTU). Warm
-resets are rare in a working app, so the cost is per watchdog or fault reset, not per day.
+**Cost when nothing confirms.** When no run confirms, every warm reset after the third
+unconfirmed boot opens a 30 s dark window, until a confirmed run or a power cut (*measured*: 7
+windows in 1 cold + 9 warm boots, `...WWWWWWW`), and the light takes the power-on behaviour after
+it (section 3). Who is affected:
+- an own ZTU without Open Dimmer support (a fork build from before it, forbidden by the STATUS
+  migration order). It never sends 0x01 either, so the second path does not help there;
+- an app whose identity answers are lost in every run.
+
+A ZDMS16 ZTU build without an image does not exist (above). Under a stock Tuya ZTU the second
+path confirms. Without it the same cost would apply there, with windows that can install
+nothing. Warm resets are rare in a working app, so the cost is per watchdog or fault reset, not
+per day.
 
 **CONFIRMS flag.**
 - v2 apps set it in every build. Bench builds carry it too, but the bootloader never counts them
@@ -759,8 +811,13 @@ top; B9 measures it.
 
 ## 9. App-side changes (ship over the air)
 
+"Over the air" means under an own ZTU. Under a stock Tuya ZTU the app installed over SWD is
+final until the ZTU is converted (section 15), so everything a unit may need there must
+already be in release R's app.
+
 *Measured* for items 1-7 of the first version: +256 bytes on 2.1.12's 11 472. Items marked
-"new" came with the review; estimated ~60 bytes together.
+"new" came with the review; estimated ~60 bytes together, plus ~20 for the stock-ZTU
+confirmation (estimate).
 
 1. **Header.** `{ APP_MAGIC, 0, 0, FW_VERSION, APP_FLAG_CONFIRMS | (RING_HIGH ? APP_FLAG_RING_HIGH
    : 0) | bench flags, FW_BUILD }` (`src/main.c:27-30`). `FW_BUILD` sits in `src/tuya.h`; `make
@@ -768,8 +825,11 @@ top; B9 measures it.
 2. **Watchdog first.** `watchdog_start()` directly after the RCC flags are read and cleared
    (`main.c:188-192`), before `clock_init()`, with the bootloader's period. The HardFault/NMI
    reset handler is already there (`main.c:180-185`).
-3. **Confirmation** (section 7). The 0xA3 handler sets `g_ident_answered`, and the main loop
-   calls `boot_confirm()` once both conditions hold.
+3. **Confirmation** (section 7). The 0xA3 handler sets `g_ident_answered`. A new `case` for
+   cmd 0x01 in `handle_frame()` (`src/tuya.c:162-237` has none today) counts well-formed
+   product queries and still sends no answer. The main loop calls `boot_confirm()` at 30 s of
+   uptime once `g_ident_answered` is set, or once the count is ≥ 2 with no 0xA3 in this run
+   (every 0xA3 is answered, so that is `g_ident_answered` still 0).
 4. **Identity v2** (10 bytes, section 2).
 5. **Offer rule** (section 2), with `app_limit()` from `_settings_start` and `boot_id`, and the
    lower bound aligned with the bootloader (`size >= APP_HEADER_OFFSET + sizeof(app_header_t)`,
@@ -780,9 +840,12 @@ top; B9 measures it.
      v1 bootloader (2136 bytes, 0xFF-padded) gives **0xEAC45031**; each v2 build's value goes
      into STATUS.md with the release.
    - DP 137: the boot word at start, low 24 bits (probe time, rescue info, tries).
-   - Both are sent with the health report (`src/health.c:34-41`, first at 60 s). Like DPs
-     130..135 they are only logged by the ZTU's MCU link diagnostics: no converter change. The
-     bootloader version also goes out in identity byte 9.
+   - Both are sent with the health report (`src/health.c:34-41`, first at 60 s). Under an own
+     ZTU they are, like DPs 130..135, only logged by the ZTU's MCU link diagnostics: no
+     converter change. Under a stock Tuya ZTU all of 130..137 probably reach Zigbee2MQTT as
+     unknown Tuya DPs. Its 0x05 handler (stock ZTU 0xD60C) does not check its product-info
+     flag. This is log noise, not harm (section 15). The bootloader version also goes out in
+     identity byte 9.
 7. **Flash write-range guard.** `flash_write_page()` refuses addresses outside
    `[_flash_write_start, _flash_write_end)`: the settings region in the app linker script, the
    app area 0x08001000..0x08004800 in `boot.ld`. That replaces the `#ifdef BOOTLOADER` in
@@ -803,7 +866,8 @@ release's app goes to the spare over the air first, under v1 (section 14).
 ## 10. ZTU-side changes (fork, phase-3 ZTU release; over Zigbee)
 
 The phase-3 ZTU release must stay correct with the v1 bootloader on the spare and with stock
-MCUs.
+MCUs. Towards a stock MCU it must send exactly what phase 1 sends, apart from the dump retry of
+change 6 (section 15, rule 3).
 
 ### Frozen ZTU contract
 
@@ -819,11 +883,42 @@ release on the spare (section 14, B2):
    0..0xFFFFFFFF, max_len 0..0xFFFF, 6 to 16 bytes, at up to one request per 50 ms for days (a
    unit with no app asks every 500 ms until it gets an image).
 3. **Timely.** The first header answer within 1500 ms of power-up (half of `PROBE_WINDOW_MS`),
-   including the first boot after a ZTU OTA.
-4. **Identity after every MCU start.** After a seq-0 network query, a block request for offset
-   0, or an OK result, the ZTU asks for the identity (0xA3) of any MCU of major 2 or later.
+   including the first boot after a ZTU OTA. An earlier MCU UART start may serve this only
+   under the stock rules of change 6 (a) and (b): the first-contact timer starts at the end of
+   the full init and is ≥ 2000 ms, and before that the link only answers 0xA1.
+4. **Identity, by class of MCU.** The major always comes from a 0x0B answer in this ZTU run,
+   never from a guess.
+   - (a) An MCU identified as Open Dimmer in this ZTU run (a "ZDMS" / kind 1 answer): the
+     identity (0xA3) is asked again after every seq-0 network query, every block request for
+     offset 0 and every OK result.
+   - (b) Major ≥ 2, not identified: 4 questions after each version answer and 2 more at later
+     network queries (`IDENT_RETRIES`, `IDENT_LATE_MAX`). At most `UNIDENTIFIED_RESTARTS_MAX`
+     (3) seq-0 queries per ZTU run are treated as a restart (first contact again), because a
+     stock MCU may number every query 0. Nothing beyond that.
+   - (c) Major < 2, or no 0x0B answer yet: never asked, and no restart handling beyond phase
+     1's (one first contact, repeated once at its first network query).
+
+   `UNIDENTIFIED_RESTARTS_MAX` moves from `tuya_mcu_app.c:203` to `tuya_mcu_ota.h` next to the
+   contract, so a contract test cannot drop it.
 5. **Results.** 0xA2 status 0 = written and valid; anything else a failure that counts toward
    the pause; the pause doubles up to a day and ends with a ZTU restart (item 41, phase 1).
+
+Items 6 and 7 protect factory firmware and the app's stock-ZTU rule. The frozen bootloader does
+not need them, but they are written down, pinned and checked the same way:
+
+6. **Factory MCUs.** To an MCU not identified as Open Dimmer the ZTU sends only the phase-1
+   command set (section 15, rule 3; 0xA3 only within item 4 (b)), with one queued frame in
+   flight. Each frame is ≤ 29 bytes. Frames less than 2 ms apart (a burst: a reply and the
+   queued frame next to it, or two replies) add up to ≤ 23 bytes; if the gate ever finds a
+   longer burst, the later frame waits 2 ms, which stays within rule 3's ±50 ms. Frames over
+   29 bytes (the 38- and 86-byte 0xA1 answers) go only as the direct reply to an 0xA1 request
+   and are never pushed.
+   That also holds for later ideas such as serving a second image to a rescue, an image-info
+   push or a longer offer. Reason: the stock parser limits in section 15 (a frame of 32..38
+   bytes wedges a WiFi 1.0.3 MCU's RX until a power cut).
+7. **No 0x01.** An own ZTU never sends 0x01 (product query) to an MCU: the v2 app takes 0x01
+   queries without an 0xA3 as the sign of a stock Tuya ZTU (section 7). This binds only the app
+   and the ZTU, which both update over the air under an own ZTU. Nothing frozen depends on it.
 
 ### Changes
 
@@ -834,9 +929,22 @@ release on the spare (section 14, B2):
    - Store byte 9 (bootloader version; 0 when the identity is shorter) in `tuya_mcu_diag` and
      log it with the version.
    - `IDENT_LEN 7` stays the minimum; protocol 1 is unchanged.
-2. **Identity asked without an image too.** `tuya_mcu_ota_may_be_own()` drops the condition
-   `secondary_mcu_image_size != 0` (`tuya_mcu_ota.c:197`): every build with own-MCU support
-   asks a major-2 MCU who it is; only the offer needs an image (contract item 4).
+2. **Identity scope: unchanged** (withdrawn after review FA-4). The first version dropped
+   `secondary_mcu_image_size != 0` from `tuya_mcu_ota_may_be_own()` (`tuya_mcu_ota.c:197`) so
+   that a ZTU without an image would ask too. That changes nothing in any build that exists:
+   - under `SECONDARY_MCU_IMAGE` the image is always non-empty (`tools/embed_ztu.py` has no
+     empty mode);
+   - every other board compiles the stubs, where `may_be_own()` returns 0 (fork
+     `tuya_mcu_ota.c:344-369`).
+
+   Moving the identity code out of the `#ifdef` to make the claim true would send 0xA3 to the
+   factory MCU of every Tuya-MCU board in the fork that reports major ≥ 2 (touch switches and
+   relays that do send seq-0 queries). At those queries it would also rerun
+   `tuya_dp_apply_inits()`, the IT DP writes. So the question stays limited to boards with Open
+   Dimmer support: today `#ifdef SECONDARY_MCU_IMAGE`, or a new `device_db` flag (`own_mcu:
+   true` → `OWN_MCU`) if an image-less ZDMS16 build is ever wanted. A ZDMS16 build without the
+   image is forbidden, like a ZTU without own-MCU support. New in phase 3: contract item 4's
+   three classes, with `UNIDENTIFIED_RESTARTS_MAX` in `tuya_mcu_ota.h`.
 3. **0xA0** gains the build: 11 bytes (section 2).
 4. **`image_info`** (`tuya_mcu_ota.c:78-102`) mirrors the bootloader's `app_valid()` and adds the
    layout and build rules:
@@ -856,13 +964,45 @@ release on the spare (section 14, B2):
    request is logged as a v1 bootloader. Counter-rescue and button requests are logged as such
    ("MCU in rescue"), so a crash loop shows in the ZTU log. Reporting it to Z2M, or serving a
    second image to a rescue, is a later ZTU change that needs nothing from the bootloader.
-6. **Boot timing diagnostic.** `hal_millis()` at the end of `tuya_mcu_app_init()` (UART up) and
-   at the first answered 0xA1 go into the link diagnostics. B2 and every ZTU release check them
-   against the contract. If the margin gets thin, the ZTU starts its MCU UART before
-   `hal_zigbee_init()` and polls it once between the init steps; that is a ZTU change over the
-   air, not a bootloader change.
-7. **Stock MCUs.** They are never asked for their identity (major 1, `tuya_mcu_ota.c:197`) and
-   never send 0xA1, so nothing changes for them.
+6. **Boot timing diagnostic, dump retry, and stock rules for an earlier UART.**
+   `hal_millis()` at the end of `tuya_mcu_app_init()` (UART up) and at the first answered 0xA1
+   go into the link diagnostics. B2 and every ZTU release check them against the contract.
+   - **Dump retry (phase 3, in every build).** If no DP report arrives within ~1 s of the
+     first-contact 0x28, the ZTU sends 0x28 once more. It uses only commands the stock MCU
+     already gets. Why: the ZDMS16-2's stock MCU never sends 0x20 (`tuya_mcu_app.c:147-148`),
+     so the dump goes out once. Only 0x0B is retried (`tuya_mcu_app.c:110-134`). The stock MCU
+     listens only after `HAL_Delay(1500)` (WiFi 1.0.3 main 0x08002A68), so the dump at app init
+     + 2050..2150 ms has only ~550 ms plus the ZTU's own init time of margin. *Measured* in the
+     scratch stub: an MCU that starts listening later than ~2150 ms after app init loses the
+     dump. Ballast min then reads 1 (unknown) instead of 51, and the min / max / switch-type /
+     power-on entities stay empty until the next ZTU restart. Level scaling falls back to
+     1..254 → 10..1000 (`dimmer_cluster.c:42-64`), and the stock MCU does not clamp DP2 (the
+     stock dimming RE notes, kept outside the repo with the dumps: "Remote DP write"), so low
+     levels drive the lamp below its configured minimum.
+   - **Earlier UART (only if the margin to the 1500 ms contract gets thin).** The ZTU may start
+     its MCU UART before `hal_zigbee_init()`, over the air, under these rules:
+     - (a) The first-contact timer still starts at the end of the full init (after
+       `hal_zigbee_init()` and `parse_config()`, as today) and stays ≥ 2000 ms. The earlier
+       UART start never moves it. Moving `tuya_mcu_app_init()` as a whole would move it, and
+       so would any later cut to `FIRST_CONTACT_DELAY_MS`.
+     - (b) Before that point the link is answer-only. An 0xA1 is answered; its `off == 0` side
+       effect changes nothing then, because the contact state is still CONTACT_NONE. Every
+       other frame stays buffered and goes to the normal dispatcher after init; when the
+       buffer is full, whole frames are dropped, as in a lost burst. The ZTU starts no frame of
+       its own. Stock-MCU frames do arrive in that time whenever the ZTU restarts alone (OTA,
+       config write) while the MCU runs: a wall-switch DP report, the DP2 echo 1 s later, or a
+       0x03 from the button. They must not reach the dimmer listeners or `hal_factory_reset()`
+       / `hal_zigbee_start_network_steering()` (`tuya_mcu_app.c:288-314`) on an uninitialised
+       stack.
+
+     A plain "poll once between the init steps", as the first version proposed, breaks (b).
+     (a) and (b) are contract item 3's condition.
+7. **Stock MCUs: UART-identical to phase 1.** Towards an MCU that reports major < 2, or has not
+   answered 0x0B yet, the phase-3 ZTU sends exactly what home-dimmer 51f5c95a sends (the
+   modules' ZTU 1.1.3-194952ee is built from aa5f02e4, which differs from 51f5c95a only in the
+   carried image). The only exception is the dump retry of change 6. Such an MCU is never
+   asked for its identity (major 1, `tuya_mcu_ota.c:18, 197`) and never sends 0xA1. The
+   stock-compatibility gate in item 9 pins this (section 15).
 8. **Display.** `mcu_version` keeps the exact "x.y.z own" format. The converter parses it, and a
    changed format risks the 2026-11-17 class of entity loss. The build and bootloader version
    go to the link diagnostics only; a Basic attribute for them is a later, separate converter
@@ -878,7 +1018,16 @@ release on the spare (section 14, B2):
    - a fuzz over the contract's request space (offsets, lengths, 6..16 bytes, random tails):
      no crash, every answer well formed;
    - identity asked after a seq-0 query, after an offset-0 block request and after an OK
-     result, with and without a carried image;
+     result, for an identified MCU (class (a));
+   - class (b): a 0x80 MCU that never answers 0xA3 and sends a seq-0 0x20 every 30 s for 10
+     simulated minutes: ≤ 4 first contacts (0x0B and 0x28 each), ≤ 18 0xA3 (4 per version
+     answer + 2 late; *measured* 17), no 0xA0, and after the 3rd treated restart only the 0x20
+     replies. *Measured* in the scratch stub with the limit raised to 255, as a literal
+     contract would allow: 21 version queries, 21 dumps and 83 0xA3 in 10 minutes, without end.
+     Class (c): the same run with a 0x47 MCU sends 0 frames with cmd 0xA0..0xA3.
+     `test_own_mcu_restarting_alone_is_noticed` stays;
+   - the stock-compatibility gate, the frame-limit checks, the `ready_ms` sweep and the stub
+     variant without `SECONDARY_MCU_IMAGE` of section 15 ("Tests that pin the rules");
    - stub timing: the first 0xA1 answer within the contract from the stub's boot.
 10. **py32-bump** (fork workflow): compare builds instead of version strings. Refuse a carried
     build ≤ the one `home-dimmer` carries unless `force` (force is the rollback path of section
@@ -896,6 +1045,8 @@ release on the spare (section 14, B2):
 | `tools/swd/install.sh` | Show the image's bootloader version (boot_id) and boot sector CRC. Refuse a full image without boot_id unless `OLD_BOOT=1`, and one over 12 KB unless `ERASE_SETTINGS=1`. `IMAGE=release` checks `SHA256SUMS` (item 53). Optional `WRP=1` (section 1). Write 0 to the boot word pair (0x20000BF8, 0x20000BFC) before every reset it issues. Tools that halt the core must set DBGMCU `DBG_IWDG_STOP` first: v2 starts the watchdog at every boot (install.sh:124 and `make flash` already do). |
 | `tools/ota_swd_emu.py` | Answer the header request (0xC0, 16) before the blocks, accept 16-byte requests, send the 11-byte 0xA0 (build) so that build-only test images are accepted, and clear the boot word pair before its resets. |
 | `Makefile` | `FW_TEST=` (a new BUILD dir like `VERSION_BYTE`). `make flash` clears the boot word pair before its reset. `make test-boot`, part of `make test`. Report the bootloader size from the ELF; warn above 3584 bytes. |
+| `tests/test_tuya.c` | The confirmation rule of section 7: (1) two 0x01 frames, 30 s, no 0xA3 → confirmed (boot word bits 7..0 = 0, `boot_check` = ~boot); (2) no 0x01 and no 0xA3 → not confirmed; (3) 0xA3 answered → confirmed as before; (4) one 0x01 only → not confirmed. 0x01 is never answered. |
+| `tests/test_stock_ztu_dump.py` | New, skipped when the dump is absent (path in `STOCK_ZTU_DUMP`; the file is the one `docs/stock-firmware-analysis.md` names). Pins the stock ZTU facts of section 15 against the file: the 10 entries at 0x487E0; the 58-entry table at 0x48808 with handlers only for 0x01, 0x03, 0x05, 0x06, 0x08, 0x0B, 0x0D, 0x0E, 0x20, 0x24-0x27, 0x29, 0x2C, 0x36-0x38, 0x3A and 0xC8E4 for the rest; the `cmp r3,#57` encoding `ab39` at 0xCA0A; no branch to 0xDCD8 in 0xC8E4..0xC8F0. |
 | `.github/workflows/ci.yml` | The host test job runs `make test`, which includes `test-boot`: plain `cc`, no ARM toolchain and no zlib (the harness has its own CRC), Linux ≥ 4.17 for `MAP_FIXED_NOREPLACE` (ubuntu-24.04 has it). The build job checks `boot.elf` with `arm-none-eabi-nm`/`objdump`: `k_boot_id` at 0x08000010 and 16 bytes; `_flash_write_start`/`_end` exactly 0x08001000/0x08004800; `boot.bin` ≤ 4096; `_ebss` + 512 bytes of stack ≤ 0x20000BE0. The ZTU's CI prints its OTA file size with the carried image (section 12). |
 
 ### `make test-boot` (tests/boot/, grown from the review harness)
@@ -933,7 +1084,12 @@ buffer, which never ran the USART path and had no wire time):
 **ZTU model.** A C port of `answer_block`: stateless; `BLOCK_MAX` 64 or 128; a ready time after
 power-up; an answer latency; failure counting and pause; serve-below-offset; image switch at
 page k; drop, late duplicate and bit-flip noise; unsolicited frames; it records the mode byte
-and counts header and offset-0 requests.
+and counts header and offset-0 requests. A **stock mode** models the stock Tuya ZTU: it never
+answers 0xA1 / 0xA2 and sends the 9-byte 0x01 query `55 AA 02 00 nn 01 00 00 cs` every
+1000 ms from its ready time. An option alternates 1 s phases of 9600-baud-like garbage (random
+bytes with framing errors, ~1 byte per 1.04 ms). That is the stock ZTU's UART-setting cycling
+without an NV lock record (9600 / 115200 × 2 configurations, a step every 1 s, stock ZTU
+0xBB10-0xBCC2).
 
 **Reset model.** `RCC_CSR` per boot: cold PWR|PIN with random RAM; warm SFT/IWDG; stale PWR
 after the bootloader's own reset. App model: confirms or not, crashes or not, clears the flags.
@@ -956,6 +1112,7 @@ model):
 | Button | Held and released at a cold boot: rescue, older taken; same image: app after ~30 s; released after 4.5 s: rescue; never released: app after 5.1 s, STUCK, nothing written; held at a warm boot: ignored; not held: no delay |
 | Counter | 2.1.x app (no CONFIRMS) with 8+ watchdog resets: never a window; bench build with CONFIRMS: never counted; confirming app with resets between confirmations: never a window; never confirmed: every warm reset after the third opens a window; asked update resets tries; written image resets tries; stale PWRRSTF + IWDG counts as warm |
 | Mailbox | Random RAM at power-up, 200 boots: never asked, word rebuilt, restore words untouched (byte compare); `restored` written only by a counter rescue; mode byte of every request |
+| Stock ZTU | `stockztu-cold`: ZTU ready at 300 ms, 20 power-ups: app at 3.05-3.15 s, 0 pages written, 28-31 header requests with mode byte 3, probe time 0 in the boot word, no request started while `g_rx_len != 0`, largest watchdog gap < 250 ms. `stockztu-button` (released at 0.5 s): window 30 s, app at ~30.6 s, nothing written. `stockztu-counter`: the app model confirms by the stock-ZTU rule, each run ≥ 30 s, 1 cold + 10 warm resets: 0 windows, `restored` untouched; the same run with the old rule gives 8 windows (documents the cost). `stockztu-noapp` (1 h model time): a request every 500 ms, no RX buffer growth, watchdog gaps < 250 ms, no request sent mid-frame. The four again with the 9600-baud garbage phases on |
 | Fuzz | 300 boots in every mode with mutated and random ZTU frames that pass the frame checksum (bytes, lengths, offsets, sizes, CRCs, other commands), each followed by a clean ZTU: no fault, no write outside the app area, largest watchdog gap < 250 ms, every unit ends with an intact app (*measured*: 0 of 300 failed, ~43 000 answers) |
 
 CI runs it with every push. It is the gate before any SWD install on a module.
@@ -1029,12 +1186,14 @@ take a compressed image, so this limit does not move from the MCU side.
 | 15 | App writes into sector 0 by a bug | Bootloader gone, SWD | Range guard in the app's flash driver; WRP available | Two bugs needed; WRP off (section 1) |
 | 16 | LSI never ready | - (the app would hang in `watchdog_start`) | Bounded waits; the watchdog then does not run | Hardware fault |
 | 17 | Button stuck pressed | - | 5 s per power-up, then the normal boot; nothing installed; STUCK in DP 137 | 5 s delay per power cut |
-| 18 | ZTU that never asks 0xA3 above an Open Dimmer MCU | Never updated | Every warm reset after the third: a 30 s window, then the power-on behaviour | A ZTU without own-MCU support is forbidden (STATUS); a ZTU without an image asks from phase 3 on |
+| 18 | ZTU that never asks 0xA3 above an Open Dimmer MCU | Never updated | Own ZTU without Open Dimmer support: every warm reset after the third gives a 30 s window, then the power-on behaviour. Stock Tuya ZTU: confirmed by the 0x01 rule (section 7), no windows | An own ZTU without support is forbidden (STATUS). Every ZDMS16 ZTU build carries an image, so no image-less case exists (section 10, change 2). Stock Tuya ZTU: not supported, no updates until the ZTU is converted (section 15). Without the 0x01 rule there: windows from the 3rd warm reset, each installing nothing |
 | 19 | App whose UART is dead and which never resets | SWD | Power cut (probe, if newer is carried) or the button | No automatic path; an app-side link watchdog is possible later (section 7) |
 | 20 | Defect in v2 itself | - | Harness gate (section 11), spare trial (section 14) | Frozen: SWD, or a boot-updater app (~150 ms brick window) while WRP is off |
-| 21 | Brown-outs in a row | Each boots the app | Each is a cold boot with one probe (the ZTU usually answers at once if it did not reset) | ≤ window delay per dip |
+| 21 | Brown-outs in a row | Each boots the app | Each is a cold boot with one probe (an own ZTU usually answers at once if it did not reset; a stock Tuya ZTU never answers: 3.1 s per dip) | ≤ window delay per dip |
 | 22 | Flash page that never verifies, or a controller that stays busy | FLASH results, ZTU pause (busy: watchdog loop) | FLASH results, ZTU pause; the busy wait is bounded | Hardware: SWD cannot fix it either |
 | 23 | Wrong assumption about the reset flags (B8) | - | Worst case: a cold boot read as warm skips one probe and keeps counting tries | Verified on the spare before the modules |
+| 24 | Open Dimmer under a stock Tuya ZTU (installed before the ZTU was converted, or the ZTU put back to stock) | 0x01 unanswered; no updates | Same; 3.1 s dark per power-up; no window and nothing written | Not supported but safe: convert the ZTU over the air without re-pairing or resetting first (section 15) |
+| 25 | A ZTU change sends a stock MCU something new (an extra 0xA3 or dump, a long frame) | - | Rules and gate of section 15; contract items 4 and 6; rollout step 3 diag check | A frame of 32..38 bytes would wedge a stock MCU's RX until a power cut (WiFi 1.0.3 parser; Zigbee 1.0.7 inferred) |
 
 ---
 
@@ -1044,15 +1203,40 @@ take a compressed image, so this limit does not move from the MCU side.
    - `boot/boot.c`, `boot/boot.ld`, `src/ota_proto.h` (with the ZTU contract), `src/flash_drv.c`;
    - the app changes of section 9;
    - `tests/boot/` and `make test-boot`;
-   - the tools of section 11; STATUS.md; an INSTALL.md section on the button rescue.
+   - the tools of section 11; STATUS.md; an INSTALL.md section on the button rescue;
+   - in the fork, the phase-3 ZTU with the tests of section 15;
+   - docs that this design step does not edit:
+     - `docs/stock-firmware-analysis.md`: "Stock ZTU and unknown commands" and "Stock MCU
+       parser limits" (section 15, with addresses; the Zigbee 1.0.7 limits marked inferred);
+     - `docs/INSTALL.md`, next to its lines 19-21: Open Dimmer under a stock ZTU is not
+       supported but safe; if it happens, do not re-pair or reset the module, convert the ZTU
+       over the air first; ZTU first stays a hard rule;
+     - `docs/STATUS.md` migration step 2: the stock Tuya ZTU is named next to the old fork
+       builds, and the per-module diag check of step 3 below is added.
 
    CI green, then a review of the bootloader diff against this document.
 2. **Release R** vX.Y.Z (build 300) with v2 and the counted app. Record the boot sector CRC.
 3. **ZTU phase-3 release** (section 10), carrying R's app. OTA to the spare's ZTU first. The
    spare still has v1 + 2.1.12: the ZTU offers R's app by the byte rule (7-byte identity), and
    the spare takes it under v1. That runs the matrix rows "2.1.x | v1 | phase 3" and "v2 app |
-   v1 | phase 3". Then the other modules' ZTUs one at a time: with their stock MCUs nothing
-   changes, and the check is the same as phase 1.
+   v1 | phase 3". Then the other modules' ZTUs one at a time, with their stock MCUs (section
+   15, matrix row 3). Per module:
+   - Before its OTA: `mcu_version` reads 1.0.7 (the version byte is the only stock
+     discriminator), and the diag attributes are decoded and saved (counters 0xff40, log
+     0xff41..0xff45, fork `helper_scripts/decode_mcu_diag.py`).
+   - After its OTA: the phase-1 user-level check (STATUS migration step 2: `mcu_firmware`
+     "Tuya (stock)", `mcu_version`, exposes, lights, wall switch, OnLevel). Then a UART-level
+     check from the same diag decode. TX_CMD ids are only 0x0B and 0x28 plus the expected DP
+     writes, with no 0xA0..0xA3. RX_DP for DPs 3, 4, 5 and 14 appears after first contact. The
+     min / max brightness entities match the values from before the OTA. `rx_bad` and
+     `tx_timeout` do not grow over a day.
+   - Then one ZTU restart with the light on (a config re-write): light state and level do not
+     change.
+
+   Checklist row per module, saved with the rollout notes. Pass: no 0xA0..0xA3 entries, the
+   dump DPs present, entities unchanged. A lost dump does not show in the lights while they stay
+   on, but it does show in the min / max entities and at low levels, so the user-level check
+   alone is not enough.
 4. **Spare** (mains off, probe on CN2): `IMAGE=<R's zdms16_py32_full.bin> tools/swd/install.sh`.
    This also exercises install.sh's re-flash path (item 8 / STATUS hardware gate). The settings
    in sector 4 stay untouched.
@@ -1075,17 +1259,235 @@ take a compressed image, so this limit does not move from the MCU side.
    path with the same release full image, then record DP 136 and 137 per module. From then on
    their bootloader never changes. App and ZTU updates go over Zigbee, the spare first, as the
    process rule says. After every ZTU rollout, a cold boot with probe time 0 in DP 137 on any
-   module is a contract miss.
+   module under an own ZTU of phase 3 or later is a contract miss. A stock Tuya ZTU never
+   answers, so the rule does not apply there.
 7. **Later, only when the app approaches 12 KB:** the ring-move release M (section 1), its
    preconditions, spread and verified everywhere, before any larger app.
 
 **Open measurement before freezing v2:** the ZTU's answer time after a power-up (B2), checked
 against the 1500 ms contract. It no longer sets the window. Within the contract the light delay
-after a power cut (answer time + ~50 ms) stays inside the 1-2 s the user accepted.
+after a power cut (answer time + ~50 ms) stays inside the 1-2 s the user accepted. That holds
+for own ZTUs. Under a stock Tuya ZTU, which is not supported, it is 3.1 s (section 15).
 
 ---
 
-## 15. Review resolution
+## 15. Factory firmware compatibility
+
+Requirement (user, 2026-11-18): compatibility with the factory firmware must be guaranteed. The
+other modules run the own ZTU (phase 1, 1.1.3-194952ee) above the stock PY32 firmware 1.0.7, and
+they must keep working through every ZTU change of this phase. Two reviews checked both
+directions against the code and the stock material (section 16, lines FA and FB):
+- **Direction A: stock PY32 behind an own ZTU.** Evidence: the fork's code paths, and the stub
+  build of 51f5c95a run against a stock-like MCU model. The model answers 0x0B with 0x47 and
+  0x28 with a DP dump, echoes writes and ignores everything else. 1.0.7 is read-protected
+  (stock-firmware-analysis.md, "SWD read of the Zigbee PY32"), so its reaction to unknown
+  commands and its parser limits come from a disassembly of the WiFi sibling 1.0.3.
+- **Direction B: Open Dimmer behind the stock Tuya ZTU.** Evidence: static analysis of the
+  public stock ZTU dump. Nothing ran on hardware, and it is one dump of unknown version.
+
+### Who is identified, and how
+
+| Party | Identified by |
+|---|---|
+| Open Dimmer MCU | Its answer to the ZTU's own 0xA3 in this ZTU run: "ZDMS", kind 1 (`on_ident`, fork `tuya_mcu_ota.c:236-241`). Never from a version byte, a DP or a guess |
+| Stock MCU | Major < 2 in a 0x0B answer in this ZTU run (1.0.7 = 0x47; the version byte is the only stock discriminator). An MCU that has not answered 0x0B yet is treated the same way |
+| Possibly own MCU | Major ≥ 2, no identity answer yet: asked within contract item 4 (b), never offered anything |
+| Own ZTU (for the app) | Any 0xA3 question in this run |
+| Stock Tuya ZTU (for the app) | No 0xA3, and at least 2 well-formed 0x01 queries in this run (section 7). Used only for the confirmation |
+
+The bootloader identifies nobody. It asks for the carried header and takes only an image that
+suits its mode (section 8), and it needs nothing from a stock ZTU.
+
+### Rules
+
+1. **Own commands only to an identified Open Dimmer MCU.** 0xA0 (offer) goes out only from
+   `on_ident`, after an identity answer in this run (fork `tuya_mcu_ota.c:236-241, 267`). 0xA3
+   goes only to an MCU of major ≥ 2, within contract item 4. The 0xA1 answers (38 / 86 bytes) go
+   only in reply to an 0xA1 request (`:270-300`). `image_info`, the build rules and the v2
+   request parsing are reached only through `on_ident` or `answer_block`.
+2. **Never an offer to a stock MCU.** A stock MCU cannot produce the identity answer, so no
+   ZTU release reaches an offer for it (rule 1).
+3. **Towards a stock MCU the phase-3 ZTU is UART-identical to phase 1** (section 10, change 7).
+   That means the same commands, data, order and timing (±50 ms):
+   - 0x0B at app init + 2000 ms (2 retries) and 0x28 at first contact (`tuya_mcu_app.c:156,
+     162-183`);
+   - 0x04 DP writes;
+   - replies to 0x20 / 0x24 / 0x25;
+   - 0x02 only on boards whose MCU keys are the UI (never on the ZDMS16-2);
+   - no 0x00 (heartbeat), 0x01 (product info), working mode, 0xA0 or 0xA3.
+
+   The one deliberate difference is the dump retry (section 10, change 6). It is sent only when
+   the first dump got no DP report.
+4. **Frame limits towards an MCU not identified as Open Dimmer** (contract item 6): ≤ 29
+   bytes per frame (the largest frame the phase-1 queue can build: 8 + 4 + `value[16]` + 1,
+   fork `tuya_secondary_mcu.c:173`), one queued frame in flight, and ≤ 23 bytes for frames
+   less than 2 ms apart (the stock ISR ring, below). Frames over 29 bytes go only as the direct
+   reply to an 0xA1 request. Phase 3's own frames are 9 bytes (0xA3) and 20 bytes (0xA0
+   v2). `send_reply` bypasses the one-in-flight queue
+   (`tuya_secondary_mcu.c:108-114`), so the burst rule counts replies too.
+5. **First contact only after the full init.** The first-contact timer starts at the end of
+   the full ZTU init and stays ≥ 2000 ms. Before that point only 0xA1 is answered; other frames
+   are dispatched after init. A dump without any DP report is retried once (section 10, change
+   6).
+6. **The identity question exists only in builds with Open Dimmer support**
+   (`#ifdef SECONDARY_MCU_IMAGE`, and every such build carries an image). Every other board in
+   the fork compiles the stubs, where `tuya_mcu_ota_may_be_own()` returns 0, so touch switches
+   and relays with factory MCUs never see 0xA3 or a treated restart (section 10, change 2).
+7. **Converter unchanged for stock modules.** `mcu_version` keeps "x.y.z" / "x.y.z own"
+   (section 10, change 8). There are no new attributes, and DPs 136 / 137 stay out of
+   `device_db`, so `mcu_firmware` stays "Tuya (stock)" and the exposes stay as they are.
+8. **Open Dimmer under a stock ZTU: bounded costs, nothing written.** The v2 app confirms by
+   the stock-ZTU rule (section 7). The bootloader's probe and windows cost time and install
+   nothing. The combination is not supported (below).
+
+### What each side sees, and why it is harmless
+
+**A stock PY32 1.0.7 under the phase-3 ZTU** sees what it sees under phase 1 (rule 3): at most
+one 0x28 more, after a lost dump. It answers 0x0B in 3 ms with 0x47 and ignores 0x0C
+(stock-firmware-analysis.md, 0x0B and 0x0C probes). The WiFi 1.0.3 dispatcher ignores unknown
+commands (0x080026CA). *Measured* in the scratch stub over 5 simulated minutes, with seven seq-0
+0x20 queries, an OK 0xA2 and two 0xA1 requests injected: the ZTU sent only 0x0B, 0x28 and the
+two 0xA1 replies, never 0xA0 or 0xA3. Every frame was 9-10 bytes except the 0xA1 replies, which
+came only on request. The ZDMS16-2's stock MCU sends no 0x20 at all (`tuya_mcu_app.c:147-148`),
+so on the real modules even less happens.
+
+**The stock Tuya ZTU under Open Dimmer** sees:
+- from the v2 bootloader: 16-byte 0xA1 header requests, 10 per second for 3 s after every
+  power-up (the probe), 2 per second in a button or counter window (30 s), and 2 per second
+  for good with no valid app. Never an 0xA2: nothing is written without an answer;
+- from the app: 0x20 network queries, DP reports (0x05 / 0x06) with the health DPs 130..137
+  every 2 min, and 0x03 after a 3 s module-button hold (`controls.c:167`). It gets no answer to
+  its 0x01.
+
+What it does with them (stock ZTU dump):
+- Its byte parser 0xC858 (state table 0x487E0) needs 55 AA 02, len ≤ 246 (0xC9A8) and a good
+  sum (0xC8B4-0xC8E2). It keeps a 100 ms inter-byte timer 0x2E (0xC942-0xC948).
+- Then it checks len ≤ 255 (0xC9EE) and (cmd − 1) ≤ 0x39 (0xCA02-0xCA0E); a frame that fails
+  goes to 0xC8E4. The command table 0x48808 sends 39 of its 58 entries there too. 0xA1 and
+  0xA2 fail the range check.
+- 0xC8E4 stops timer 0x2E and returns to the parser. There is no call to the TX queue 0xDCD8,
+  no pending-ack entry (0xB898) and no NV write. So probe, rescue and no-app requests are
+  dropped silently, at any rate and for days, and cannot stall, reset, leave or factory-reset
+  it.
+- Its bootloader region 0x0-0x6A0C contains no Telink UART register literal (the app region has
+  them from 0x22878 on), so no request reaches a serial loader.
+- The health DPs probably reach Zigbee2MQTT as unknown raw Tuya DPs: its 0x05 handler (0xD60C)
+  is not gated by its product-info flag (0x842428 is read only at 0xC45A, 0xC750, 0xCE24 and
+  0xD956). That is log noise, not harm.
+
+The assumption for other stock releases: a Tuya MCU-SDK module ignores commands it does not
+know, because the Zigbee serial protocol has no NAK. The design relies on nothing more. The
+bootloader needs nothing from a stock ZTU, and its traffic is bounded at 10 frames per second
+for 3 s, then at most 2 per second.
+
+### Stock MCU parser limits
+
+From the WiFi 1.0.3 disassembly. The Zigbee 1.0.7 build is read-protected and probably shares
+the vendor template, so these limits are inferred for it:
+- The USART ISR ring holds 23 bytes (0x200001D3..0x200001EA) and drops bytes when it is full
+  (0x080038F8-0x0800393E).
+- The linear parse buffer holds 31 bytes (0x0800406E-0x08004072), but frame lengths up to 38
+  bytes are accepted (0x080040C8). A frame of 32..38 bytes therefore never completes: no byte
+  is read while the count is 31 (0x080040D8 → 0x08004112), and RX stays wedged until a power
+  cut. The unit is then controllable only from the wall switch.
+- Back-to-back bursts over 23 bytes lose bytes while the MCU blocks its main loop (the 600 ms
+  LED blink, a flash save).
+- `main` runs `HAL_Delay(1500)` before its init (0x08002A68). The Zigbee unit's SWD window of
+  ~1.5 s after power-up fits the same start.
+
+Phase 3 stays inside these limits (rule 4). Contract item 6 keeps later ZTU changes inside them.
+
+### Combination matrix
+
+| # | MCU | Bootloader | ZTU | Status | What happens |
+|---|---|---|---|---|---|
+| 1 | stock 1.0.7 | (stock, none) | stock Tuya | factory | Nothing of this design runs |
+| 2 | stock 1.0.7 | (stock) | own, phase 1 | supported: the modules today | Baseline: 0x0B, 0x28, DP writes. Never asked 0xA3 |
+| 3 | stock 1.0.7 | (stock) | own, phase 3 | supported | UART-identical to row 2 (rule 3), plus at most one dump retry. Gate test, rollout step 3 check |
+| 4 | stock, reporting major ≥ 2 (another batch, or the `_TZE204_jtbgusdc` variant whose stock version nobody has read) | (stock) | own, phase 1 / 3 | supported, bounded | 4 + 2 identity questions per version answer, ≤ 3 treated restarts per ZTU run, never an offer (contract item 4 (b)) |
+| 5 | factory MCU of another fork board (touch switch, relay) | (stock) | own, any | unchanged | No identity code in the build (rule 6) |
+| 6 | Open Dimmer 2.1.x / v2 app | v1 / v2 | own, phase 1 / 3 | supported: the design target | Section 2 matrix |
+| 7 | Open Dimmer, any | v1 / v2 | stock Tuya | NOT SUPPORTED, but safe | Next subsection |
+| 8 | Open Dimmer, any | v1 / v2 | own, from before Open Dimmer support | forbidden (STATUS migration order) | Never asked 0xA3, no updates. Counter windows from the 3rd warm reset (section 7) |
+| 9 | Open Dimmer, any | any | own ZDMS16 build without an image | does not exist | `embed_ztu.py` has no empty mode. Forbidden like row 8 |
+
+### Open Dimmer under a stock Tuya ZTU (row 7)
+
+How it can happen: a module installed over SWD before its ZTU was converted (INSTALL section 0
+forbids it, but nothing enforces it), or a ZTU put back to stock.
+
+**Not supported:**
+- Zigbee control is not guaranteed. The stock ZTU needs an answer to 0x01 to set its name
+  "_TZE284_" + PID (handler 0xDA5A, writes at 0xDB32-0xDB6A), to lock its MCU UART setting in
+  NV (0xC7F4, called at 0xDBAA) and to stop its 1 s query. Open Dimmer does not answer 0x01
+  (`src/tuya.c:162-237` has no case for it; INSTALL.md lines 19-21).
+- There is no MCU update path. The stock ZTU never asks 0xA3, never offers and drops every
+  0xA1. The app installed over SWD is final until the ZTU is converted, and no v2 escape
+  (probe, counter, button) can install anything.
+- Without a UART lock record in its NV, the stock ZTU cycles its MCU UART setting (9600 /
+  115200 × 2 configurations, a step every 1 s, 0xBB10-0xBCC2), so DP traffic works at best a
+  quarter of the time. The dump holds the record (0xEA20A: `aa 00 01 c2 00 01 aa`, 115200,
+  configuration 1) and the full name (0xEC641: "_TZE284_jtbgusdc"). Whether a reset unit keeps
+  them is unverified: no stock-ZTU unit is available.
+
+**Guaranteed:**
+- The stock ZTU is not disturbed (the dump evidence above).
+- The light works locally (wall switch, module button) once the app runs.
+- The bootloader writes nothing, because no image ever arrives.
+- The costs are bounded and listed. Each one is pinned by a `make test-boot` scenario of the
+  "Stock ZTU" group (section 11):
+  - 3.1 s dark after every power-up or brown-out (the probe's full window; v1 jumps at once,
+    `boot/boot.c:343`). Wall-switch presses in that time are lost;
+  - a button rescue always ends after 30 s (app at ~30.6 s);
+  - no counter windows, thanks to the stock-ZTU confirmation (section 7). Without it, every
+    warm reset from the third after a power-up until the next power cut would give 30 s dark
+    and then the power-on behaviour: with "off" a lamp that was on stays off, with "on" it
+    switches on by itself, at night too;
+  - the health DPs show in Zigbee2MQTT as unknown DPs.
+
+**Recovery:** convert the ZTU over the air first (INSTALL section 0, `tuya_with_ota.js`),
+without re-pairing or resetting the module. Then everything in this design applies. The
+conversion needs the stock ZTU joined and identified as `_TZE284_jtbgusdc`. The stock ZTU sets
+its default name "TS0601" / "_TZE284_" at 0xB6BC and appends the PID only in its 0x01 handler.
+A reset or re-pair, including the app's 3 s module-button hold, may therefore leave it as
+"_TZE284_" only, if it loses its NV name record. Zigbee2MQTT then cannot match it, no
+conversion OTA is offered, and only a wired ZTU flash remains. The stock MCU firmware is gone
+for good (RDP).
+
+**Considered and not adopted:**
+- An early probe exit on the stock ZTU's 0x01 frame in the frozen bootloader (~10-16 bytes,
+  light after ~1 s instead of 3.1 s). It would freeze the assumption "no own ZTU sends 0x01
+  within the probe window" into every future own ZTU: the same kind of unwritten contract that
+  R1-2 removed. Row 7 is not supported, so the 3.1 s is accepted.
+- Answering 0x01 in R's app with stock-format product info (the keys "p", "v", "g" that its
+  parser looks for, literals at 0x488F4-0x488FC, frame len ≤ 246). The stock ZTU would then
+  lock 115200, keep its name and stop its query, which makes row 7 partly usable. It is not
+  needed for safety, so it is left as a product decision. If adopted, it must be in R's app (a
+  unit under a stock ZTU never gets another one), and the stock-ZTU confirmation must count the
+  queries before the first answer. A `test_tuya.c` case then checks the JSON and len ≤ 246.
+
+### Tests that pin the rules (built in the implementation)
+
+Fork tests use a new `StockMcu` model in `tests/tuya_mcu.py`. It answers 0x0B with 0x47 and
+0x28 with a dump, echoes writes, ignores everything else, drops frames before `ready_ms`, and
+checks every frame it receives from a ZTU that has not identified it.
+
+| Rule | Test | Pass |
+|---|---|---|
+| 1, 2; contract item 4 | `tests/test_mcu_ota.py`: the class (b) and (c) cases of section 10, change 9; `test_own_mcu_restarting_alone_is_noticed` kept | (b) bounded as stated there, no 0xA0; (c) 0 frames with cmd 0xA0..0xA3; an identified MCU is re-asked at every restart |
+| 3 | `tests/test_stock_mcu_compat.py` (new): a 0x47 `StockMcu` through cold boot, a ZTU-only restart with the MCU running, a late-ready MCU, Zigbee on / off / level / scene commands, the module-button 0x03, spurious seq-0 0x20 / OK 0xA2 / 0xA1 offset 0 / 0xC0 frames, and 10 simulated minutes idle | The TX trace (cmd, data, order, time ±50 ms) equals a golden file recorded from 51f5c95a. Cmds ⊆ {0x0B, 0x28, 0x04, the 0x20 / 0x24 / 0x25 replies}, 0xA1 replies only right after an 0xA1 request, zero 0xA0 / 0xA3. The only allowed difference is the dump retry in the late-ready scenario. The scratch run of 51f5c95a gives the baseline: 0x0B / 0x28 at 2000 / 2050 ms, a 0x20 reply + 0x0B + 0x28 again after the first seq-0 query, 38 / 86-byte 0xA1 replies only on request |
+| 4; contract item 6 | `StockMcu` frame checks under the gate, plus a fuzz of every Zigbee-side input (ZCL commands, diag control 2, config and dp_config writes, OTA notify) | Every frame ≤ 29 bytes; frames < 2 ms apart add up to ≤ 23 bytes; 0xA1 replies only after a request |
+| 5; contract item 3 | `ready_ms` sweep 0..3000 against every build, an early-UART build included | The first frame the ZTU starts itself (not an 0xA1 answer) goes out ≥ 2000 ms after the end of app init. DPs 3 / 5 known and ballast min = `tuya_to_zcl(201)` for every `ready_ms` ≤ 3000 (≤ 2000 without the retry). A 0x06 report and a 0x03 injected before init are dispatched only after `hal_zigbee_init` (stub hook), and nothing reaches `hal_factory_reset` or the steering call before it |
+| 6 | Stub variant without `SECONDARY_MCU_IMAGE` (the config of a TPZ2 touch switch, as in `test_mcu_link_robustness.py:122`) with an MCU that answers 0x0B with 0x80 and sends a seq-0 0x20 every 30 s; a CI `nm` check | Zero 0xA3; first contacts only as in phase 1 (the timer, and once more at the MCU's first query), none at later seq-0 queries; `tuya_mcu_ota_may_be_own` is the stub in every board build whose `device_db` entry has no `secondary_mcu_image` |
+| 7 | The converter tests (`test_converter_own_mcu.py`) on the stock fingerprint; optionally unknown DPs 130..137 on it | Exposes and `mcu_firmware` "Tuya (stock)" unchanged; unknown DPs ignored without an exception |
+| 8, app | `tests/test_tuya.c` (section 11) | Confirmed with two 0x01 and no 0xA3; not with one 0x01 or none |
+| 8, bootloader | `make test-boot`, group "Stock ZTU" (section 11), with and without the 9600-baud garbage phases | As stated there |
+| Stock ZTU facts | `tests/test_stock_ztu_dump.py` (section 11) | The parser and table facts above match the file |
+| All, on the modules | Section 14, step 3: diag decode per stock module before and after its ZTU OTA | No 0xA0..0xA3 entries; the dump DPs present; entities unchanged |
+
+---
+
+## 16. Review resolution
 
 Three reviewers attacked the first version of this design (commit f1a5ddd): recovery and
 bricking (R1), protocol and compatibility (R2), size, timing and implementability (R3). No
@@ -1108,9 +1510,9 @@ several reviewers made are resolved once and cross-referenced.
 | R1-12 | minor | An app with a dead UART that never resets is never rescued automatically | Not adopted in frozen code (none needed). An app-side link watchdog would disturb a working light whenever the ZTU is the broken side; left for a later OTA decision. Sections 7, 13 #19. |
 | R2-1 | major | Build-0 rules contradict each other; rollout step 2 left the phase-3 ZTU nothing to carry | One rule (R1-6); rollout reordered: release R first, the phase-3 ZTU carries R's app, the spare takes it under v1; matrix row "2.1.x / v1 / phase 3" added. Sections 2, 10, 14. |
 | R2-2 | major | Frozen requests say nothing about the bootloader or its mode, so no future ZTU can tell a crash loop from an update | Adopted: 16-byte request (bootloader version, mode, installed header bytes 8..15) and a 4-byte result with the build (+24 B); a 6-byte request means v1. Header-first also cut a rescue window's offset-0 requests from 61 to 0. Section 8. |
-| R2-3 | major | ZTU timing and 0xA3 behaviour are not written down; "the UART cannot start earlier" is wrong | Contract and tests as R1-2; identity asked without a carried image (phase 3); boot timing diagnostic; the claim corrected (the pins are parsed at `config_parser.c:359`, but an earlier start only buffers without a poll during init; kept as a ZTU-side option). Sections 5, 7, 10. |
+| R2-3 | major | ZTU timing and 0xA3 behaviour are not written down; "the UART cannot start earlier" is wrong | Contract and tests as R1-2; identity asked without a carried image (phase 3; withdrawn by FA-4: every ZDMS16 build carries one); boot timing diagnostic; the claim corrected (the pins are parsed at `config_parser.c:359`, but an earlier start only buffers without a poll during init; kept as a ZTU-side option). Sections 5, 7, 10. |
 | R2-4 | minor | `image_info` checks less than `app_valid()`; a bad-SP image replaced a working app | Adopted twice: the phase-3 `image_info` mirrors `app_valid()` plus layout and build rules, and the bootloader checks page 0 before the first write (+60 B). Sections 8, 10; scenario `badsp`. |
-| R2-5 | minor | Saturating `tries` (as R1-5); a ZTU without a carried image never asks 0xA3; SWD benches fall into windows | As R1-5; phase-3 ZTU asks regardless (R3-9); bench builds are never counted; tools clear the boot word before their resets. Sections 3, 7, 11. |
+| R2-5 | minor | Saturating `tries` (as R1-5); a ZTU without a carried image never asks 0xA3; SWD benches fall into windows | As R1-5; every ZDMS16 ZTU carries an image, so it always asks (R3-9 as corrected by FA-4); bench builds are never counted; tools clear the boot word before their resets. Sections 3, 7, 11. |
 | R2-6 | minor | A button rescue to 2.1.11 or older with the button still held can factory-reset the module | Adopted: the window opens only after the release, so no app sees the press. Section 4. |
 | R2-7 | minor | The 11-byte offer rule drops today's guards; a SIM app takes byte offers | Adopted: `256 <= build <= 0xFFFD`; SIM builds decline every offer; phase-3 `image_info` refuses 0xFFFE. Sections 2, 9, 10. |
 | R2-8 | minor | Spare test builds are not recorded, so a release can be numbered below one | As R1-11 (ranges of 100). |
@@ -1125,10 +1527,35 @@ several reviewers made are resolved once and cross-referenced.
 | R3-6 | minor | Build 0 rules | As R2-1. |
 | R3-7 | minor | pyOCD's reset is a software reset, so an old boot word survives a re-flash; bench sessions fall into windows | Adopted: `make flash`, `install.sh`, `ota_swd_emu.py` clear the boot word pair; bench builds never counted. Sections 3, 11. |
 | R3-8 | minor | The button is read late (after `app_valid()`), and a late press held 3 s factory-resets the module | Adopted: read before `app_valid()`, ~1 ms after reset; the app ignores a ≥ 3 s hold that began in the first 10 s after a cold start; INSTALL wording "press before switching on". Sections 4, 9. |
-| R3-9 | minor | The ZTU asks 0xA3 only when it carries an image | Adopted in the phase-3 ZTU and in the contract. Section 10. |
+| R3-9 | minor | The ZTU asks 0xA3 only when it carries an image | First adopted, then withdrawn on re-check (FA-4): the condition always holds in ZDMS16 builds (`embed_ztu.py` has no empty mode), and dropping the `#ifdef` would ask factory MCUs of other boards. The scope is written down instead. Section 10, change 2. |
 | R3-10 | minor | The flash busy wait (~0.67 s) outlasts the cold-boot watchdog | Adopted: bounded at ~50 ms in the shared driver; a BSY-never-clears test. Section 8. |
 | R3-11 | minor | `-Werror` fails on the jump cast; the harness links zlib; wrong `flash_drv.c` line references | Fixed: cast through `uintptr_t`; the harness has its own CRC; references corrected (`flash_drv.c:46, 54-58, 83-86, 90-94`). Sections 4, 8, 11. |
 
 Measured corrections that came with the review: `app_valid()` takes ~43-54 ms, not ~25 ms; the
 DP 136 CRC takes ~15 ms, not ~7 ms; an asked update takes ~2.5 s in the byte-timed model, not
 0.9 s.
+
+### Factory firmware compatibility reviews (design at 316a157)
+
+Two reviewers checked the revised design against the factory firmware, after the user's
+requirement of 2026-11-18 (section 15). Direction A (FA) put the stock PY32 1.0.7 behind the
+phase-3 ZTU. Verdict: compatible as designed for the modules of today, but not yet guaranteed by
+the design. Direction B (FB) put Open Dimmer behind a stock Tuya ZTU. Verdict: no harm to the
+stock ZTU, but no support statement, and a real counter cost. No blocker was found. Every major
+and minor finding is listed with its resolution.
+
+| ID | Sev. | Finding | Resolution |
+|---|---|---|---|
+| FA-1 | major | Contract item 4 had no cap for MCUs not yet identified, and a literal contract test would push the `UNIDENTIFIED_RESTARTS_MAX` limit out. *Measured* (0x80 MCU, a seq-0 0x20 every 30 s, 10 min): with the limit 4 dumps and 17 0xA3, then nothing; with 255, 21 dumps and 83 0xA3, without end | Adopted: item 4 in three classes (identified; major ≥ 2 unidentified, ≤ 3 treated restarts per ZTU run plus 4 + 2 questions; major < 2 or no 0x0B answer: never asked). The major comes only from a 0x0B answer in this run. The constant moves to `tuya_mcu_ota.h`. Two tests. Sections 7, 10, 15. |
+| FA-2 | major | The earlier-UART option had no stock rules. Moving `tuya_mcu_app_init()` moves the one-shot dump, which is lost when the stock MCU listens later than ~2150 ms after app init (ballast min 1 instead of 51, empty entities, low levels below the minimum). A poll during init would dispatch stock frames, the 0x03 reset included, on an uninitialised stack | Adopted: change 6 (a) the timer starts at the end of the full init, ≥ 2000 ms; (b) answer-only (0xA1) before it, other frames dispatched after init; plus a dump retry in phase 3 whether or not the UART moves. (a) and (b) are contract item 3's condition. `ready_ms` sweep and pre-init dispatch tests. Sections 10, 15. |
+| FA-3 | major | "Nothing changes for stock MCUs" was not pinned by any phase-3 test; the new item 4 triggers were tested only with own MCUs; rollout step 3 did not read the diag log | Adopted: change 7 states UART-identity to phase 1, with the dump retry as the one listed difference. Stock-compatibility gate `tests/test_stock_mcu_compat.py` against a golden trace of 51f5c95a. Rollout step 3 reads the diag log (FA-6). Sections 10, 14, 15. |
+| FA-4 | minor | Dropping `secondary_mcu_image_size != 0` changes nothing in any existing build. Making "identity without an image" true would ask factory MCUs of other boards and rerun their IT inits | Adopted: change 2 withdrawn. The question stays limited to boards with Open Dimmer support (`SECONDARY_MCU_IMAGE`, or a future `own_mcu` flag), and a ZDMS16 build without an image is forbidden. Stub-variant test and CI `nm` check. Sections 7, 10, 13 #18, 15; R2-3, R2-5 and R3-9 corrected. |
+| FA-5 | minor | The stock parser's frame-size limits (23-byte ring, 31-byte buffer, a 32..38-byte frame wedges RX) were not in the contract | Adopted: contract item 6 (≤ 29 bytes per frame, ≤ 23 per burst, one in flight; over 29 only as a direct 0xA1 reply). Limits recorded in section 15, and in stock-firmware-analysis.md with the implementation. Model checks and a fuzz. |
+| FA-6 | minor | Rollout step 3's user-level check cannot see UART-level changes or a lost dump | Adopted: per-module diag decode before and after the ZTU OTA, a ZTU restart with the light on, `mcu_version` 1.0.7 checked first, a checklist row per module. Section 14. |
+| FB-1 | major | Under a stock ZTU nothing confirms: from the 3rd warm reset after a power-up every warm reset gives 30 s dark and then the power-on behaviour, and no window can install anything. The SWD-installed app is final there, so "everything but the bootloader ships over the air" did not hold | Adopted in R's app, not in frozen code: confirm after 30 s also when no 0xA3 came and ≥ 2 0x01 queries did. Contract item 7 (an own ZTU never sends 0x01). Decisions row 9-11 and section 9 corrected; the stock ZTU named in sections 3, 6, 7 and 13 #18. Tests in `test_tuya.c` and `stockztu-counter` (0 windows; the old rule 8). |
+| FB-2 | major | The design had no support statement for Open Dimmer under a stock ZTU | Adopted: matrix row in section 2, and section 15's subsection with not supported / guaranteed / recovery. INSTALL and STATUS wording comes with the implementation (section 14, step 1). |
+| FB-3 | minor | What a stock ZTU does with unknown commands was not answered | Adopted: the dump facts with addresses and the safe assumption for other stock releases are in section 15, and go into stock-firmware-analysis.md with the implementation. `tests/test_stock_ztu_dump.py` pins them. |
+| FB-4 | minor | A stock ZTU always costs the full 3.1 s, which four places contradicted, and "probe time 0 = contract miss" is wrong there | Adopted: sections 4, 5, 13 #21 and 14 name the stock ZTU; the miss rule is limited to own ZTUs of phase 3 or later. An early probe exit on 0x01 in frozen code was considered and not adopted: it would freeze a timing assumption on every own ZTU. Scenario `stockztu-cold`. |
+| FB-5 | minor | The harness had no ZTU that never answers 0xA1 while sending its own frames (and 9600-baud garbage when it cycles its UART) | Adopted: stock mode in the ZTU model and the "Stock ZTU" group in `make test-boot`. Section 11. |
+| FB-6 | minor | The only way out is the conversion OTA, which needs the stock ZTU's full name; a reset or re-pair may lose it | Adopted as doc rules: do not re-pair or reset, convert the ZTU first; ZTU first stays a hard rule in INSTALL. Answering 0x01 in R's app is listed as a product decision, not adopted (not needed for safety). Section 15. |
+| FB-7 | minor | DPs 130..137 reach Zigbee2MQTT as unknown DPs under a stock ZTU | Adopted: noted in section 9, item 6, and section 15. |
