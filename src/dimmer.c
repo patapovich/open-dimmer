@@ -195,7 +195,7 @@ void dimmer_init(uint32_t reset_csr) {
                             (g_power_on[i] == POWER_ON_LAST && (s.on_mask & (1u << i)));
         }
     }
-    snapshot(&g_saved);               /* what flash holds (a restore below is not in it) */
+    snapshot(&g_saved);               /* what flash holds */
 
     /* Back from a reset that kept the RAM and was not a power-up or brown-out:
      * a firmware update (or the bootloader giving up on one), the watchdog or a
@@ -213,6 +213,10 @@ void dimmer_init(uint32_t reset_csr) {
             g_ch[i].level = in_range(&g_ch[i], (r >> (2 + 10 * i)) & 0x3FFu);
         }
         mb->restored = OTA_RESTORED_MAGIC;
+        /* Saved if flash holds another state: with power-on 'last', an off
+         * whose save was not due yet when the reset came stays off after a
+         * later power cut too (dimmer_poll writes nothing if they agree). */
+        mark_dirty();
     }
     for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
         apply(i);                     /* also puts the state in the mailbox */

@@ -1,7 +1,8 @@
 /* dimmer.c on the PC (tests/host_stubs.c stands in for phase.c, store.c and
  * the Tuya report builder). Each test runs in its own process, so it starts
  * from a zeroed .bss like the MCU after a reset; dimmer_init() again in a
- * test is a reset that keeps the RAM (mailbox and dimmer.c's statics). */
+ * test is a reset that keeps the RAM (mailbox and dimmer.c's statics), and
+ * across_real_reset() one that zeroes .bss as the MCU does. */
 #include "host_stubs.h"
 #include "dimmer.h"
 #include "tuya.h"
@@ -144,7 +145,8 @@ static void test_update_restart_restores(void) {
     host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 610);
     unsigned saves = g_host_saves;
     dimmer_prepare_restart();
-    CHECK(g_host_saves == saves + 1);              /* the pending level is saved first */
+    CHECK(g_host_saves == saves + 1);              /* the pending level is saved first, */
+    CHECK(g_host_save_attempts == 2);              /* on a second page if the first fails */
     boot(CSR_SOFTWARE);                            /* back from the bootloader */
     CHECK(c1()->on == 1 && c1()->level == 610);
 
@@ -183,6 +185,86 @@ static void test_reset_flags(void) {
         boot(k[i].csr);
         CHECK(c1()->on == k[i].restores);
     }
+}
+
+/* A reset as on the MCU: .bss zeroed (dimmer.c's statics, a pending save is
+ * gone), only the flash and the mailbox kept. A process forked before
+ * `before` ran gets them once it has run, and boots with csr into `after`. */
+static void across_real_reset(void (*before)(void), uint32_t csr, void (*after)(void)) {
+    int fd[2];
+    CHECK(pipe(fd) == 0);
+    fflush(stdout);
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(fd[1]);
+        int ok = read(fd[0], g_host_flash, sizeof(g_host_flash)) == (ssize_t)sizeof(g_host_flash) &&
+                 read(fd[0], &g_host_flash_valid, 1) == 1 &&
+                 read(fd[0], (void *)&g_host_mailbox, sizeof(g_host_mailbox)) ==
+                     (ssize_t)sizeof(g_host_mailbox);
+        CHECK(ok);
+        boot(csr);
+        after();
+        fflush(stdout);
+        _exit(g_fail ? 1 : 0);
+    }
+    close(fd[0]);
+    before();
+    int ok = write(fd[1], g_host_flash, sizeof(g_host_flash)) == (ssize_t)sizeof(g_host_flash) &&
+             write(fd[1], &g_host_flash_valid, 1) == 1 &&
+             write(fd[1], (const void *)&g_host_mailbox, sizeof(g_host_mailbox)) ==
+                 (ssize_t)sizeof(g_host_mailbox);
+    CHECK(ok);
+    close(fd[1]);
+    int status = 0;
+    if (pid < 0 || waitpid(pid, &status, 0) != pid || !WIFEXITED(status) || WEXITSTATUS(status)) {
+        g_fail = 1;
+    }
+}
+
+/* A restore is saved where flash differs (power-on 'last': an off that came
+ * within the save delay before the reset), and costs no write where it agrees. */
+static void off_not_saved_yet(void) {
+    power_up(1);
+    host_write(POWER_ON_1, TUYA_DP_TYPE_ENUM, 2);  /* last state */
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    run_ms(3000);
+    host_saved_t s;
+    memcpy(&s, g_host_flash, sizeof(s));
+    CHECK(s.on_mask == 1);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);      /* off; its save is not due yet */
+    run_ms(1000);
+}
+
+static void restored_off_is_saved(void) {
+    CHECK(c1()->on == 0);                          /* restored: off */
+    run_ms(3000);
+    host_saved_t s;
+    memcpy(&s, g_host_flash, sizeof(s));
+    CHECK(s.on_mask == 0);
+    CHECK(g_host_saves == 1 && g_host_save_attempts == 1);   /* a main-loop save: one page */
+    power_up(0);                                   /* a power cut: still off */
+    CHECK(c1()->on == 0);
+}
+
+static void lit_power_on_off(void) {
+    power_up(1);                                   /* power-on 'off': nothing to save */
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    run_ms(3000);
+}
+
+static void restored_lit_no_write(void) {
+    CHECK(c1()->on == 1);
+    run_ms(3000);
+    CHECK(g_host_saves == 0);
+}
+
+/* Each in its own test: across_real_reset needs a process nothing ran in yet. */
+static void test_restore_is_saved(void) {
+    across_real_reset(off_not_saved_yet, CSR_WATCHDOG, restored_off_is_saved);
+}
+
+static void test_restore_agreeing_with_flash_is_not_saved(void) {
+    across_real_reset(lit_power_on_off, CSR_WATCHDOG, restored_lit_no_write);
 }
 
 static void test_restore_needs_valid_words(void) {
@@ -414,6 +496,8 @@ int main(void) {
     RUN(test_restore_once_in_a_row);
     RUN(test_update_restart_restores);
     RUN(test_reset_flags);
+    RUN(test_restore_is_saved);
+    RUN(test_restore_agreeing_with_flash_is_not_saved);
     RUN(test_restore_needs_valid_words);
     RUN(test_restore_keeps_min_max);
     RUN(test_dp_on_during_hold_from_dark);

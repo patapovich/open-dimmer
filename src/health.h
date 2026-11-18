@@ -5,7 +5,7 @@
  * DPs (no converter entity):
  *   130 uptime in minutes
  *   131 reset cause (RCC_CSR flags at start >> 24: bit 7 LPWR, 6 WWDG, 5 IWDG,
- *       4 software (update), 3 power/BOR, 2 pin, 1 option bytes)
+ *       4 software (update, fault), 3 power/BOR, 2 pin, 1 option bytes)
  *   132 zero-cross lock losses   133 edges ignored as noise
  *   134 settings saves           135 UART receive losses (overruns, ring full)
  * All since start; none wraps in a trial (uptime counts minutes, not the
