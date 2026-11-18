@@ -19,11 +19,37 @@
 #define DIM_STEP_DEFAULT       5      /* per 10 ms: 0 -> 1000 in 2 s */
 
 /* Accepted half period: 40..70 Hz mains. Edges closer than the minimum are
- * noise or bounce and are ignored. */
+ * noise or bounce and are ignored, locked or not. */
 #define ZC_HALF_MIN_TICKS      357    /* 70 Hz */
 #define ZC_HALF_MAX_TICKS      625    /* 40 Hz */
 #define ZC_LOCK_EDGES          4      /* good half cycles in a row before output */
-#define ZC_WINDOW_DIV          12     /* once locked, edges only within +-1/12 (8 %) */
+/* Acceptance window. A detector need not be symmetric (on the spare PA4 is
+ * high 10.08 ms, low 10.02 ms), so the two kinds of half cycle (PA4 high, PA4
+ * low) are timed separately. From the third edge on, a half cycle must be
+ * within +-1/24 (4 %, 0.4 ms at 50 Hz) of the learned length of its kind; from
+ * the second edge on, also within +-1/12 of the last half cycle, so the two
+ * kinds differ by 8 % at most. Every edge that turns the gates on has passed
+ * the 1/24 window. The window is measured from the last edge taken, against
+ * the learned lengths, so a turn-on can be further from the real zero cross:
+ *  - noise less than ZC_BOUNCE_TICKS before the real edge cannot be told from
+ *    it and may shift the timing by that much: window + 0.1 ms (0.5 ms,
+ *    ~50 V). Noise further inside the window is given away by the real edge
+ *    right after it and moves nothing (ZC_SUSPECT_TICKS);
+ *  - an ISR held back by d (up to the window) moves the two kinds apart by
+ *    d/4 each, fading by 3/4 per period: window + d/4;
+ *  - noise inside the window in consecutive half cycles moves the edge taken
+ *    by up to a window each time. */
+#define ZC_WINDOW_DIV          24
+/* An edge up to this soon after the one taken is its bounce: 0.1 ms. A bounce
+ * is timed when the zero-cross ISR has finished (a few us while acquiring, up
+ * to ~93 us while locked; one read later than this only skips a learning). */
+#define ZC_BOUNCE_TICKS        5
+/* ... after that and up to this (the widest window, 1/12 of a 40 Hz half
+ * cycle: 1.04 ms) the one taken may be noise just before the real edge.
+ * Acquiring, the count starts again from the later edge; locked, neither half
+ * cycle next to the edge taken is learned. A detector that chatters this long
+ * after every edge never locks (dark). */
+#define ZC_SUSPECT_TICKS       (ZC_HALF_MAX_TICKS / 12)
 
 /* Default profile (per channel, see dim_profile_t; the user can set them). */
 #define DIM_FADE_ON_MS         950    /* dark -> full when switched on: quick         */
@@ -123,14 +149,19 @@ uint16_t dim_reload(uint16_t half_period);
 
 typedef struct {
     uint16_t last;        /* timestamp of the last accepted edge */
-    uint16_t half_period; /* smoothed, 0 = unknown */
+    uint16_t half_period; /* expected length of the half cycle that started at last, 0 = unknown */
     uint8_t  good;        /* consecutive good half cycles, saturates */
     uint8_t  started;
+    uint8_t  kind;        /* which hp[] the half cycle that started at last is */
+    uint8_t  extra;       /* locked, an edge came 6..52 ticks after last: last may be noise */
+    uint16_t hp[2];       /* the two kinds of half cycle, each smoothed */
+    uint16_t undo;        /* hp[] of the half cycle that ended at last before it was learned, 0 = not learned */
 } zc_tracker_t;
 
 void zc_tracker_init(zc_tracker_t *z);
 /** Feed an edge timestamp. Returns 1 if the edge is a zero cross to act on
- * (output allowed only once zc_locked()), 0 if it was ignored as noise. */
+ * (output allowed only once zc_locked()), 0 if it was ignored as noise.
+ * Accepted half cycles are always ZC_HALF_MIN_TICKS..ZC_HALF_MAX_TICKS long. */
 uint8_t zc_tracker_edge(zc_tracker_t *z, uint16_t now);
 /** Locked onto mains: enough regular half cycles in a row. */
 uint8_t zc_locked(const zc_tracker_t *z);

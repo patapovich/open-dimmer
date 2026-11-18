@@ -51,7 +51,7 @@ void uart_init(uint32_t baud) {
     LL_USART_ClearFlag_TC(USART1);
 
     LL_USART_EnableIT_RXNE(USART1);
-    NVIC_SetPriority(USART1_IRQn, 1);
+    NVIC_SetPriority(USART1_IRQn, IRQ_PRIO_UART);
     NVIC_EnableIRQ(USART1_IRQn);
 }
 

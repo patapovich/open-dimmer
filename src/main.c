@@ -48,7 +48,7 @@ static void clock_init(void) {
     LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_1);
     LL_SetSystemCoreClock(24000000);
     LL_Init1msTick(24000000);
-    NVIC_SetPriority(SysTick_IRQn, 2);   /* zero cross 0, UART 1 */
+    NVIC_SetPriority(SysTick_IRQn, IRQ_PRIO_TICK);   /* below the UART and the zero cross (board.h) */
     /* The tick interrupt (input sampling) starts after controls_init. */
 }
 
