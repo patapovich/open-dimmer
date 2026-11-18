@@ -1,6 +1,6 @@
-const path = process.argv[2];
+const converter = require("path").resolve(process.argv[2]);   // a relative path works too
 const zhc = require("zigbee-herdsman-converters");
-const defs = require(path);
+const defs = require(converter);
 const list = Array.isArray(defs) ? defs : (defs.default || defs.definitions || [defs]);
 const def = list.find((d) => d.model === "ZDMS16-2");
 const prepared = zhc.prepareDefinition ? zhc.prepareDefinition(def) : def;

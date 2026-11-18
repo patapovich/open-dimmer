@@ -14,7 +14,7 @@ Settings come from the environment (all optional):
   pass "1.0.7" for a stock MCU). Run with `NODE_PATH=<zhc>/node_modules node expose_dump.js ...`
   against an unpacked zigbee-herdsman-converters 26.125.0 with its dependencies. Diff the sorted
   output of the deployed and the new converter before every converter deployment
-  (docs/STATUS.md checklist).
+  (docs/STATUS.md checklist). The converter path may be relative.
 - `ha_ws.py [--json] '<json command>' ...`: minimal Home Assistant websocket client (stdlib only,
   reads `$HA_ENV`), e.g. `{"type":"config/entity_registry/update","entity_id":"light.a","new_entity_id":"light.b"}`
   or `{"type":"switch_manager/config/save","config":{...}}`. `--json` prints each full result as
