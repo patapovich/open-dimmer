@@ -56,25 +56,33 @@ Min and max are physical conduction limits for every curve (same meaning as the 
 
 ## Build and deploy (CI / CD)
 
-- **CI** (`.github/workflows/ci.yml`, every push / PR): host tests; normal, DIAG, MEASURE and
-  SIM builds with the pinned SDK; curve tables vs generator; ZTU embedding refuses bench and
-  measurement builds; size report; artifacts.
-- **Release:** bump `FW_VERSION` in `src/tuya.h`, commit, `tools/release/release.sh`: checks,
-  tags `vX.Y.Z` (must match the image), CI publishes the release (image, full image,
-  bootloader, `secondary_mcu_image.c`, `SHA256SUMS`).
+- **CI** (`.github/workflows/ci.yml`, every push / PR, read-only token): host tests (C logic and
+  the image tools); normal, DIAG, MEASURE and SIM builds with the pinned SDK; curve tables vs
+  generator; ZTU embedding refuses bench and measurement builds; size report; artifacts.
+- **Release:** bump `FW_VERSION` in `src/tuya.h` (never 0xBF, reserved for SIM, or 0xFF; a
+  warning comes when fewer than 16 codes are left), commit on `main`,
+  `tools/release/release.sh`: checks (main, clean, contains origin/main, tests, all four
+  builds), tags `vX.Y.Z` (must match the image); the tag's CI run publishes the release only
+  after the tests and builds passed (image, full image, bootloader, `secondary_mcu_image.c`,
+  `SHA256SUMS`: plain file names, `sha256sum -c --ignore-missing SHA256SUMS` checks a
+  download). Running `release.sh` again resumes (re-runs a failed tag run; a release counts
+  only with a green run).
 - **Carry (cloud):** workflow `py32-bump.yml` on the default branch (`main`) of
   `patapovich/tuya-zigbee-switch` (fork only) runs hourly, by hand
   (`gh workflow run py32-bump.yml --repo patapovich/tuya-zigbee-switch [-f py32_tag=vX.Y.Z]
   [-f force=true]`) or on a `repository_dispatch` `py32-release`: takes the release's
-  `secondary_mcu_image.c` (checksum), refuses an older version than home-dimmer carries
-  (unless force), runs lint + tests, commits to `home-dimmer`, rebuilds `home-dimmer_build`
+  `secondary_mcu_image.c` (checksum), refuses an older version than home-dimmer carries or a
+  different image of the same version (unless force; the hourly run only notes it), runs
+  lint + tests, commits to `home-dimmer`, rebuilds `home-dimmer_build`
   (= home-dimmer + branch `fork-ci`) and starts `build.yml`, whose "Update firmware files"
   commit has the OTA image. `release.sh` starts it right after the release and waits for both;
   `LOCAL_BUMP=1` does the carrying in `~/projects/tzs-diag` instead.
 - **Instant hand-over (optional):** a secret `ZTU_DISPATCH_TOKEN` in zdms16-py32 (fine-grained
-  PAT for `patapovich/tuya-zigbee-switch` with Contents: read and write) makes the release job
-  send the `py32-release` dispatch itself (then `NO_TRIGGER=1 tools/release/release.sh` only
-  waits). Without it the hourly run picks the release up.
+  PAT for `patapovich/tuya-zigbee-switch` with Actions: read and write only, no Contents
+  write) makes the release's hand-over job start py32-bump itself (then
+  `NO_TRIGGER=1 tools/release/release.sh` only waits). Without it the hourly check picks the
+  release up (best effort: GitHub may delay scheduled runs and disables them after 60 days
+  without activity; `release.sh` enables it again).
 - **Deploy (local, home network):** `tools/ha/deploy_ota.sh <ieee> [...]`: newest OTA image
   from `home-dimmer_build`, shows the PY32 version it carries, asks, then fast OTA one module at
   a time with the guard. The ZTU updates the MCU only if it is our firmware and older. Then
@@ -119,8 +127,9 @@ of all five modules for 7 minutes. Before deploying any converter change:
 5. Optional: zero-cross delay measurement (`docs/ZC-DELAY-MEASUREMENT.md`).
 6. Parked: per-channel gesture action modes / detached switch type; module button gestures.
 7. Later (user): the release starts the fork's py32-bump at once: a fine-grained PAT for
-   `patapovich/tuya-zigbee-switch` (Contents: read and write) as secret `ZTU_DISPATCH_TOKEN` in
-   this repo (the user creates and enters it). Until then the hourly run or release.sh does it.
+   `patapovich/tuya-zigbee-switch` (Actions: read and write only) as secret
+   `ZTU_DISPATCH_TOKEN` in this repo (the user creates and enters it). Until then the hourly
+   run or release.sh does it.
 
 ## Safety rules
 
