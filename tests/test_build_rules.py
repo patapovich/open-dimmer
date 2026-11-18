@@ -42,6 +42,19 @@ def compile_tuya_h(defs, build=None):
     return p.returncode == 0, p.stderr
 
 
+def plain_defs(args):
+    """The defines the Makefile gives for make knobs, written out by hand (for the header's own
+    refusals, which must hold even where the Makefile refuses first)."""
+    out = []
+    for a in args:
+        k, v = a.split("=", 1)
+        out += {"SIM": ["-DSIM_ZC=" + v],
+                "MEASURE": ["-DMEASURE=" + v] + (["-DFW_VERSION=0x8F"] if v == "1" else []),
+                "DIAG": ["-DDIAG_REPORT=" + v] + (["-DFW_VERSION=0x8E"] if v == "1" else []),
+                }.get(k, ["-D%s=%s" % (k, v)])
+    return out
+
+
 class BuildRules(unittest.TestCase):
     def builds(self, args, build, build_dir):
         rc, bdir, defs, err = make_defs(*args)
@@ -56,10 +69,18 @@ class BuildRules(unittest.TestCase):
         self.assertIn(why, err)
 
     def refused(self, args, why):
+        """Refused with the same words twice: by the Makefile before anything is built (or,
+        for a rule it leaves to the header, by src/tuya.h with make's defines), and by
+        src/tuya.h on its own with the plain defines of the knobs."""
         rc, _, defs, err = make_defs(*args)
-        self.assertEqual(rc, 0, "make %s: %s" % (" ".join(args), err))
-        ok, out = compile_tuya_h(defs)
-        self.assertFalse(ok, "make %s compiled" % " ".join(args))
+        if rc:
+            self.assertIn(why, err)
+        else:
+            ok, out = compile_tuya_h(defs)
+            self.assertFalse(ok, "make %s compiled" % " ".join(args))
+            self.assertIn(why, out)
+        ok, out = compile_tuya_h(plain_defs(args))
+        self.assertFalse(ok, "src/tuya.h compiled %s" % " ".join(args))
         self.assertIn(why, out)
 
     def test_release_literal(self):

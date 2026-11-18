@@ -203,16 +203,33 @@ On a module that already runs Open Dimmer it skips steps 2–3 and just re-flash
 clock: the script's default of 4 MHz has never been tested, every tested step ran at 400 kHz,
 so give `FREQ=400000` as above.
 
+The bootloader written here stays on the module for good (docs/BOOTLOADER.md). Before it
+attaches, the script shows the image's bootloader version and its boot sector CRC (the value the
+module later reports as DP 136; note it per module) and refuses:
+- a full image whose bootloader has no identity (`boot_id`, the v1 bootloader of 2.1.x):
+  `OLD_BOOT=1` takes it anyway, for bench work only;
+- an image over 12 KB: pyOCD erases whole 4 KB sectors, so writing it **erases the settings**
+  in sector 4 (switch type, curves, levels). `ERASE_SETTINGS=1` accepts that.
+
+`IMAGE=release` (the newest release) or `IMAGE=release:vX.Y.Z` downloads the full image with the
+release's `boot.bin`, app image and `SHA256SUMS`, checks all three against the list and checks
+that the full image is exactly that bootloader and app. `WRP=1` write-protects the bootloader's
+sector after the write (off by default; try it on a spare first); a later install clears the
+protection by itself before it writes. Before every reset it issues, the script (like
+`make flash-all`) clears the bootloader's boot word in RAM, so the new firmware starts with a
+fresh try counter. On a stock module it does so only from the firmware write on: the stock
+firmware has no boot word, removing the read protection erases it anyway, and between the attach
+and the option reload the script starts no tool it does not need, so that the stock firmware
+gets no time to take the SWD pins.
+
 > The one-contact path with the option reload has not been run on a stock module yet (the
 > first module here was unlocked with the separate steps below). If anything is off, the
-> script stops with a message; the steps by hand below always work. Known gaps until the
-> script is fixed: after the option reload its "lift the probe" prompt and beep appear only
-> once the chip is back, so go by the output instead. If no `after reload: OPTR=` line has
-> appeared 20 s after the `option bytes: protection off ...` line, lift the clip and press it
-> on again (the script then waits 60 s for it). Never lift it earlier: in the first seconds
-> after that line the option bytes are being written. And when the chip comes back only after
-> that second press, the read-protection / BOR check is skipped. Run `install.sh` once more in
-> that case: it must say "already unlocked with BOR".
+> script stops with a message; the steps by hand below always work. If no `after reload:
+> OPTR=` line has appeared 20 s after the `option bytes: protection off ...` line and the script
+> has not asked yet, lift the clip and press it on again (the script waits 60 s for it). Never
+> lift it earlier: in the first seconds after that line the option bytes are being written.
+> After the second press the script checks read protection, BOR and write protection as after
+> the first.
 > If it stopped before **DONE**, the PY32 may be blank: do NOT connect the module to the
 > mains, run the install again.
 
