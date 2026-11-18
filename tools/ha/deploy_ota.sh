@@ -50,7 +50,8 @@ done
 # shellcheck disable=SC1090
 source "$HA_ENV"
 [ -n "${HA_URL:-}" ] && [ -n "${HA_TOKEN:-}" ] || die "HA_URL or HA_TOKEN missing in $HA_ENV"
-! pgrep -f zdms16_ota_series.sh >/dev/null || die "an OTA series is running already (one module at a time)"
+RUNNING=$(pgrep -af zdms16_ota_series.sh || true)
+[ -z "$RUNNING" ] || die "an OTA series is running already (one module at a time): $RUNNING"
 TMP=$(mktemp -d)
 
 # --- the image: newest build of the fork, a valid OTA file that carries a valid PY32 image
@@ -137,7 +138,8 @@ for i in "${!ieees[@]}"; do
 done
 
 # --- the HA host: ssh works and the clocks agree (the Z2M log is read by timestamp)
-R=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$HA_SSH" date +%s) || die "ssh $HA_SSH failed"
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3)
+R=$(ssh -n "${SSH_OPTS[@]}" "$HA_SSH" date +%s) || die "ssh $HA_SSH failed"
 [[ $R =~ ^[0-9]+$ ]] || die "ssh $HA_SSH date: unexpected answer '$R'"
 SKEW=$(( R - $(date +%s) )); SKEW=${SKEW#-}
 [ "$SKEW" -le 8 ] || die "the clocks here and on $HA_SSH differ by $SKEW s (the Z2M log is read by timestamp)"
@@ -193,7 +195,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
-scp -q "$TMP/$F" "$HA_SSH:/config/zigbee2mqtt/images/" || die "copying $F to $HA_SSH failed"
+scp -q "${SSH_OPTS[@]}" "$TMP/$F" "$HA_SSH:/config/zigbee2mqtt/images/" || die "copying $F to $HA_SSH failed"
 DELAY_SET=1
 set_delay 50 || die "setting image_block_response_delay 50 failed: not deployed"
 : > "$TMP/guard.log"

@@ -36,3 +36,5 @@ Settings come from the environment (all optional):
   `zdms16_ota_series.sh <image> <name:ieee>...` (offers the image to one module at a time through a
   local OTA index; exit 0 only when every module finished; stall and total timeouts) and
   `zdms16_ota_guard.sh <series output> <series pid>` (puts 250 ms back at the first BUFFER_FULL).
+  The helpers must bound every ssh call (non-interactive, about 30 s), so that a dead connection
+  is a failed read and the stall and total timeouts still fire.
