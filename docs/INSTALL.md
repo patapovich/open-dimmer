@@ -281,12 +281,16 @@ cd fw
 make flash-all                      # builds and writes bootloader + app (full image)
 ```
 
-or, with a release file
-(`https://github.com/patapovich/zdms16-py32/releases/latest/download/zdms16_py32_full.bin`),
-in the work directory; the first command stops the firmware's watchdog while the core is halted
-(as `make flash-all` and `install.sh` do), which a re-flash of a running module needs:
+or, with a release file, in the work directory: download it with the release's `SHA256SUMS` and
+check it (it must say `zdms16_py32_full.bin: OK`; the `sed` drops the `build/` paths that the
+lists of releases up to v2.1.11 have). Then the first `pyocd` command stops the firmware's
+watchdog while the core is halted (as `make flash-all` and `install.sh` do), which a re-flash of
+a running module needs:
 
 ```
+curl -fsSLO https://github.com/patapovich/zdms16-py32/releases/latest/download/zdms16_py32_full.bin
+curl -fsSLO https://github.com/patapovich/zdms16-py32/releases/latest/download/SHA256SUMS
+sed 's|  .*/|  |' SHA256SUMS | sha256sum -c --ignore-missing
 .venv/bin/pyocd commander -t py32f002ax5 --pack pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack -f 400000 \
     -O connect_mode=attach -c "write32 0x40015808 0x1000"
 .venv/bin/pyocd load -t py32f002ax5 --pack pack/Puya.PY32F0xx_DFP.1.1.7-opt.pack -f 400000 \
