@@ -47,12 +47,17 @@ typedef struct {
 #define DIMMER_RESET_POWER  (1u << 27)   /* PWRRSTF: power-up or brown-out */
 #define DIMMER_RESET_SOFT   (1u << 28)   /* SFTRSTF: software (update restart, fault) */
 #define DIMMER_RESET_WDG    (1u << 29)   /* IWDGRSTF: watchdog */
+/** A start that takes the power-on behaviour: a power-up or brown-out (the RAM is random), also
+ * when the bootloader restarted after it, or a reset that was neither a software nor a watchdog
+ * reset (pin, option bytes). Every other start restores the light (dimmer_init). */
+#define DIMMER_COLD_START(csr) \
+    (((csr) & DIMMER_RESET_POWER) || !((csr) & (DIMMER_RESET_SOFT | DIMMER_RESET_WDG)))
 
 /** Defaults, then saved settings and the power-on behaviour. reset_csr: RCC_CSR
  * at start. After a watchdog or software reset that was no power-up or
  * brown-out (the RAM is kept) the light comes back as it was, from the mailbox
  * (ota_proto.h), once in a row. */
-void dimmer_init(uint32_t reset_csr);
+uint8_t dimmer_init(uint32_t reset_csr);   /* 1: a cold start (DIMMER_COLD_START) */
 /** Save changed settings once writes have settled, the UART is quiet and a
  * ~5 ms CPU stall would not miss a zero cross (stall_ok). After a minute of
  * uptime the next warm reset may restore again. */
@@ -91,6 +96,10 @@ void dimmer_prepare_restart(void);
  * the same channel and its level (a write of one may move the others); DP 14 ->
  * 103, 104. */
 uint8_t dimmer_sibling_dp(uint8_t dpid, uint8_t n);
+
+/** 1 when every channel is off and dark: no fade still running, no hold (the link watchdog's
+ * condition, docs/BOOTLOADER.md section 9, item 11). */
+uint8_t dimmer_dark(void);
 
 /** Report every DP (answer to query-all). */
 void dimmer_report_all(void);

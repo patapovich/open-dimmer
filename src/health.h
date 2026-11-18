@@ -1,13 +1,17 @@
 /* Health counters for long runs (normal and SIM builds; the measurement
  * builds report their own statistics every 10 s): a minute after start and
  * then every 2 min (the module's log keeps ~7 min) as reports of DPs
- * 130..135, logged by the module's MCU link diagnostics like the measurement
+ * 130..137, logged by the module's MCU link diagnostics like the measurement
  * DPs (no converter entity):
  *   130 uptime in minutes
  *   131 reset cause (RCC_CSR flags at start >> 24: bit 7 LPWR, 6 WWDG, 5 IWDG,
  *       4 software (update, fault), 3 power/BOR, 2 pin, 1 option bytes)
  *   132 zero-cross lock losses   133 edges ignored as noise
  *   134 settings saves           135 UART receive losses (overruns, ring full)
+ *   136 CRC-32 of the 4 KB boot sector, which tells the bootloader build (the
+ *       released v1: 0xEAC45031)
+ *   137 the boot word at start, bits 23..0 (ota_proto.h BOOT_*: probe answer
+ *       time, rescue info, LINK, tries); 0 when it was not valid (v1)
  * All since start; none wraps in a trial (uptime counts minutes, not the
  * millisecond clock that wraps after 49.7 days). */
 #ifndef HEALTH_H

@@ -41,8 +41,7 @@ static void button(uint8_t closed) {
 static void boot(uint32_t csr) {
     host_phase_init();
     T = 0;
-    dimmer_init(csr);
-    controls_init();
+    controls_init(dimmer_init(csr));            /* as main.c: the cold-start flag of dimmer_init */
 }
 
 /* Power-up with all inputs open (pull-ups) unless a test closed one before. */
@@ -180,11 +179,126 @@ static void test_boot_held_button(void) {
     CHECK(host_log_find("S03") < 0);               /* no rejoin ... */
     CHECK(host_log_find("A[1=") < 0);              /* ... and no toggle */
     CHECK(c1()->on == 0);
+    run_ms(10000 - T);                             /* past the first 10 s (the late-press rule) */
     button(1);                                     /* a real 3.5 s press still rejoins */
     run_ms(3500);
     button(0);
     run_ms(100);
     CHECK(host_log_find("S03") >= 0);
+}
+
+/* A press of 3 s or more on the module button rejoins, unless it began in the first 10 s after
+ * a cold start: a bootloader rescue press that came after the bootloader looked must not take
+ * the module off its network (docs/BOOTLOADER.md sections 4, 9 item 8). */
+static uint8_t long_press_at(uint32_t csr, uint32_t at, uint32_t hold) {
+    power_up(1);
+    boot(csr);
+    run_ms(at);
+    host_log_clear();
+    button(1);
+    run_ms(hold);
+    button(0);
+    run_ms(100);
+    CHECK(host_log_find("A[") < 0);                /* a long press never toggles */
+    return host_log_find("S03") >= 0;
+}
+
+static void test_late_rescue_press_is_no_rejoin(void) {
+    CHECK(!long_press_at(DIMMER_RESET_POWER, 100, 3500));      /* cold start, at once */
+    CHECK(!long_press_at(DIMMER_RESET_POWER, 2000, 8000));     /* held long */
+    CHECK(!long_press_at(DIMMER_RESET_POWER, 9900, 3500));     /* began in the window, ends after */
+    CHECK(long_press_at(DIMMER_RESET_POWER, 10000, 3500));     /* began after it */
+    CHECK(long_press_at(DIMMER_RESET_POWER, 60000, 3100));
+    CHECK(!long_press_at(DIMMER_RESET_POWER | DIMMER_RESET_SOFT, 500, 3500));   /* the bootloader
+                                                                  restarted after an install */
+    CHECK(!long_press_at(1u << 26, 500, 3500));                 /* pin reset: cold too */
+    CHECK(long_press_at(DIMMER_RESET_WDG, 500, 3500));         /* a warm start: no rescue press */
+    CHECK(long_press_at(DIMMER_RESET_SOFT, 500, 3500));
+}
+
+/* Short presses in the window still switch, only the rejoin is held back. */
+static void test_early_short_press_toggles(void) {
+    power_up(1);
+    run_ms(500);
+    button(1);
+    run_ms(120);
+    button(0);
+    run_ms(100);
+    CHECK(c1()->on == 1 && dimmer_channel(1)->on == 1);
+    button(1);                                     /* a 1 s hold: still a toggle */
+    run_ms(1000);
+    button(0);
+    run_ms(100);
+    CHECK(c1()->on == 0 && dimmer_channel(1)->on == 0);
+}
+
+/* The window closes for good: the ms counter's wrap after 49.7 days does not reopen it. */
+static void test_late_press_window_never_reopens(void) {
+    power_up(1);
+    run_ms(11000);
+    T = 0xFFFFFFFFu - 1000u;                       /* 49.7 days later */
+    run_ms(3000);                                  /* the counter wraps: T = 1999 */
+    CHECK(T < 10000u);
+    host_log_clear();
+    button(1);
+    run_ms(3500);
+    button(0);
+    run_ms(100);
+    CHECK(host_log_find("S03") >= 0);
+}
+
+/* ---- the link watchdog's input condition ---------------------------------------- */
+
+static void test_controls_idle(void) {
+    power_up(1);
+    run_ms(100);
+    CHECK(controls_idle());
+    s1(1);
+    run_ms(5);                                     /* bouncing, not yet a press */
+    CHECK(controls_idle());
+    run_ms(30);                                    /* pressed */
+    CHECK(!controls_idle());
+    s1(0);
+    run_ms(100);
+    CHECK(controls_idle());
+    button(1);
+    run_ms(50);
+    CHECK(!controls_idle());
+    button(0);
+    run_ms(100);
+    CHECK(controls_idle());
+    pin(GPIOB, LL_GPIO_PIN_2, 1);                  /* S2 */
+    run_ms(50);
+    CHECK(!controls_idle());
+    pin(GPIOB, LL_GPIO_PIN_2, 0);
+    /* A release the main loop has not handled yet: an event waits. */
+    for (int i = 0; i < 40; i++) {
+        T++;
+        controls_tick_1ms();
+    }
+    CHECK(!controls_idle());
+    controls_poll(T);
+    CHECK(controls_idle());
+}
+
+/* A toggle or state switch resting closed keeps it busy: the state switch would light its
+ * channel at a restart (controls_init: it says what the light is). */
+static void test_controls_idle_resting_closed(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, STATE);
+    run_ms(3000);
+    s1(1);
+    run_ms(100);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);      /* off from the network, the switch closed */
+    run_ms(3000);
+    CHECK(c1()->on == 0 && !controls_idle());
+    boot(DIMMER_RESET_SOFT);                       /* what a restart now would do */
+    CHECK(c1()->on == 1);
+    power_up(1);                                   /* a toggle switch resting closed */
+    s1(1);
+    boot(DIMMER_RESET_POWER);
+    run_ms(100);
+    CHECK(c1()->on == 0 && !controls_idle());
 }
 
 static void test_boot_held_momentary(void) {
@@ -331,6 +445,11 @@ int main(void) {
     RUN(test_release_reported_after_level);
     RUN(test_first_hold_goes_down);
     RUN(test_boot_held_button);
+    RUN(test_late_rescue_press_is_no_rejoin);
+    RUN(test_early_short_press_toggles);
+    RUN(test_late_press_window_never_reopens);
+    RUN(test_controls_idle);
+    RUN(test_controls_idle_resting_closed);
     RUN(test_boot_held_momentary);
     RUN(test_boot_held_toggle);
     RUN(test_state_switch_over_restore);

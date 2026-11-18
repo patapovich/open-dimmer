@@ -4,7 +4,11 @@
  * test is a reset that keeps the RAM (mailbox and dimmer.c's statics), and
  * across_real_reset() one that zeroes .bss as the MCU does. */
 #include "host_stubs.h"
+#include "bootif.h"
+#include "controls.h"
 #include "dimmer.h"
+#include "host_boot.h"
+#include "phase.h"
 #include "tuya.h"
 #include <string.h>
 #include <sys/wait.h>
@@ -16,6 +20,7 @@
 #define CH1_TYPE   4
 #define CH1_MAX    5
 #define POWER_ON_1 103
+#define DP_POWER_ON 14
 #define A_MINUTE_MS 60000      /* dimmer.c RESTORE_CLEAR_MS */
 
 /* RCC_CSR at start (PY32F002A: bit 25 option bytes, 26 pin, 27 power/BOR,
@@ -26,6 +31,27 @@
 #define CSR_SOFTWARE   (DIMMER_RESET_SOFT | CSR_PIN)
 
 static uint32_t T;    /* ms since this boot (main.c g_ms) */
+
+/* bootif.c's other side (tuya.c, controls.c, phase.c, the reset): the module's frame count and
+ * the input state are the test's; the restart path is recorded. */
+uint32_t g_tuya_frames;
+uint8_t  g_tuya_confirm;
+static uint8_t  g_inputs_idle = 1;
+static unsigned g_shutdowns, g_resets;
+static uint32_t g_word_at_shutdown, g_word_at_reset, g_check_at_reset, g_restored_at_reset;
+uint8_t controls_idle(void) {
+    return g_inputs_idle;
+}
+void phase_shutdown(void) {
+    g_shutdowns++;
+    g_word_at_shutdown = g_host_mailbox.boot;
+}
+void NVIC_SystemReset(void) {
+    g_resets++;
+    g_word_at_reset     = g_host_mailbox.boot;
+    g_check_at_reset    = g_host_mailbox.boot_check;
+    g_restored_at_reset = g_host_mailbox.restored;
+}
 
 static void boot(uint32_t csr) {
     host_phase_init();
@@ -472,6 +498,123 @@ static void test_load_clamps(void) {
     CHECK(c1()->switch_type == 0 && dimmer_channel(1)->switch_type == 2);
 }
 
+/* ---- the link watchdog (docs/BOOTLOADER.md section 9, item 11) ----------------- */
+
+/* Dark: both channels off and the output at 0, also once a fade out has ended. */
+static void test_dimmer_dark(void) {
+    power_up(1);
+    CHECK(dimmer_dark());
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    CHECK(!dimmer_dark());
+    run_ms(3000);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);      /* off: the fade out runs */
+    CHECK(!dimmer_dark());
+    run_ms(20);
+    CHECK(!dimmer_dark() && g_host_fader[0].current > 0);
+    run_ms(5000);
+    CHECK(dimmer_dark() && g_host_fader[0].current == 0);
+    host_write(8, TUYA_DP_TYPE_VALUE, 300);        /* a level while off: still dark */
+    CHECK(dimmer_dark());
+    host_write(7, TUYA_DP_TYPE_BOOL, 1);           /* channel 2 */
+    CHECK(!dimmer_dark());
+}
+
+/* A v2 bootloader's word after a power-on probe the ZTU answered after 40 ms: tries 1. */
+#define LINK_WORD (BOOT_WORD_FRESH | (40u << BOOT_PROBE_MS_SHIFT) | 1u)
+
+static void v2_power_up(void) {
+    power_up(1);
+    host_boot_v2(BOOT_FEATURES_V2, BOOT_APP_MAX);
+    host_boot_word(LINK_WORD);
+    bootif_init();
+}
+
+/* The main loop over a long run, in 10 ms passes (one half cycle each). */
+static void loop_until(uint32_t until) {
+    while (T < until && !g_resets) {
+        T += 10;
+        host_halfcycle();
+        dimmer_poll(T, 1000, 1);
+        bootif_poll(T);
+    }
+}
+
+/* Lit at 700 / 400 with power-on 'on' (the lamp must not switch on by itself), then off from
+ * the network, and no frame from the module for 4 h: the restart, once dark. */
+static void link_dead_while_off(void) {
+    v2_power_up();
+    host_write(DP_POWER_ON, TUYA_DP_TYPE_ENUM, 1);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 700);
+    host_write(7, TUYA_DP_TYPE_BOOL, 1);
+    host_write(8, TUYA_DP_TYPE_VALUE, 400);
+    run_ms(3000);
+    loop_until(3u * 3600000u);
+    CHECK(g_resets == 0);                          /* lit: never */
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);
+    host_write(7, TUYA_DP_TYPE_BOOL, 0);
+    loop_until(LINK_WDG_UPTIME_MS - 10u);
+    CHECK(g_resets == 0);                          /* dark, but the run is not 4 h old */
+    loop_until(LINK_WDG_UPTIME_MS + 1000u);
+    CHECK(g_resets == 1 && T == LINK_WDG_UPTIME_MS);
+    CHECK(g_shutdowns == 1 && g_word_at_shutdown == LINK_WORD);   /* gates first, word after */
+    CHECK(g_word_at_reset == ((LINK_WORD & ~BOOT_TRIES_MASK) | BOOT_PROBE_REQ) &&
+          g_check_at_reset == ~g_word_at_reset);
+    CHECK(g_word_at_reset == (BOOT_WORD_FRESH | (40u << BOOT_PROBE_MS_SHIFT) | 0x80u));
+    CHECK(g_restored_at_reset == 0);               /* a planned restart: restored after it */
+    CHECK(g_host_mailbox.magic == 0xA5A5A5A5u);    /* the update magic is not touched */
+    CHECK(mb_valid() && !mb_on(0) && !mb_on(1) && mb_level(0) == 700 && mb_level(1) == 400);
+    /* The v2 bootloader: bit 7 read and cleared, the link probe (nothing newer), tries + 1. */
+    uint32_t w = (g_word_at_reset & ~(BOOT_PROBE_REQ | BOOT_PROBE_MS_MASK)) | BOOT_INFO_LINK |
+                 (9u << BOOT_PROBE_MS_SHIFT);
+    host_boot_word(w + 1u);
+}
+
+/* After it (only SFTRSTF set, as after the link probe, also after an image it installed): the
+ * state comes back, all off with the levels kept, not the power-on 'on'. */
+static void back_off_after_link_restart(void) {
+    CHECK(c1()->on == 0 && dimmer_channel(1)->on == 0);
+    CHECK(c1()->level == 700 && dimmer_channel(1)->level == 400);
+    CHECK(g_host_fader[0].target == 0 && g_host_fader[1].target == 0);
+    CHECK(g_host_mailbox.restored == OTA_RESTORED_MAGIC);
+    CHECK((host_boot_word_now() & BOOT_TRIES_MASK) == 1u);   /* the counter did not move */
+    run_ms(A_MINUTE_MS);
+    power_up(0);                                   /* only a power cut takes power-on 'on' */
+    CHECK(c1()->on == 1 && dimmer_channel(1)->on == 1);
+}
+
+static void test_link_restart_restores_off(void) {
+    across_real_reset(link_dead_while_off, CSR_SOFTWARE, back_off_after_link_restart);
+}
+
+/* Not while a fade out runs, nor while an input is pressed, nor after frames came. */
+static void test_link_restart_waits(void) {
+    v2_power_up();
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    run_ms(3000);
+    loop_until(LINK_WDG_UPTIME_MS + 600000u);
+    CHECK(g_resets == 0);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);      /* the fade out takes a while */
+    uint32_t off_at = T;
+    loop_until(T + 10u);
+    CHECK(g_resets == 0 && g_host_fader[0].current > 0);
+    loop_until(T + 60000u);
+    CHECK(g_resets == 1 && g_host_fader[0].current == 0 && T > off_at + 10u);
+
+    power_up(1);                                   /* a new run */
+    g_resets = g_shutdowns = 0;
+    host_boot_word(LINK_WORD);
+    g_inputs_idle = 0;                             /* a switch held */
+    T             = LINK_WDG_UPTIME_MS;
+    loop_until(T + 3600000u);
+    CHECK(g_resets == 0);
+    g_inputs_idle = 1;
+    g_tuya_frames++;                               /* a frame: 30 min of silence again */
+    uint32_t heard = T;
+    loop_until(T + LINK_WDG_SILENCE_MS + 1000u);
+    CHECK(g_resets == 1 && T == heard + LINK_WDG_SILENCE_MS + 10u);
+}
+
 static void run(void (*test)(void), const char *name) {
     fflush(stdout);
     pid_t pid = fork();
@@ -510,6 +653,9 @@ int main(void) {
     RUN(test_first_hold_direction_low);
     RUN(test_max_below_level);
     RUN(test_load_clamps);
+    RUN(test_dimmer_dark);
+    RUN(test_link_restart_restores_off);
+    RUN(test_link_restart_waits);
     if (g_fail) {
         printf("test_dimmer: FAILED\n");
         return 1;

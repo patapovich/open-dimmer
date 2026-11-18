@@ -1,8 +1,7 @@
 #include "tuya.h"
+#include "bootif.h"
 #include "dimmer.h"
 #include "ota_proto.h"
-#include "phase.h"
-#include "py32f0xx.h"
 #include "uart.h"
 #include <string.h>
 
@@ -16,9 +15,11 @@ static uint8_t  g_rx[FRAME_HEADER + RX_MAX_DATA + 1];
 static uint16_t g_rx_len;
 static uint32_t g_rx_last_ms;     /* last byte received, or our network query sent */
 static uint16_t g_seq;
-static uint16_t g_query_seq;      /* 0 only for the first query after our start */
+static uint16_t g_query_seq;      /* 0 until the module answered a query, then 1, 2, ... */
 static uint8_t  g_network = 0xFF;   /* unknown until the module tells us */
 static uint8_t  g_told_state;
+uint32_t        g_tuya_frames;
+uint8_t         g_tuya_confirm;
 
 /* Debug: the last DP writes received, read over SWD (symbol g_write_log). */
 #define WRITE_LOG_SIZE     16
@@ -82,10 +83,10 @@ void tuya_send(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_t len) {
 
 void tuya_query_network(uint32_t now_ms) {
     tuya_send(TUYA_CMD_QUERY_NETWORK, g_query_seq, NULL, 0);
-    /* The module takes a query with seq 0 for our restart (a new contact):
-     * after 65535 the count goes on at 1. */
-    g_query_seq = (uint16_t)(g_query_seq + 1u);
-    if (g_query_seq == 0) {
+    /* The module takes a query with seq 0 for our restart (a new contact, and it asks who we
+     * are): seq 0 until it has answered one, so a lost first query does not hide the restart.
+     * Then 1, 2, ..., and after 65535 the count goes on at 1. */
+    if (g_query_seq && !++g_query_seq) {
         g_query_seq = 1;
     }
     g_rx_last_ms = now_ms;   /* its answer is due: no save stall right now */
@@ -134,6 +135,12 @@ void tuya_report_send(void) {
 
 /* ---- incoming frames ----------------------------------------------------- */
 
+#if !(SIM_ZC || MEASURE || DIAG_REPORT)
+__attribute__((noinline)) static uint32_t be32(const uint8_t *p) {
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+}
+#endif
+
 static void handle_write(const uint8_t *data, uint16_t len) {
     tuya_report_begin(1);
     uint16_t i = 0;
@@ -170,38 +177,57 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
         break;
 
     case OTA_CMD_IDENT: {
-        uint8_t id[7] = { 'Z', 'D', 'M', 'S', OTA_IDENT_KIND_APP, FW_VERSION, OTA_PROTOCOL };
+        /* v2: the build (2.1.x peers read bytes 0-6 only) and the bootloader's version. */
+        uint8_t id[OTA_IDENT_LEN] = { 'Z', 'D', 'M', 'S', OTA_IDENT_KIND_APP, FW_VERSION,
+                                      OTA_PROTOCOL, (uint8_t)(FW_IMAGE_BUILD >> 8),
+                                      (uint8_t)FW_IMAGE_BUILD, g_boot_info.version };
         tuya_send(OTA_CMD_IDENT, seq, id, sizeof(id));
+        g_tuya_confirm = BOOT_CONFIRM_QUERIES;   /* an own ZTU: this run may confirm */
         break;
     }
 
-    case OTA_CMD_NOTIFY: {
-#if MEASURE || DIAG_REPORT
-        /* Measurement and diagnostics builds take no update: the module would
-         * replace them with its carried release seconds after mains-on, before
-         * any statistics. The way back to a normal build is SWD. */
-        uint8_t ok = 1;
-        tuya_send(OTA_CMD_NOTIFY, seq, &ok, 1);
-#else
-        /* The module has a newer firmware for us: say yes, then restart into
-         * the bootloader, which fetches it. Anything else is declined, so a
-         * bad offer cannot keep the light restarting. 0xBF is the SIM bench
-         * build's version and 0xFF is never made (tools/mkimage.py). */
-        uint32_t size = len >= 9 ? ((uint32_t)data[1] << 24) | ((uint32_t)data[2] << 16) |
-                                   ((uint32_t)data[3] << 8) | data[4] : 0;
-        uint8_t  ok   = (len >= 9 && data[0] > FW_VERSION && data[0] != 0xBF && data[0] != 0xFF &&
-                         size >= APP_HEADER_OFFSET && size <= APP_LIMIT_LEGACY) ? 0 : 1;
-        tuya_send(OTA_CMD_NOTIFY, seq, &ok, 1);
-        if (ok != 0) {
-            break;
+    case TUYA_CMD_PRODUCT_QUERY:
+        /* Only a stock Tuya ZTU asks this (every 1 s while unanswered): counted for the
+         * confirmation, never answered (Open Dimmer is not a stock product). */
+        if (len == 0 && g_tuya_confirm < BOOT_CONFIRM_QUERIES) {
+            g_tuya_confirm++;
         }
-        phase_shutdown();
-        dimmer_prepare_restart();
-        OTA_MAILBOX->expect_crc = ((uint32_t)data[5] << 24) | ((uint32_t)data[6] << 16) |
-                                  ((uint32_t)data[7] << 8) | data[8];
-        OTA_MAILBOX->magic     = OTA_MAILBOX_MAGIC;
-        OTA_MAILBOX->magic_inv = ~OTA_MAILBOX_MAGIC;
-        NVIC_SystemReset();
+        break;
+
+    case OTA_CMD_NOTIFY: {
+        uint8_t ok = 1;
+#if !(SIM_ZC || MEASURE || DIAG_REPORT)
+        /* The module has a newer firmware for us: say yes, then restart into the bootloader,
+         * which fetches it. Anything else is declined, so a bad offer cannot keep the light
+         * restarting. A build-aware module (11 bytes) offers by build number, an older one by
+         * the version byte (0xBF is the SIM bench build's and 0xFF is never made,
+         * tools/mkimage.py). The image must fit both the bootloader and our settings layout.
+         * Bench builds take no update: the module would replace a measurement or diagnostics
+         * build with its carried release seconds after mains-on, before any statistics, and a
+         * SIM bench stays what it is under any module. The way back to a normal build is SWD. */
+        if (len >= OTA_NOTIFY_LEN_V1) {
+            uint32_t size = be32(&data[OTA_NOTIFY_AT_SIZE]);
+            uint8_t  newer;
+            if (len >= OTA_NOTIFY_LEN) {
+                const uint8_t *b     = &data[OTA_NOTIFY_AT_BUILD];
+                uint16_t       build = (uint16_t)((b[0] << 8) | b[1]);
+                newer = build >= OTA_BUILD_MIN && build <= OTA_BUILD_MAX && build > FW_IMAGE_BUILD;
+            } else {
+                newer = data[OTA_NOTIFY_AT_VERSION] > FW_VERSION &&
+                        data[OTA_NOTIFY_AT_VERSION] != OTA_VERSION_SIM &&
+                        data[OTA_NOTIFY_AT_VERSION] != OTA_VERSION_NEVER;
+            }
+            if (newer && size >= APP_SIZE_MIN && size <= g_boot_info.app_limit) {
+                ok = 0;
+            }
+        }
+#endif
+        tuya_send(OTA_CMD_NOTIFY, seq, &ok, 1);
+#if !(SIM_ZC || MEASURE || DIAG_REPORT)
+        if (ok == 0) {
+            OTA_MAILBOX->expect_crc = be32(&data[OTA_NOTIFY_AT_CRC]);   /* the image to take */
+            bootif_restart(&OTA_MAILBOX->magic, OTA_MAILBOX_MAGIC);    /* magic, ~magic */
+        }
 #endif
         break;
     }
@@ -221,6 +247,9 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
 
     case TUYA_CMD_QUERY_NETWORK:     /* the module's answer to our query */
         if (len >= 1) {
+            if (!g_query_seq) {
+                g_query_seq = 1;         /* it saw our start: the next query goes on at 1 */
+            }
             /* First answer after our boot: the module is listening. If only
              * we restarted (watchdog, reflash), it still holds the state from
              * before, so tell it ours, as answers (no switch actions). */
@@ -272,6 +301,7 @@ static void rx_process(void) {
             rx_drop(2);          /* damaged: a real frame may start inside */
             continue;
         }
+        g_tuya_frames++;
         handle_frame(g_rx[5], (uint16_t)((g_rx[3] << 8) | g_rx[4]), &g_rx[FRAME_HEADER], dlen);
         rx_drop(flen);
     }

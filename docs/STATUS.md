@@ -52,6 +52,7 @@ fork's ZTU; 59 register-level UART and clock init. ZTU side: also refuse the DIA
 | 103 / 104 | power-on per channel |
 | 105 / 106 | wall switch gesture (momentary type), event: 1 single, 2 double, 3 triple, 4 hold, 5 release |
 | 130..135 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, saves, UART receive losses |
+| 136 / 137 | with the health report (from the first v2 app): CRC-32 of the 4 KB boot sector (the released v1 bootloader: 0xEAC45031), the boot word at start, bits 23..0 (probe answer time, rescue info, LINK, tries; 0 under v1). docs/BOOTLOADER.md section 9 |
 | 150..154 / 155..159 | per channel: fade on ms, fade off ms, soft dim end %, hold ms, hold dim end % (saved) |
 | 110..123 | DIAG / MEASURE builds only (statistics every 10 s) |
 | 0xA0..0xA3 | Open Dimmer commands (not Tuya's): update notify / block / result, identity |

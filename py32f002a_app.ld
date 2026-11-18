@@ -22,6 +22,12 @@ ENTRY(Reset_Handler)
 _settings_start = ORIGIN(SETTINGS);
 _settings_end   = ORIGIN(SETTINGS) + LENGTH(SETTINGS);
 
+/* Write range of the shared flash driver (src/flash_drv.c, docs/BOOTLOADER.md section 9,
+   item 7): the app writes its settings ring and nothing else, never the bootloader sector
+   or its own code. boot/boot.ld gives the bootloader the app area instead. */
+_flash_write_start = ORIGIN(SETTINGS);
+_flash_write_end   = ORIGIN(SETTINGS) + LENGTH(SETTINGS);
+
 /* Highest address of the user mode stack */
 _estack = ORIGIN(RAM) + LENGTH(RAM);    /* end of RAM */
 /*
@@ -172,3 +178,6 @@ SECTIONS
 
 
 ASSERT(g_app_header == ORIGIN(FLASH) + 0xC0, "app header must follow the 48-entry vector table")
+ASSERT(_flash_write_start >= ORIGIN(FLASH) + LENGTH(FLASH) && _flash_write_start < _flash_write_end &&
+       _flash_write_end <= 0x08005000 && _flash_write_start % 128 == 0 && _flash_write_end % 128 == 0,
+       "flash write range: whole pages above the app's code, inside the 20 KB flash")
