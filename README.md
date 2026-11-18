@@ -67,6 +67,7 @@ make test-boot                             # the bootloader harness alone (tests
 make SDK=<py32f0-template>/Libraries       # build/zdms16_py32.img (+ bootloader, full image)
 make check-boot                            # the bootloader's layout (boot_id, write range, size)
 make DIAG=1 | MEASURE=1 | SIM=1            # diagnostics / measurement / bench builds
+make FW_TEST=n | FW_PREV=1 FW_TEST=n       # spare test builds (n 1..99): above / below the release
 make flash-all                             # SWD (pyOCD), board off the mains
 ```
 

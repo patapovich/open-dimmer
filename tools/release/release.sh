@@ -39,9 +39,15 @@ make test > /dev/null
 for v in "" DIAG=1 MEASURE=1 SIM=1; do
     make ${v:+"$v"} BUILD="$TMP/build${v:+-${v%=1}}" > /dev/null || die "make $v failed"
 done
-vf=$(python3 -c "import sys; d=open(sys.argv[1],'rb').read(); print(d[0xCC], d[0xCD])" "$TMP/build/zdms16_py32.img")
-read -r VB FLAGS <<< "$vf"
-[ "$FLAGS" = 0 ] || die "the normal build has image flags $FLAGS (SIM/MEASURE)"
+# Header flags (APP_FLAG_CONFIRMS, no bench flag) and build (FW_BUILD) of each build kind, and
+# the watchdog first in main() (docs/BOOTLOADER.md section 9).
+for v in "" DIAG=1 MEASURE=1 SIM=1; do
+    k=${v%=1}
+    k=${k,,}
+    python3 tools/check_app.py "$TMP/build${v:+-${v%=1}}" "${k:-normal}" ||
+        die "the ${k:-normal} build's image header or main() is wrong (tools/check_app.py)"
+done
+VB=$(python3 -c "import sys; print(open(sys.argv[1],'rb').read()[0xCC])" "$TMP/build/zdms16_py32.img")
 case $VB in
     191) die "version byte 0xBF (2.3.15) is reserved for the SIM bench build: pick another FW_VERSION" ;;
     255) die "version byte 0xFF: no update could ever follow it: pick another FW_VERSION" ;;

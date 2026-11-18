@@ -16,6 +16,7 @@
 #define SWITCH_MOMENTARY  2
 
 #define BUTTON_RESET_MS   3000
+#define LATE_PRESS_MS     10000   /* cold start: a long button hold begun by then is no rejoin */
 #define HOLD_CAP_MS       2000    /* + 2 x hold ms: a hold has reached its end by then */
 #define EV_RING           16      /* power of two */
 
@@ -35,13 +36,18 @@ static uint8_t g_type[DIMMER_CHANNELS];
 /* Inputs closed at boot, until their release (bit per input): that press
  * started before us, so its end is no gesture and no button action. */
 static uint8_t g_boot_held;
+/* Cold start, the first LATE_PRESS_MS: a button hold that begins now may be a bootloader
+ * rescue press that came too late, and the press now running began then. */
+static uint8_t g_early;
+static uint8_t g_button_early;
 
 static uint32_t  g_now;   /* time of the events being handled (controls_poll) */
 
 static uint8_t closed(uint8_t idx);
 
 
-void controls_init(void) {
+void controls_init(uint8_t cold_start) {
+    g_early = cold_start;
     /* Pull-ups and the input filters settle before the resting state is read
      * (the tick interrupt is not running yet, so nothing is sampled). */
     LL_mDelay(30);
@@ -157,14 +163,18 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
 }
 
 /* Module button: both channels together (any on -> all off, else all on);
- * held 3 s: rejoin. */
+ * held 3 s: rejoin, unless the press began in the first 10 s after a cold start. */
 static void button(uint8_t ev) {
-    if (ev == INPUT_EV_RELEASE) {
+    if (ev == INPUT_EV_PRESS) {
+        g_button_early = g_early;
+    } else if (ev == INPUT_EV_RELEASE) {
         dimmer_local_toggle_all();
     } else if (ev == INPUT_EV_RELEASE_AFTER_HOLD) {
         if (g_button_press_ms >= BUTTON_RESET_MS) {
-            uint8_t rejoin = TUYA_RESET_NETWORK_REJOIN;
-            tuya_send(TUYA_CMD_RESET_NETWORK, 0, &rejoin, 1);
+            if (!g_button_early) {
+                uint8_t rejoin = TUYA_RESET_NETWORK_REJOIN;
+                tuya_send(TUYA_CMD_RESET_NETWORK, 0, &rejoin, 1);
+            }
         } else {
             dimmer_local_toggle_all();
         }
@@ -173,6 +183,9 @@ static void button(uint8_t ev) {
 
 void controls_poll(uint32_t now) {
     g_now = now;
+    if (now >= LATE_PRESS_MS) {
+        g_early = 0;                  /* for good: the ms counter's wrap does not reopen it */
+    }
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
         const dimmer_channel_t *c = dimmer_channel(ch);
         if (c->switch_type != g_type[ch]) {
@@ -215,4 +228,18 @@ void controls_poll(uint32_t now) {
             wall_switch(idx, ev);   /* S1 -> channel 1, S2 -> channel 2 */
         }
     }
+}
+
+uint8_t controls_idle(void) {
+    uint8_t busy = g_tail != g_head;              /* an event the main loop has not handled */
+    for (uint8_t i = 0; i < IN_COUNT; i++) {
+        busy |= g_in[i].run;                      /* a change being debounced: a press under way */
+        /* Closed: a press of the button or a momentary switch under way, or a state switch that
+         * would light its channel at the restart. A toggle switch resting closed loses nothing:
+         * controls_init takes it as where it rests, and its next change toggles. */
+        if (i == IN_BUTTON || g_type[i] != SWITCH_TOGGLE) {
+            busy |= g_in[i].pressed;
+        }
+    }
+    return !busy;
 }

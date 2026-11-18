@@ -6,6 +6,7 @@
  * network (the diagnostics build mirrors PA4 on it instead). */
 #include "board.h"
 #include <string.h>
+#include "bootif.h"
 #include "controls.h"
 #include "dimmer.h"
 #include "health.h"
@@ -22,12 +23,26 @@
 #define NETWORK_QUERY_EVERY_MS   30000
 #define NETWORK_QUERY_JOINING_MS 2000    /* until on a network: the LED follows soon */
 
+/* Settings ring at 0x08004800 and images up to 14 KB: only from the ring-move release M on
+ * (docs/BOOTLOADER.md section 1), with its linker layout and store scan rule. */
+#ifndef RING_HIGH
+#define RING_HIGH 0
+#endif
+#if RING_HIGH
+#error "RING_HIGH needs release M's linker layout and settings scan rule (BOOTLOADER.md 1)"
+#endif
+
 /* Found by the bootloader right after the vector table; size and CRC are
- * filled in by tools/mkimage.py. */
+ * filled in by tools/mkimage.py. Every build confirms its runs (bootif.c);
+ * the v2 bootloader counts the unconfirmed ones of normal builds only. */
 __attribute__((section(".app_header"), used))
 const app_header_t g_app_header = { APP_MAGIC, 0, 0, FW_VERSION,
+                                    APP_FLAG_CONFIRMS | (RING_HIGH ? APP_FLAG_RING_HIGH : 0) |
                                     (SIM_ZC ? APP_FLAG_SIM : 0) | (MEASURE ? APP_FLAG_MEASURE : 0) |
-                                    (DIAG_REPORT ? APP_FLAG_DIAG : 0), OTA_BUILD_NONE };
+                                    (DIAG_REPORT ? APP_FLAG_DIAG : 0), FW_IMAGE_BUILD };
+_Static_assert(!SIM_ZC || FW_IMAGE_BUILD == OTA_BUILD_SIM, "SIM builds: build 0xFFFE");
+_Static_assert(SIM_ZC || (FW_IMAGE_BUILD >= OTA_BUILD_MIN && FW_IMAGE_BUILD <= OTA_BUILD_MAX),
+               "build number");
 
 static volatile uint32_t g_ms;
 
@@ -155,20 +170,23 @@ static void measure_poll(uint32_t now) {
 }
 #endif
 
-/* Independent watchdog, ~1 s (LSI 32 kHz / 32, reload 1000). Once started it
- * runs through software resets too: the bootloader keeps refreshing it. */
+/* Independent watchdog, ~1 s (LSI 32 kHz / 32, reload 1000), the period the v2
+ * bootloader sets at every boot (it is running already then). Started first,
+ * so a hang anywhere in the init resets too. The waits are bounded like the
+ * bootloader's: with an LSI that never starts the watchdog does not run, but
+ * the light does. */
 static void watchdog_start(void) {
     /* The PY32 does not start its LSI for the watchdog by itself. (Frozen
      * under a debugger only if the debugger sets DBGMCU APBFZ1 bit 12: the
      * app cannot reach DBGMCU; `make flash` does it.) */
     RCC->CSR |= RCC_CSR_LSION;
-    while (!(RCC->CSR & RCC_CSR_LSIRDY)) {
+    for (uint32_t n = 100000u; n && !(RCC->CSR & RCC_CSR_LSIRDY); n--) {
     }
     IWDG->KR  = 0xCCCC;
     IWDG->KR  = 0x5555;
     IWDG->PR  = 3;
     IWDG->RLR = 1000;
-    while (IWDG->SR) {
+    for (uint32_t n = 100000u; n && IWDG->SR; n--) {
     }
     IWDG->KR = 0xAAAA;
 }
@@ -186,21 +204,21 @@ void NMI_Handler(void) __attribute__((alias("HardFault_Handler")));
 
 int main(void) {
     uint32_t csr = RCC->CSR;                    /* why we (re)started, before the flags are cleared */
+    RCC->CSR |= RCC_CSR_RMVF;
+    watchdog_start();                           /* before anything that could hang */
 #if !(MEASURE || DIAG_REPORT)
     health_init(csr >> 24);                     /* kept for the health report */
 #endif
-    RCC->CSR |= RCC_CSR_RMVF;
     clock_init();
     gpio_init();
     phase_init();
+    bootif_init();                              /* the bootloader: boot_id, boot word, sector CRC */
     _Static_assert(DIMMER_RESET_POWER == RCC_CSR_PWRRSTF && DIMMER_RESET_SOFT == RCC_CSR_SFTRSTF &&
                    DIMMER_RESET_WDG == RCC_CSR_IWDGRSTF, "reset flags");
-    dimmer_init(csr);                           /* watchdog, fault, update: back as it was */
-    controls_init();
+    controls_init(dimmer_init(csr));            /* watchdog, fault, update: back as it was */
     SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
     uart_init(UART_BAUD);
     tuya_init();
-    watchdog_start();
 
     uint32_t next_query = NETWORK_QUERY_FIRST_MS;
 
@@ -228,6 +246,7 @@ int main(void) {
 #if !(MEASURE || DIAG_REPORT)
         health_poll(now);
 #endif
+        bootif_poll(now);                        /* confirmation; link watchdog (may restart) */
 #if MEASURE || DIAG_REPORT
         measure_poll(now);
 #endif

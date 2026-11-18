@@ -141,7 +141,7 @@ static void mark_dirty(void) {
     g_dirty_restart = 1;
 }
 
-void dimmer_init(uint32_t reset_csr) {
+uint8_t dimmer_init(uint32_t reset_csr) {
     for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
         /* Factory defaults of the stock firmware. */
         g_ch[i].on          = 0;
@@ -202,8 +202,9 @@ void dimmer_init(uint32_t reset_csr) {
      * fault. The light comes back as it was, not by the power-on behaviour; but
      * once in a row only: a reset again before RESTORE_CLEAR_MS takes the
      * power-on behaviour, so a state that crashes is not brought back for ever. */
-    volatile ota_mailbox_t *mb = OTA_MAILBOX;
-    if (!(reset_csr & (DIMMER_RESET_SOFT | DIMMER_RESET_WDG)) || (reset_csr & DIMMER_RESET_POWER)) {
+    volatile ota_mailbox_t *mb   = OTA_MAILBOX;
+    uint8_t                 cold = DIMMER_COLD_START(reset_csr);
+    if (cold) {
         mb->restored = 0;
     } else if (mb->restored != OTA_RESTORED_MAGIC &&
                (mb->restore ^ OTA_RESTORE_MAGIC) == mb->restore_check) {
@@ -221,6 +222,7 @@ void dimmer_init(uint32_t reset_csr) {
     for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
         apply(i);                     /* also puts the state in the mailbox */
     }
+    return cold;
 }
 
 void dimmer_prepare_restart(void) {
@@ -270,6 +272,13 @@ void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok) {
 
 const dimmer_channel_t *dimmer_channel(uint8_t ch) {
     return &g_ch[ch];
+}
+
+/* A hold moves the light between the min and the max, never at 0: an output at 0 is no fade
+ * and no hold. */
+uint8_t dimmer_dark(void) {
+    _Static_assert(DIMMER_CHANNELS == 2, "both channels");
+    return !(g_ch[0].on | g_ch[1].on) && !(phase_current(0) | phase_current(1));
 }
 
 static uint16_t clamp_level(uint32_t v) {

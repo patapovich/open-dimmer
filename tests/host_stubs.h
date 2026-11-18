@@ -43,6 +43,13 @@ extern uint8_t  g_host_save_attempts;   /* pages the last save could try */
  * with one passive report of the DP and its siblings. */
 void            host_write(uint8_t dpid, uint8_t type, uint32_t value);
 
+/* A reset as on the MCU: .bss zeroed (the statics of every file, a pending save is gone), only
+ * the flash, the mailbox and the input pins kept. A process forked before `before` ran (so call
+ * it from a test process nothing ran in yet) gets them once it has run, and boots with
+ * boot(csr) into `after`. A failure in it sets g_fail here. */
+void            host_across_real_reset(void (*before)(void), void (*boot)(uint32_t csr),
+                                       uint32_t csr, void (*after)(void));
+
 /* The saved record (dimmer.c saved_t, format 3), for tests that load one. */
 typedef struct {
     uint8_t format;

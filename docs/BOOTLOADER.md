@@ -223,6 +223,11 @@ fields.
 - Spare test builds: `make FW_TEST=n` (1..99) builds `FW_BUILD + n`. They stay below the next
   release, so a unit that ever ran a test build always takes the next release, and a typo cannot
   jump the build space.
+- Bench builds below the release (B3, B11): `make FW_PREV=1 FW_TEST=n` builds
+  `FW_BUILD - 100 + n` (e.g. 299 below release R). `FW_BUILD` itself is a literal that no make
+  variable overrides, and B11's `LINK_WDG_TEST=1` builds only below the release, so a unit on the
+  release never takes such an image. Anything else is a compile error (`src/tuya.h`,
+  `tests/test_build_rules.py`).
 - `FW_VERSION` is bumped only for releases (a tag is vX.Y.Z of the byte, so tags stay unique).
   It never decreases, and its increase per release is what keeps byte-only peers (2.1.x apps,
   phase-1 ZTUs) updating.
@@ -926,6 +931,12 @@ already be in release R's app.
 "new" came with the review; estimated ~60 bytes together, plus ~20 for the stock-ZTU
 confirmation and ~80 for the link watchdog (item 11; estimates).
 
+*Implemented* (items 1-6, 8, 9 and 11; item 7's range guard still to come with the shared
+flash driver, ~20-36 bytes): 12 088 bytes, +616 on 2.1.12 and ~170 above the estimates (200
+bytes free of 12 KB; DIAG / MEASURE / SIM 11 700 / 11 712 / 11 740). The largest parts: the
+confirmation and link watchdog pass 176, the boot_id / sector CRC / word read 108, the input
+condition 76, the shared planned restart 48, the dark check 44.
+
 1. **Header.** `{ APP_MAGIC, 0, 0, FW_VERSION, APP_FLAG_CONFIRMS | (RING_HIGH ? APP_FLAG_RING_HIGH
    : 0) | bench flags, FW_BUILD }` (`src/main.c:27-30`). `FW_BUILD` sits in `src/tuya.h`; `make
    FW_TEST=n` adds 1..99 for spare test builds.
@@ -984,7 +995,11 @@ confirmation and ~80 for the link watchdog (item 11; estimates).
         comes 30 min after the last frame; after a power-up, whose own probe just ran, not
         before 4 h;
       - every channel is off and dark (no fade or hold running), and no wall-switch or
-        module-button input is pressed.
+        module-button input is pressed: no input event waits, no input change is being
+        debounced, and the button, momentary and state switches are open. A toggle switch (the
+        default type) resting closed is not pressed: the restart takes it as where it rests,
+        and its next change toggles the light as before (a state switch resting closed would
+        light its channel at the restart).
     - **Action**, the planned-restart path of an accepted offer: `phase_shutdown()` (gates low
       first, although they are low already), `dimmer_prepare_restart()` (a due settings save,
       the light state into the mailbox, `restored` = 0), then
@@ -1330,6 +1345,10 @@ of them, a 14 KB app ~2 700, before any phase-3 ZTU code. So within this design 
 12 KB until the ZTU build frees space; that is the first precondition of the ring move (section
 1), and CI prints the ZTU OTA size with each new carried image. The frozen bootloader can never
 take a compressed image, so this limit does not move from the MCU side.
+
+The implemented release-R app (section 9) is 12 088 bytes, ~460 more than the 11 628-byte app
+of that measurement (plus ~20-36 for the range guard), which leaves ~950 bytes of the OTA slot
+before any phase-3 ZTU code. The phase-3 ZTU build is measured against 0x34000 with that image.
 
 ---
 

@@ -1,4 +1,5 @@
 #include "health.h"
+#include "bootif.h"
 #include "phase.h"
 #include "py32f0xx.h"
 #include "store.h"
@@ -38,5 +39,7 @@ void health_poll(uint32_t now) {
     tuya_report_value(133, ignored);
     tuya_report_value(134, store_save_count());
     tuya_report_value(135, uart_dropped());
+    tuya_report_value(136, g_boot_info.sector_crc);   /* 8 DPs: one 64-byte report */
+    tuya_report_value(137, g_boot_info.word);
     tuya_report_send();
 }

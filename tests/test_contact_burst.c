@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "bootif.h"
 #include "dimmer.h"
 #include "ota_proto.h"
 #include "phase.h"
@@ -47,6 +48,11 @@ uint32_t uart_dropped(void) {
     return 0;
 }
 void NVIC_SystemReset(void) {
+}
+boot_info_t g_boot_info = { 0, 0, APP_LIMIT_LEGACY, BOOT_VERSION, BOOT_FEATURES_V2 };
+void bootif_restart(volatile uint32_t *pair, uint32_t value) {
+    (void)pair;
+    (void)value;
 }
 
 uint8_t store_load(uint8_t *data) {
@@ -135,7 +141,7 @@ int main(void) {
 
     unsigned ident   = answer_bytes(OTA_CMD_IDENT, NULL, 0);
     unsigned version = answer_bytes(TUYA_CMD_VERSION, NULL, 0);
-    CHECK(ident == 16 && version == 10);
+    CHECK(ident == 8u + OTA_IDENT_LEN + 1u && version == 10);   /* identity v2: 19 bytes */
 
     /* The largest ack of a single-DP write (a write of min also reports max,
      * DP 14 reports 103 and 104 too), over every DP number. */
@@ -157,7 +163,7 @@ int main(void) {
     printf("contact bursts: dump %u B in %u frames + identity %u B + largest write ack %u B = %u B "
            "(with the version answer %u B) of the module's %u B RX chunk\n",
            dump, dump_frames, ident, ack_max, burst_ident, burst_version, ZTU_RX_CHUNK_MAX);
-    CHECK(dump + 16u + 17u <= ZTU_RX_CHUNK_MAX);
+    CHECK(dump + 19u + 17u <= ZTU_RX_CHUNK_MAX);
     CHECK(burst_ident <= ZTU_RX_CHUNK_MAX);
     CHECK(burst_version <= ZTU_RX_CHUNK_MAX);
 

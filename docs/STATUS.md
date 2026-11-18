@@ -30,6 +30,13 @@ build with the same behaviour (own byte-loop mem* in src/libc_min.c instead of n
 signed division code). CI warns when a build has under 512 bytes free. The bootloader is
 unchanged (2 136 bytes, byte-identical to the released one).
 
+App side of bootloader v2 with the link watchdog (release R, not released yet; docs/BOOTLOADER.md
+section 9): 12 088 bytes (200 free, so CI warns), +616 on 2.1.12 and ~170 above the design's
+estimate; DIAG / MEASURE / SIM 11 700 / 11 712 / 11 740 (the link watchdog and the confirmation
+paths are compiled out there). The shared flash driver's range guard (section 9 item 7) adds
+~20-36 bytes more. The Zigbee firmware's OTA file must be measured with this image (section 12:
+~460 bytes more than the 11 628-byte app it was measured with).
+
 Review 2026-11-18 items done in phase 2: 7 (the MCU's start burst check), 12 and 25 (zero-cross
 windows, phase.c on the PC), 13 (watchdog and fault restore), 14, 17, 29, 30, 32 (UART above
 the zero cross), 33, 34, 35, 36, 37, 38, 39, 44 (host harnesses for the store, flash driver,
@@ -52,6 +59,7 @@ fork's ZTU; 59 register-level UART and clock init. ZTU side: also refuse the DIA
 | 103 / 104 | power-on per channel |
 | 105 / 106 | wall switch gesture (momentary type), event: 1 single, 2 double, 3 triple, 4 hold, 5 release |
 | 130..135 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, saves, UART receive losses |
+| 136 / 137 | with the health report (from the first v2 app): CRC-32 of the 4 KB boot sector (the released v1 bootloader: 0xEAC45031), the boot word at start, bits 23..0 (probe answer time, rescue info, LINK, tries; 0 under v1). docs/BOOTLOADER.md section 9 |
 | 150..154 / 155..159 | per channel: fade on ms, fade off ms, soft dim end %, hold ms, hold dim end % (saved) |
 | 110..123 | DIAG / MEASURE builds only (statistics every 10 s) |
 | 0xA0..0xA3 | Open Dimmer commands (not Tuya's): update notify / block / result, identity |
