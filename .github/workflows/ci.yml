@@ -72,6 +72,22 @@ jobs:
             echo "bootloader: $(stat -c %s build-boot/boot.bin) of 4096 bytes"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: The app's own memset/memcpy/memmove/memcmp (src/libc_min.c) call nothing
+        run: |
+          # A loop turned back into a library call would make them call themselves.
+          for d in build build-diag build-measure build-sim; do
+            if grep -qE 'libc_a-mem(set|cpy-stub|move|cmp)\.o' "$d/zdms16_py32.map"; then
+              echo "::error::$d links newlib's mem* functions, not src/libc_min.c"
+              exit 1
+            fi
+            for f in memset memcpy memmove memcmp; do
+              if arm-none-eabi-objdump -d --disassemble="$f" "$d/zdms16_py32.elf" | grep -qE $'\tblx?\t'; then
+                echo "::error::$f in $d calls another function"
+                exit 1
+              fi
+            done
+          done
+
       - name: Images for the module (ZTU embedding) refuse bench and measurement builds
         run: |
           mkdir -p dist

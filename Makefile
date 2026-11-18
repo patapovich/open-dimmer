@@ -122,6 +122,9 @@ test:
 	$(BUILD)/host/test_input_core
 	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_gesture_core.c src/gesture_core.c -o $(BUILD)/host/test_gesture_core
 	$(BUILD)/host/test_gesture_core
+	cc -std=c11 -Wall -Wextra -Werror -Dmemset=lm_memset -Dmemcpy=lm_memcpy -Dmemmove=lm_memmove \
+	   -Dmemcmp=lm_memcmp tests/test_libc_min.c src/libc_min.c -o $(BUILD)/host/test_libc_min
+	$(BUILD)/host/test_libc_min
 	python3 tests/test_tools.py
 
 .PHONY: test
