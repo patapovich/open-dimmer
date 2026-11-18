@@ -121,7 +121,9 @@ over the air from the stock firmware, no opening needed:
      (`*-from_tuya.zigbee` converts a stock module, the plain `.zigbee` updates a converted one)
 2. Reconfigure the device in Zigbee2MQTT after the conversion, and check that it works with the
    stock MCU: `mcu_version` shows the stock version (for example 1.0.7) and `mcu_firmware` shows
-   "Tuya (stock)". Only then open the module for the MCU part below.
+   "Tuya (stock)". Only then open the module for the MCU part below. An older converter of the
+   fork has no `mcu_firmware`: there `mcu_version` alone is the check, Open Dimmer shows later
+   as `mcu_version` "2.x.y own", and the device option is called `own_mcu_settings`.
 
 ## Before you open it: write the settings down
 
@@ -209,12 +211,13 @@ automations that drive it).
    module (mains off for a few seconds, then on), wait about 30 s and Reconfigure again. If it
    still does not show "Open Dimmer", check that the module runs the fork's current Zigbee
    firmware and Zigbee2MQTT the fork's current converter (section 0). Do not restart
-   Zigbee2MQTT before it shows "Open Dimmer".
+   Zigbee2MQTT before it shows "Open Dimmer". An older fork converter has no `mcu_firmware`:
+   there `mcu_version` "2.x.y own" means the same.
 3. Then restart Zigbee2MQTT once. Only then does it show the settings that only Open Dimmer has
-   (device option `open_dimmer_settings`: auto, the default, shows them once the module has
-   identified the MCU as Open Dimmer; show / hide: always / never), and Home Assistant gets
-   entities for them: per channel the dimming curve, the power-on behaviour, fade and hold, and
-   the wall switch gestures as `action`. The shared `power_on_behavior` is replaced by the
+   (device option `open_dimmer_settings`, `own_mcu_settings` in an older converter: auto, the
+   default, shows them once the module has identified the MCU as Open Dimmer; show / hide:
+   always / never), and Home Assistant gets entities for them: per channel the dimming curve,
+   the power-on behaviour, fade and hold, and the wall switch gestures as `action`. The shared `power_on_behavior` is replaced by the
    per-channel `power_on_behavior` entities: update automations that use it.
 4. Restore the settings you wrote down, per channel:
    - `dimming_curve` to `linear` first: it gives every level the same conduction as the stock

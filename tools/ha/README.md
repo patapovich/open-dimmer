@@ -13,7 +13,8 @@ Settings come from the environment (all optional):
   zigbee-herdsman-converters computes from a generated converter. The version is the raw Basic
   0xff12 value the Zigbee firmware reports, not what Zigbee2MQTT shows: default "2.1.9 own" (an
   MCU identified as Open Dimmer; shown as `mcu_version` 2.1.9, `mcu_firmware` Open Dimmer); pass
-  "1.0.7" for a stock MCU or "" for one not known yet. Device-level exposes (`mcu_firmware`)
+  "1.0.7" for a stock MCU or "" for one not known yet (as right after a restart: the Open Dimmer
+  settings are hidden, the same set as with "1.0.7"). Device-level exposes (`mcu_firmware`)
   print `endpoint=undefined`. Run with `NODE_PATH=<zhc>/node_modules node expose_dump.js ...`
   against an unpacked zigbee-herdsman-converters 26.125.0 with its dependencies. Diff the sorted
   output of the deployed and the new converter before every converter deployment

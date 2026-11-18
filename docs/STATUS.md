@@ -43,21 +43,28 @@ Min and max are physical conduction limits for every curve (same meaning as the 
 
 The ZTU asks the MCU who it is (identity command 0xA3; only Open Dimmer answers). Basic
 attribute 0xff12 on endpoint 1 then carries `"x.y.z own"` for an MCU identified as Open Dimmer
-and the bare version for a stock MCU (`"1.0.7"`). `own` is the ZTU's internal marker: it stays
-on the wire, and the converter's detection (the `auto` mode of `open_dimmer_settings`, the
-configure checks) works on this raw value. Users see two fields instead:
+and the bare version otherwise: for a stock MCU (`"1.0.7"`), and for Open Dimmer when its
+identity answer was lost (the ZTU asks once more first, REVIEW M9). `own` is the ZTU's
+internal marker: it stays on the wire, and the converter's detection (the `auto` mode of
+`open_dimmer_settings`, the configure checks) works on this raw value. Users see two fields
+instead:
 
 | Basic 0xff12 | `mcu_version` | `mcu_firmware` |
 |---|---|---|
 | `"2.1.10 own"` | `2.1.10` | `Open Dimmer` |
 | `"1.0.7"` | `1.0.7` | `Tuya (stock)` |
+| `"2.1.10"` (identity answer lost) | `2.1.10` | `Open Dimmer` if an `own` value was seen before (kept in device.meta), else `Tuya (stock)` |
+| `""` or `"0.0.0"` (right after a restart, before the MCU has told the ZTU) | as reported | not published (the last value stays) |
 
-While no version is known (right after a restart the module answers `""` or `"0.0.0"`),
-`mcu_firmware` is not published. It is a device-level diagnostic text (no endpoint), only on
-boards whose device_db entry has `secondary_mcu_image` (the ZDMS16-2). The device option
-`open_dimmer_settings` (auto / show / hide) was called `own_mcu_settings`; the old key is still
-read when the new one is not set. Converters from before this rename show the raw value in
-`mcu_version` (`2.1.10 own`) and have no `mcu_firmware`.
+The converter keeps the last real version in device.meta, and Open Dimmer is sticky there: a
+bare 2.x or later does not replace a kept `"x.y.z own"`. Only a version below 2.x means the MCU
+really changed (a stock MCU) and replaces it. The `auto` mode of `open_dimmer_settings` follows
+the same rule, so the settings stay shown when an identity answer is lost. `mcu_firmware` is a
+device-level diagnostic text (no endpoint), only on boards whose device_db entry has
+`secondary_mcu_image` (the ZDMS16-2). The device option `open_dimmer_settings` (auto / show /
+hide) was called `own_mcu_settings`; the old key is still read when the new one is not set.
+Converters from before this rename show the raw value in `mcu_version` (`2.1.10 own`) and have
+no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmware`.
 
 ## Behaviour (as tuned with the lamp)
 
@@ -123,8 +130,8 @@ A template slip commented out the `dimmer_left` light, and Home Assistant delete
 light entity of every module until the fix was deployed. Before deploying any converter change:
 
 1. Dump the exposes with the real zhc (`tools/ha/expose_dump.js`, see `tools/ha/README.md`;
-   with the raw MCU versions of Open Dimmer, `"2.1.10 own"`, and of the stock MCU, `"1.0.7"`)
-   and diff the expose set against the deployed one.
+   with the raw MCU versions of Open Dimmer, `"2.1.10 own"`, of the stock MCU, `"1.0.7"`, and
+   of an MCU not known yet, `""`) and diff the expose set against the deployed one.
 2. Check that the other models' definitions are unchanged against the deployed converter
    (against upstream every one of them differs by design: the added `device_config_ext`).
 3. Snapshot Home Assistant's entity registry (`core.entity_registry`) before and after the Z2M

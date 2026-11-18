@@ -127,4 +127,4 @@ py commander -c "savemem 0x08000000 $(stat -c %s "$IMAGE") $TMP/readback.bin" > 
 cmp -s "$IMAGE" "$TMP/readback.bin" || die "read-back differs from the image"
 py reset > /dev/null 2>&1 || true
 beep
-say "DONE: firmware written and checked. Lift the probe, close the module; in Zigbee2MQTT mcu_firmware shows 'Open Dimmer'."
+say "DONE: firmware written and checked. Lift the probe, close the module; in Zigbee2MQTT mcu_firmware shows 'Open Dimmer' (older converters: mcu_version '2.x.y own')."
