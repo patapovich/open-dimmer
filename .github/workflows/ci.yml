@@ -59,7 +59,10 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Size report
+      - name: Size report (a warning, not a failure, when a build has little room left)
+        env:
+          # Below this many free bytes a build gets a warning: room for the next fix is short.
+          HEADROOM_WARN_BYTES: 512
         run: |
           {
             echo "| build | app bytes | free of 12288 |"
@@ -71,6 +74,16 @@ jobs:
             echo
             echo "bootloader: $(stat -c %s build-boot/boot.bin) of 4096 bytes"
           } | tee -a "$GITHUB_STEP_SUMMARY"
+          for d in build build-diag build-measure build-sim; do
+            free=$((12288 - $(stat -c %s "$d/zdms16_py32.img")))
+            if [ "$free" -lt "$HEADROOM_WARN_BYTES" ]; then
+              echo "::warning title=Flash headroom::$d has only $free of 12288 bytes free (warning below $HEADROOM_WARN_BYTES)"
+            fi
+          done
+          free=$((4096 - $(stat -c %s build-boot/boot.bin)))
+          if [ "$free" -lt "$HEADROOM_WARN_BYTES" ]; then
+            echo "::warning title=Flash headroom::the bootloader has only $free of 4096 bytes free (warning below $HEADROOM_WARN_BYTES)"
+          fi
 
       - name: The app's own memset/memcpy/memmove/memcmp (src/libc_min.c) call nothing
         run: |

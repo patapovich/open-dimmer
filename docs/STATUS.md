@@ -21,7 +21,10 @@ branch `home-dimmer`).
 Bootloader 4 KB @0x08000000 (2 136 bytes used), app 12 KB @0x08001000 (header at +0xC0),
 settings 4 KB @0x08004000 (32-page ring, record v2 "ZDS2" 40 bytes; v1 "ZDS1" 20 bytes still
 read). App 2.1.11: 11 628 bytes (660 bytes free). DIAG / MEASURE builds 11 972 / 11 988 bytes
-(health report, raw timing and the pin scan compiled out there; ~300 bytes left).
+(health report, raw timing and the pin scan compiled out there; ~300 bytes left). Since then
+(same behaviour) 928 bytes less in every build: own byte-loop mem* (src/libc_min.c) instead of
+newlib's, no signed division code (DP and curve maths unsigned): app 10 700, DIAG 11 044,
+MEASURE 11 060, SIM 10 744 bytes. CI warns when a build has under 512 bytes free.
 
 ## DPs (Open Dimmer; stock ones 1..14 unchanged)
 
