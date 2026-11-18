@@ -11,7 +11,8 @@ int  uart_getc(void);
 void uart_putc(uint8_t b);
 /** Wait until the last byte has left the shift register. */
 void uart_flush(void);
-/** Bytes lost because the ring buffer was full (diagnostics). */
-uint16_t uart_dropped(void);
+/** Receive losses since start (diagnostics): overruns (at least one byte
+ * each, the CPU was stalled) and bytes that found the ring buffer full. */
+uint32_t uart_dropped(void);
 
 #endif

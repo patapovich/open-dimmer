@@ -1,5 +1,6 @@
 /* Host harness for dimmer.c and controls.c (tests/test_dimmer.c,
- * tests/test_controls.c), built with -DHOST_TEST (board.h, ota_proto.h).
+ * tests/test_controls.c), built with -DHOST_TEST against the stand-in device
+ * headers of tests/host (ota_proto.h: the mailbox is g_host_mailbox).
  *
  * The real fader (dim_core.c) stands in for phase.c, one tick per 10 ms half
  * cycle; the settings store is one record in RAM; the Tuya report builder
@@ -36,6 +37,7 @@ void            host_halfcycle(void);
 extern uint8_t  g_host_flash[STORE_DATA_SIZE];
 extern uint8_t  g_host_flash_valid;
 extern unsigned g_host_saves;
+extern uint8_t  g_host_save_attempts;   /* pages the last save could try */
 
 /* What tuya.c does with a DP write from the module: apply it, then answer
  * with one passive report of the DP and its siblings. */

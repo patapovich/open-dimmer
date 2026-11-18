@@ -4,9 +4,7 @@
 #include "input_core.h"
 #include "gesture_core.h"
 #include "tuya.h"
-#ifndef HOST_TEST
 #include "py32f0xx_ll_utils.h"
-#endif
 
 #define IN_S1             0
 #define IN_S2             1

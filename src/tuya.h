@@ -39,8 +39,12 @@ void    tuya_init(void);
 /** Parse what the UART received and handle complete frames. */
 void    tuya_poll(uint32_t now_ms);
 void    tuya_send(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_t len);
+/** Ask the module for its network state (0x20). Sequence 0 only for the first
+ * query after our start: the module takes it for an MCU restart. */
+void    tuya_query_network(uint32_t now_ms);
 uint8_t tuya_network_status(void);
-/** ms since the last received byte, 0 while a frame is half received. */
+/** ms since the last received byte or our last network query (its answer is
+ * due), 0 while a frame is half received. */
 uint32_t tuya_rx_quiet_ms(uint32_t now_ms);
 
 /* Report builder: begin, add DP units, send as one frame. passive = 1 for answers

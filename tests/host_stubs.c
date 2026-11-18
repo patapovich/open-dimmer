@@ -156,6 +156,7 @@ uint16_t phase_current(uint8_t ch) {
 uint8_t  g_host_flash[STORE_DATA_SIZE];
 uint8_t  g_host_flash_valid;
 unsigned g_host_saves;
+uint8_t  g_host_save_attempts;
 
 uint8_t store_load(uint8_t *data) {
     if (!g_host_flash_valid) {
@@ -165,13 +166,14 @@ uint8_t store_load(uint8_t *data) {
     return 1;
 }
 
-uint8_t store_save(const uint8_t *data) {
+uint8_t store_save_tries(const uint8_t *data, uint8_t attempts) {
+    g_host_save_attempts = attempts;
     memcpy(g_host_flash, data, STORE_DATA_SIZE);
     g_host_flash_valid = 1;
     g_host_saves++;
     return 1;
 }
 
-uint16_t store_save_count(void) {
-    return (uint16_t)g_host_saves;
+uint32_t store_save_count(void) {
+    return g_host_saves;
 }

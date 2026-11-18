@@ -13,12 +13,11 @@ SIM      ?= 0
 # reported every 10 s (version 2.0.15 by default)
 MEASURE  ?= 0
 # make DIAG=1: normal outputs, the same statistics reported every 10 s (2.0.14 by default)
-# MEASURE / DIAG with their default versions do NOT stay: the module's Zigbee firmware offers
-# its carried release (2.1.x) to an MCU with any older Open Dimmer version, they accept it, and
-# they are replaced a few seconds after mains-on. Until they decline updates, give them a
-# version byte at least the carried one: make DIAG=1 VERSION_BYTE=0x9B BUILD=build-diag-9b
-# (0x9B = 2.1.11, holds while the Zigbee firmware carries 2.1.11 or older). Back: make
-# flash-all over SWD, or a Zigbee firmware that carries a newer version.
+# MEASURE and DIAG builds decline every update the module's Zigbee firmware offers (it offers
+# its carried release a few seconds after mains-on, which would replace them before any
+# statistics), so they stay whatever their version byte. The way back to a normal build is
+# SWD: make flash-all. Their image header flags (MEASURE 0x02, DIAG 0x04) make
+# tools/embed_ztu.py refuse them, so no Zigbee firmware ever carries one.
 DIAG     ?= 0
 BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)
 
@@ -45,11 +44,13 @@ LDFLAGS  := $(ARCH) -T$(LDSCRIPT) -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(PROJECT)
 
 OBJS     := $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o))) $(addprefix $(BUILD)/,$(notdir $(ASRCS:.s=.o)))
 
-# Bootloader (4 KB at 0x08000000): the same for every app build
+# Bootloader (4 KB at 0x08000000): the same for every app build. BOOTLOADER keeps the
+# shared src/flash_drv.c as the bootloader was released with (boot.bin byte-identical) until
+# the bootloader batch (fix plan phase 3) takes the app's flash driver fixes in.
 BOOT_BUILD := build-boot
 BOOT_SRCS  := boot/boot.c src/flash_drv.c
 BOOT_OBJS  := $(addprefix $(BOOT_BUILD)/,$(notdir $(BOOT_SRCS:.c=.o)))
-BOOT_CFLAGS := $(CFLAGS) -ffreestanding -fno-tree-loop-distribute-patterns
+BOOT_CFLAGS := $(CFLAGS) -DBOOTLOADER -ffreestanding -fno-tree-loop-distribute-patterns
 BOOT_LDFLAGS := $(ARCH) -Tboot/boot.ld -Wl,--gc-sections -Wl,-Map=$(BOOT_BUILD)/boot.map -nostdlib -lgcc
 
 vpath %.c $(sort $(dir $(SRCS) $(BOOT_SRCS)))
@@ -125,8 +126,12 @@ define phase_test
 	$(BUILD)/host/test_phase_$(1)
 endef
 
-# Hardware-free logic on the PC
-HOST_TEST_FLAGS := -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -DHOST_TEST -Isrc -Itests
+# Hardware-free logic on the PC: the real sources against stand-in device headers (tests/host,
+# HOST_TEST: the mailbox is a variable). dimmer.c and controls.c also link the host stubs
+# (tests/host_stubs.*); the flash driver test is built as C++ so that its register model sees
+# every access.
+HOST_CFLAGS     := -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -DHOST_TEST -Itests/host -Isrc
+HOST_TEST_FLAGS := $(HOST_CFLAGS) -D_DEFAULT_SOURCE -Itests
 test:
 	mkdir -p $(BUILD)/host
 	cc -std=c11 -Wall -Wextra -Werror -Isrc tests/test_dim_core.c src/dim_core.c -o $(BUILD)/host/test_dim_core
@@ -142,13 +147,35 @@ test:
 	cc -std=c11 -Wall -Wextra -Werror -Dmemset=lm_memset -Dmemcpy=lm_memcpy -Dmemmove=lm_memmove \
 	   -Dmemcmp=lm_memcmp tests/test_libc_min.c src/libc_min.c -o $(BUILD)/host/test_libc_min
 	$(BUILD)/host/test_libc_min
-	@# dimmer.c and controls.c with the host stubs (board.h / ota_proto.h HOST_TEST)
+	@# dimmer.c and controls.c with the host stubs
 	cc $(HOST_TEST_FLAGS) tests/test_dimmer.c tests/host_stubs.c src/dimmer.c src/dim_core.c \
 	   -o $(BUILD)/host/test_dimmer
 	$(BUILD)/host/test_dimmer
 	cc $(HOST_TEST_FLAGS) tests/test_controls.c tests/host_stubs.c src/controls.c src/dimmer.c \
 	   src/dim_core.c src/input_core.c src/gesture_core.c -o $(BUILD)/host/test_controls
 	$(BUILD)/host/test_controls
+	cc $(HOST_CFLAGS) tests/test_store.c src/store.c -o $(BUILD)/host/test_store
+	$(BUILD)/host/test_store
+	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -Itests/host -Isrc \
+	   -x c++ src/flash_drv.c tests/test_flash_drv.cpp -o $(BUILD)/host/test_flash_drv
+	$(BUILD)/host/test_flash_drv
+	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -Itests/host -Isrc \
+	   -DBOOTLOADER -x c++ src/flash_drv.c tests/test_flash_drv.cpp \
+	   -o $(BUILD)/host/test_flash_drv_boot
+	$(BUILD)/host/test_flash_drv_boot
+	cc $(HOST_CFLAGS) tests/test_tuya.c src/tuya.c -o $(BUILD)/host/test_tuya
+	$(BUILD)/host/test_tuya
+	cc $(HOST_CFLAGS) -DMEASURE=1 -DFW_VERSION=0x8F tests/test_tuya.c src/tuya.c -o $(BUILD)/host/test_tuya_measure
+	$(BUILD)/host/test_tuya_measure
+	cc $(HOST_CFLAGS) -DDIAG_REPORT=1 -DFW_VERSION=0x8E tests/test_tuya.c src/tuya.c -o $(BUILD)/host/test_tuya_diag
+	$(BUILD)/host/test_tuya_diag
+	cc $(HOST_CFLAGS) tests/test_uart.c src/uart.c -o $(BUILD)/host/test_uart
+	$(BUILD)/host/test_uart
+	cc $(HOST_CFLAGS) tests/test_health.c src/health.c -o $(BUILD)/host/test_health
+	$(BUILD)/host/test_health
+	cc $(HOST_CFLAGS) tests/test_contact_burst.c src/tuya.c src/dimmer.c src/dim_core.c \
+	   -o $(BUILD)/host/test_contact_burst
+	$(BUILD)/host/test_contact_burst
 	python3 tests/test_tools.py
 
 .PHONY: test

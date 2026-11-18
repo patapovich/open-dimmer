@@ -8,7 +8,7 @@
 #include <string.h>
 #include "controls.h"
 #include "dimmer.h"
-#include "store.h"
+#include "health.h"
 #include "ota_proto.h"
 #include "phase.h"
 #include "tuya.h"
@@ -26,7 +26,8 @@
  * filled in by tools/mkimage.py. */
 __attribute__((section(".app_header"), used))
 const app_header_t g_app_header = { APP_MAGIC, 0, 0, FW_VERSION,
-                                    (SIM_ZC ? APP_FLAG_SIM : 0) | (MEASURE ? APP_FLAG_MEASURE : 0), { 0, 0 } };
+                                    (SIM_ZC ? APP_FLAG_SIM : 0) | (MEASURE ? APP_FLAG_MEASURE : 0) |
+                                    (DIAG_REPORT ? APP_FLAG_DIAG : 0), { 0, 0 } };
 
 static volatile uint32_t g_ms;
 
@@ -154,38 +155,6 @@ static void measure_poll(uint32_t now) {
 }
 #endif
 
-#if !(MEASURE || DIAG_REPORT)   /* the measurement builds report more, every 10 s */
-/* Health counters for long runs, in every build: a minute after start and then
- * every 2 min (the module's log keeps ~7 min) as reports of DPs 130..134 (logged by the module's MCU link
- * diagnostics like the measurement DPs, read with zdms16_measure_read.py):
- *   130 uptime minutes   131 reset cause (RCC_CSR flags at start >> 24:
- *   bit 7 LPWR, 6 WWDG, 5 IWDG, 4 software (update), 3 power/BOR, 2 pin, 1 option bytes)
- *   132 zero-cross lock losses   133 edges ignored as noise   134 settings saves
- * (all since start). */
-#define HEALTH_FIRST_MS    60000u
-#define HEALTH_EVERY_MS    120000u
-static uint32_t g_reset_cause;
-static uint32_t g_health_next = HEALTH_FIRST_MS;
-
-static void health_poll(uint32_t now) {
-    if ((int32_t)(now - g_health_next) < 0) {
-        return;
-    }
-    g_health_next = now + HEALTH_EVERY_MS;
-    __disable_irq();
-    uint32_t losses  = g_phase_dbg.lock_losses;
-    uint32_t ignored = g_phase_dbg.zc_ignored;
-    __enable_irq();
-    tuya_report_begin(1);
-    tuya_report_value(130, now / 60000u);
-    tuya_report_value(131, g_reset_cause);
-    tuya_report_value(132, losses);
-    tuya_report_value(133, ignored);
-    tuya_report_value(134, store_save_count());
-    tuya_report_send();
-}
-#endif
-
 /* Independent watchdog, ~1 s (LSI 32 kHz / 32, reload 1000). Once started it
  * runs through software resets too: the bootloader keeps refreshing it. */
 static void watchdog_start(void) {
@@ -218,7 +187,7 @@ void NMI_Handler(void) __attribute__((alias("HardFault_Handler")));
 int main(void) {
     uint32_t csr = RCC->CSR;                    /* why we (re)started, before the flags are cleared */
 #if !(MEASURE || DIAG_REPORT)
-    g_reset_cause = csr >> 24;                  /* kept for the health report */
+    health_init(csr >> 24);                     /* kept for the health report */
 #endif
     RCC->CSR |= RCC_CSR_RMVF;
     clock_init();
@@ -234,7 +203,6 @@ int main(void) {
     watchdog_start();
 
     uint32_t next_query = NETWORK_QUERY_FIRST_MS;
-    uint16_t query_seq  = 0;
 
     while (1) {
         uint32_t now = g_ms;
@@ -251,7 +219,7 @@ int main(void) {
         if ((int32_t)(now - next_query) >= 0) {
             next_query = now + (tuya_network_status() == TUYA_NETWORK_CONNECTED
                                 ? NETWORK_QUERY_EVERY_MS : NETWORK_QUERY_JOINING_MS);
-            tuya_send(TUYA_CMD_QUERY_NETWORK, query_seq++, 0, 0);
+            tuya_query_network(now);
         }
 
 #if !DIAG_REPORT

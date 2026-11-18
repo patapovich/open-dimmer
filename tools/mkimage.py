@@ -7,6 +7,9 @@
                                           image for the first SWD flashing
 The CRC is CRC-32 (zlib) of the whole image with the crc field read as 0.
 
+Header flags: 0x01 SIM bench build, 0x02 MEASURE build, 0x04 DIAG build (the
+module never carries any of them: tools/embed_ztu.py refuses them).
+
 Version bytes (Tuya packing, 2 bits major, 2 minor, 4 patch) the app and the ZTU
 compare as 'strictly newer': 0xBF (2.3.15) is reserved for the SIM bench build and
 0xFF can never be followed by an update, so no other image may carry them.
@@ -14,7 +17,7 @@ compare as 'strictly newer': 0xBF (2.3.15) is reserved for the SIM bench build a
 import struct, sys, zlib
 
 HDR_OFF, APP_MAGIC, APP_MAX, BOOT_SIZE = 0xC0, 0x5A445041, 12 * 1024, 4096
-FLAG_SIM, FLAG_MEASURE = 0x01, 0x02
+FLAG_SIM, FLAG_MEASURE, FLAG_DIAG = 0x01, 0x02, 0x04
 SIM_VERSION, LAST_VERSION = 0xBF, 0xFF
 CODES_WARN = 16   # warn when fewer version codes than this are left
 
@@ -48,7 +51,10 @@ def make_app(data: bytes) -> bytes:
     v = version
     print(f"app image: {len(data)} bytes, crc {crc:08x}, version {v >> 6}.{(v >> 4) & 3}.{v & 15} (0x{v:02X})"
           + (", SIM BENCH BUILD: never on mains" if flags & FLAG_SIM else "")
-          + (", MEASUREMENT BUILD: outputs off" if flags & FLAG_MEASURE else ""), file=sys.stderr)
+          + (", MEASUREMENT BUILD: outputs off, takes no update (back over SWD)"
+             if flags & FLAG_MEASURE else "")
+          + (", DIAGNOSTICS BUILD: takes no update (back over SWD)" if flags & FLAG_DIAG else ""),
+          file=sys.stderr)
     check_version(v, flags)
     return bytes(data)
 

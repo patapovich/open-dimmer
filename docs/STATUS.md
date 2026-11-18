@@ -24,7 +24,18 @@ read). App 2.1.11: 11 628 bytes (660 bytes free). DIAG / MEASURE builds 11 972 /
 (health report, raw timing and the pin scan compiled out there; ~300 bytes left). Since then
 (same behaviour) 928 bytes less in every build: own byte-loop mem* (src/libc_min.c) instead of
 newlib's, no signed division code (DP and curve maths unsigned): app 10 700, DIAG 11 044,
-MEASURE 11 060, SIM 10 744 bytes. CI warns when a build has under 512 bytes free.
+MEASURE 11 060, SIM 10 744 bytes. CI warns when a build has under 512 bytes free. Protocol,
+store and health fixes of review 2026-11-18 (items 17, 29, 30, 33, 37, 38, 39, and parts of 7:
+the MCU's start burst check, 18: the app declines 0xBF / 0xFF offers, 40: flash SR flags in the
+app (the bootloader takes them in phase 3), 44: store, flash driver, protocol, UART and health
+harnesses): app 10 852, DIAG 10 784, MEASURE 10 792, SIM 10 892 bytes (DIAG / MEASURE decline
+every update, so the update path is compiled out there); the bootloader is unchanged (2 136
+bytes, byte-identical). Still open of those items: 18 the SIM build's guard (PA4 pull-up and
+EXTI, shut down from the ISR, virtual edges only after PA4 is static), `make flash` refusing
+SIM images unless ALLOW_SIM=1, the note that a unit stuck on SIM needs a 3.x image or SWD; 40
+switch_type clamped on load, the 60 Hz comment, the INSTALL line that Open Dimmer needs the
+fork's ZTU; 44 dimmer.c and controls.c harnesses. ZTU side: also refuse the DIAG header flag
+0x04 (tools/embed_ztu.py already does).
 
 ## DPs (Open Dimmer; stock ones 1..14 unchanged)
 
@@ -35,7 +46,7 @@ MEASURE 11 060, SIM 10 744 bytes. CI warns when a build has under 512 bytes free
 | 101 / 102 | dimming curve: incandescent, led, led_deep, led_deeper, led_soft (default for new channels), linear |
 | 103 / 104 | power-on per channel |
 | 105 / 106 | wall switch gesture (momentary type), event: 1 single, 2 double, 3 triple, 4 hold, 5 release |
-| 130..134 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, saves |
+| 130..135 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, saves, UART receive losses |
 | 150..154 / 155..159 | per channel: fade on ms, fade off ms, soft dim end %, hold ms, hold dim end % (saved) |
 | 110..123 | DIAG / MEASURE builds only (statistics every 10 s) |
 | 0xA0..0xA3 | Open Dimmer commands (not Tuya's): update notify / block / result, identity |
@@ -99,9 +110,11 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
 
 ## Build and deploy (CI / CD)
 
-- **CI** (`.github/workflows/ci.yml`, every push / PR, read-only token): host tests (C logic and
-  the image tools); normal, DIAG, MEASURE and SIM builds with the pinned SDK; curve tables vs
-  generator; ZTU embedding refuses bench and measurement builds; size report; artifacts.
+- **CI** (`.github/workflows/ci.yml`, every push / PR, read-only token): host tests (C logic,
+  the settings store, the flash driver against a register model, the serial protocol, UART
+  receive, health report, the MCU's start burst size, and the image tools); normal, DIAG,
+  MEASURE and SIM builds with the pinned SDK; curve tables vs generator; ZTU embedding refuses
+  bench, measurement and diagnostics builds; size report; artifacts.
 - **Release:** bump `FW_VERSION` in `src/tuya.h` (never 0xBF, reserved for SIM, or 0xFF; a
   warning comes when fewer than 16 codes are left), commit on `main`,
   `tools/release/release.sh`: checks (main, clean, contains origin/main, tests, all four
@@ -135,7 +148,7 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
   the PY32 version it carries and each module's installed vs the image's file version, asks
   (once more if the image is not newer), then fast OTA one module at a time with the guard; the
   250 ms block delay is put back on every exit. The ZTU updates the MCU only if it runs an
-  older version of Open Dimmer. Then read the health DPs 130..134 of the module (they come
+  older version of Open Dimmer. Then read the health DPs 130..135 of the module (they come
   every 2 min).
 - By hand (what the scripts do): `make test && make`, `tools/embed_ztu.py build/zdms16_py32.img
   <fork>/src/zigbee/secondary_mcu_image.c`, stub tests in the fork, push, build branch =
@@ -207,7 +220,11 @@ the fork. Fix plan, in phases:
 1. ZTU + converter batch: one ZTU release, OTA to the spare first, then one module with its
    stock MCU.
 2. PY32 app batch (OTA to the spare; the flash savings first).
-3. Bootloader batch (SWD, frozen per unit: most test effort).
+3. Bootloader batch (SWD, frozen per unit: most test effort). It also takes the flash driver's
+   SR-flag fix of phase 2 (item 40): `src/flash_drv.c` keeps the bootloader's old behaviour
+   under `BOOTLOADER`, so `boot.bin` (what every `make flash-all` and `install.sh` writes) stays
+   byte-identical to the one before phase 2 until this batch drops that and tests it on the
+   spare.
 4. Hardware verification on the spare (the gate above).
 5. Migration of further modules (the order above).
 
@@ -231,14 +248,14 @@ spare: OnLevel kept across a power cycle.
    2026-11-18 (home-dimmer 8ea5a25e): configure waits for a real `mcu_version` first (checked
    with `tools/ha/configure_check.js`; on hardware at the next OTA).
 2. Long trial of the spare: read the health DPs now and then (131 reset cause, 132 lock losses,
-   133 ignored edges).
+   133 ignored edges, 135 UART receive losses).
 3. Fade / hold defaults: the user set channel 1 to `led_soft`; settle the defaults after use.
 4. Further modules: see "Before further modules". Install with
    `FREQ=400000 IMAGE=release tools/swd/install.sh` (one contact; **untested on hardware**, the
    stock path with the option reload has never run) or the single steps in docs/INSTALL.md.
    Mains off, probe only on a dead board.
 5. Optional: zero-cross delay measurement (`docs/ZC-DELAY-MEASUREMENT.md`; the DIAG build
-   needs a version byte at least the carried one, or the ZTU replaces it within seconds).
+   declines the ZTU's update offers, so it stays until `make flash-all` over SWD).
 6. Parked: per-channel gesture action modes / detached switch type; module button gestures.
 7. Later (user): the release starts the fork's py32-bump at once: a fine-grained PAT for
    `patapovich/tuya-zigbee-switch` (Actions: read and write only) as secret

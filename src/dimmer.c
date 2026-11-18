@@ -228,7 +228,8 @@ void dimmer_prepare_restart(void) {
     }
     saved_t s;
     snapshot(&s);
-    if (memcmp(&s, &g_saved, sizeof(s)) != 0 && store_save((const uint8_t *)&s)) {
+    /* The gates are off already: a second page may stall the CPU too. */
+    if (memcmp(&s, &g_saved, sizeof(s)) != 0 && store_save_tries((const uint8_t *)&s, 2)) {
         g_saved = s;
     }
     mailbox_keep();
