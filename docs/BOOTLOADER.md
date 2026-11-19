@@ -129,7 +129,9 @@ on v2 and stays 12 KB on v1.
      endurance against the save rate measured on a module (every level change is saved, so an
      automation that dims every 90 s counts). If it is tight, the app first stops saving pure
      level changes from Zigbee when the power-on behaviour is not "last".
-1. **Release M (the ring mover).** Same features plus:
+1. **Release M (the ring mover).** Implemented as 2.1.14 (build 400, `RING_HIGH ?= 1` in the
+   Makefile, `_store_scan_start` in the linker script, `store_load` in src/store.c, health DP
+   137 bits 24 / 25). Same features plus:
    - Linker: `SETTINGS ORIGIN = 0x08004800, LENGTH = 2K`; app `FLASH LENGTH = 14K`.
    - Header: RING_HIGH set (one Makefile switch sets both the linker and the flag; CI checks
      that the flag matches `_settings_start`).

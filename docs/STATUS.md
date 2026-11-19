@@ -66,7 +66,7 @@ already does).
 | 103 / 104 | power-on per channel |
 | 105 / 106 | wall switch gesture (momentary type), event: 1 single, 2 double, 3 triple, 4 hold, 5 release |
 | 130..135 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, saves, UART receive losses |
-| 136 / 137 | with the health report (from the first v2 app): CRC-32 of the 4 KB boot sector (the released v1 bootloader: 0xEAC45031), the boot word at start, bits 23..0 (probe answer time, rescue info, LINK, tries; 0 under v1). docs/BOOTLOADER.md section 9 |
+| 136 / 137 | with the health report (from the first v2 app): CRC-32 of the 4 KB boot sector (the released v1 bootloader: 0xEAC45031), the boot word at start, bits 23..0 (probe answer time, rescue info, LINK, tries; 0 under v1). docs/BOOTLOADER.md section 9. From 2.1.14 bit 24: the settings ring is the sector's upper half (RING_HIGH), bit 25: the newest settings record is in it ("ring moved") |
 | 150..154 / 155..159 | per channel: fade on ms, fade off ms, soft dim end %, hold ms, hold dim end % (saved) |
 | 160 / 161 | per channel (from build 400): transition time in ms for the network changes of the next second (a Zigbee transition time; one even rate, the min when dark; 0 = the fade settings). Not saved, not in the dump; the module writes it right before the on / off / level |
 | 110..123 | DIAG / MEASURE builds only (statistics every 10 s) |
@@ -311,6 +311,10 @@ Still to do, in this order (docs/BOOTLOADER.md section 14):
    yet. B8 (the reset flags) decides whether the cold / warm reading of the bootloader holds on
    the chip; B2 checks the ZTU's 1.5 s answer time; B10 is the 1-2 week trial.
 4. Only then further modules (the migration order above).
+5. Release M = 2.1.14 (build 400, the ring mover of docs/BOOTLOADER.md section 1, at most
+   12 KB so the v1 bootloader runs it too): the ring moves to the upper half; check on every
+   Open Dimmer module that DP 137 bit 25 ("ring moved") is set before any app over 12 KB.
+   Then, with the v2 bootloader on the module and a ZTU build with room, 2.2.0 (over 12 KB).
 
 **Per ZTU release (contract check).** The frozen bootloader relies on the ZTU contract
 (docs/BOOTLOADER.md section 10, `src/ota_proto.h`): every ZTU release that carries an image runs
