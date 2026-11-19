@@ -6,14 +6,16 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
 ## 2.2.0 (2026-11-19)
 
 - Up to 14 KB (after 2.1.14's ring move; needs the v2 bootloader on the module).
-- Auto-off: a countdown (DP 6 / 12, s) written while on turns the channel off after that long;
-  an off cancels it.
+- Auto-off: a countdown (DP 6 / 12, s, up to a day) written while on turns the channel off
+  after that long; an off cancels it (reported as 0). Not kept over a reset.
 - Wall switch mode per channel (DP 162 / 163): normal, detached (the light is the network's, the
-  switch only reports its gestures; a toggle or state switch's change as a single) or off.
+  switch only reports its gestures; a toggle or state switch's change as a single) or off. Back
+  in normal, a state switch sets the light as it stands.
 - Level after a power cut per channel (DP 164 / 165, 0 = the last level).
 - Identify (DP 166 / 167, s): the channel blinks, then is as it was.
 - Start boost per channel (DP 168 / 169, ms up to 750): coming on from dark at full that long,
-  then the level (for LED drivers that need a kick).
+  then the level (for LED drivers that need a kick); also before a hold from dark; a transition
+  time stays as it is; none when an update or a watchdog reset brings the light back.
 - Fast press per channel (DP 170 / 171): in the detached mode a momentary switch's press is
   reported at once (for direct control of other devices), hold and release as before, no
   double / triple on that channel.
