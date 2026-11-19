@@ -231,6 +231,11 @@ int main(void) {
 
         IWDG->KR = 0xAAAA;
 
+#if defined(CRASH_TEST) && CRASH_TEST
+        if (now >= 1000u) {
+            __asm volatile("udf #0");   /* bench test B4: a fault 1 s after every start */
+        }
+#endif
         tuya_poll(now);
         phase_poll();
         controls_poll(now);

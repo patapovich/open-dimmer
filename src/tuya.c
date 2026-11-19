@@ -222,6 +222,9 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
             }
         }
 #endif
+#if defined(OFFER_DECLINE_TEST) && OFFER_DECLINE_TEST
+        ok = 1;                       /* bench test B3: a broken update path, every offer declined */
+#endif
         tuya_send(OTA_CMD_NOTIFY, seq, &ok, 1);
 #if !(SIM_ZC || MEASURE || DIAG_REPORT)
         if (ok == 0) {

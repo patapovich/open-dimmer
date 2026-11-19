@@ -33,6 +33,14 @@ FW_PREV  ?=
 # after 2 min without a frame in a run of 5 min, and sees no frame at all (src/link_core.h). Only
 # below the release, so a unit on the release never takes such an image, even carried by mistake.
 LINK_WDG_TEST ?=
+# make OFFER_DECLINE_TEST=1 FW_PREV=1 FW_TEST=n: bench test B3 (spare, SWD): the app declines
+# every update offer (a broken update path); the bootloader's power-on probe must still install
+# the release the module carries. Below the release, like LINK_WDG_TEST.
+OFFER_DECLINE_TEST ?=
+# make CRASH_TEST=1 FW_TEST=n: bench test B4 (spare, SWD): the app faults 1 s after its start (a
+# crash loop); above the carried release, so the module never offers it that release, and after 3
+# unconfirmed runs the bootloader's rescue window must install it (older images allowed there).
+CRASH_TEST ?=
 ifneq ($(FW_BUILD),)
   $(error FW_BUILD is the release build in src/tuya.h; test builds: make FW_TEST=n [FW_PREV=1])
 endif
@@ -46,6 +54,30 @@ ifeq ($(LINK_WDG_TEST),1)
   endif
   ifneq ($(filter 1,$(SIM) $(MEASURE) $(DIAG)),)
     $(error LINK_WDG_TEST is a normal build's bench switch (not with SIM, MEASURE or DIAG))
+  endif
+endif
+ifneq ($(filter-out 0 1,$(OFFER_DECLINE_TEST) $(CRASH_TEST)),)
+  $(error OFFER_DECLINE_TEST / CRASH_TEST take 1 (bench tests B3 / B4) or 0)
+endif
+ifeq ($(OFFER_DECLINE_TEST),1)
+  ifneq ($(FW_PREV),1)
+    $(error OFFER_DECLINE_TEST builds lie below the release: make OFFER_DECLINE_TEST=1 FW_PREV=1 FW_TEST=n)
+  endif
+endif
+ifeq ($(CRASH_TEST),1)
+  ifeq ($(FW_TEST),)
+    $(error CRASH_TEST builds lie above the release: make CRASH_TEST=1 FW_TEST=n)
+  endif
+  ifeq ($(FW_PREV),1)
+    $(error CRASH_TEST builds lie above the release: make CRASH_TEST=1 FW_TEST=n (no FW_PREV))
+  endif
+endif
+ifneq ($(filter 1,$(OFFER_DECLINE_TEST) $(CRASH_TEST)),)
+  ifneq ($(filter 1,$(SIM) $(MEASURE) $(DIAG) $(LINK_WDG_TEST)),)
+    $(error OFFER_DECLINE_TEST / CRASH_TEST are normal builds' bench switches (one at a time, not with SIM, MEASURE, DIAG or LINK_WDG_TEST))
+  endif
+  ifeq ($(OFFER_DECLINE_TEST)$(CRASH_TEST),11)
+    $(error OFFER_DECLINE_TEST and CRASH_TEST: one bench test at a time)
   endif
 endif
 ifneq ($(FW_TEST),)
@@ -64,7 +96,7 @@ ifneq ($(FW_PREV),)
     $(error FW_PREV=1 alone would be the previous release: make FW_PREV=1 FW_TEST=n (1..99), the build FW_BUILD - 100 + n)
   endif
 endif
-BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)$(if $(FW_PREV),-prev)$(if $(FW_TEST),-t$(FW_TEST))$(if $(filter 1,$(LINK_WDG_TEST)),-linktest)
+BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)$(if $(FW_PREV),-prev)$(if $(FW_TEST),-t$(FW_TEST))$(if $(filter 1,$(LINK_WDG_TEST)),-linktest)$(if $(filter 1,$(OFFER_DECLINE_TEST)),-decline)$(if $(filter 1,$(CRASH_TEST)),-crash)
 
 CC       := arm-none-eabi-gcc
 OBJCOPY  := arm-none-eabi-objcopy
@@ -93,7 +125,8 @@ INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Inc
             -I$(SDK)/PY32F0xx_LL_Driver/Inc
 DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) -DMEASURE=$(MEASURE) -DDIAG_REPORT=$(DIAG) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE),$(if $(filter 1,$(MEASURE)),-DFW_VERSION=0x8F,$(if $(filter 1,$(DIAG)),-DFW_VERSION=0x8E))) \
             $(if $(FW_TEST),-DFW_TEST=$(FW_TEST)) $(if $(FW_PREV),-DFW_PREV=$(FW_PREV)) \
-            $(if $(filter 1,$(LINK_WDG_TEST)),-DLINK_WDG_TEST=1) -DRING_HIGH=$(RING_HIGH)
+            $(if $(filter 1,$(LINK_WDG_TEST)),-DLINK_WDG_TEST=1) -DRING_HIGH=$(RING_HIGH) \
+            $(if $(filter 1,$(OFFER_DECLINE_TEST)),-DOFFER_DECLINE_TEST=1) $(if $(filter 1,$(CRASH_TEST)),-DCRASH_TEST=1)
 ARCH     := -mcpu=cortex-m0plus -mthumb
 # Data stays in common sections (no -fdata-sections): GCC then reaches a file's statics from one
 # anchor instead of a literal per variable (-188 bytes in the normal build); unused data is
