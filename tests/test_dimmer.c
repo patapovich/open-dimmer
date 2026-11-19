@@ -655,9 +655,9 @@ static void test_transition_on_from_dark_and_off(void) {
     CHECK(t >= 2950 && t <= 3030);
     run_ms(1000);
     host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 1500);
-    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);            /* dark in 1.5 s, plus the moment at the min */
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);            /* dark in 1.5 s, the moment at the min in it */
     t = ms_to(0, 4000);
-    CHECK(t >= 1480 && t <= 1620);
+    CHECK(t >= 1490 && t <= 1520);
 }
 
 static void test_transition_is_for_the_next_second_only(void) {
@@ -665,12 +665,12 @@ static void test_transition_is_for_the_next_second_only(void) {
     host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 4000);
     run_ms(1100);                                        /* too late for it */
     host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 800);
-    CHECK(g_host_fader[0].timed_q == 0);
+    CHECK(g_host_fader[0].timed_left == 0);
     uint32_t t = ms_to(800, 5000);
     CHECK(t > 0 && t <= 1300);                           /* the fade settings: 600 steps at 5 per 10 ms */
     host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 0);   /* 0: the fade settings */
     host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 300);
-    CHECK(g_host_fader[0].timed_q == 0);
+    CHECK(g_host_fader[0].timed_left == 0);
 }
 
 static void test_transition_is_neither_saved_nor_in_the_dump(void) {

@@ -1142,11 +1142,11 @@ static void test_timed_off_reaches_the_floor_in_the_time_then_goes_dark(void) {
     dim_fader_set_floor(&f, 100);
     dim_fader_set(&f, 1, 600);
     timed_ticks(&f, 600, 1000);
-    dim_fader_set_timed(&f, 0, 600, 1000);      /* 600 -> floor in 1 s, a moment there, dark */
+    dim_fader_set_timed(&f, 0, 600, 1000);      /* dark after 1 s: the floor, a moment there, out */
     int n = timed_ticks(&f, 100, 1000);
-    CHECK(n >= 99 && n <= 101);
-    n = timed_ticks(&f, 0, 100);
-    CHECK(n >= 1 && n <= DIM_OFF_HOLD_MS / 10 + 1);
+    CHECK(n >= 91 && n <= 93);                  /* 1000 - 80 ms */
+    int m = timed_ticks(&f, 0, 100);
+    CHECK(n + m >= 99 && n + m <= 102);
 }
 
 static void test_timed_zero_is_the_profile(void) {
@@ -1155,7 +1155,7 @@ static void test_timed_zero_is_the_profile(void) {
     dim_fader_init(&b);
     dim_fader_set(&a, 1, 1000);
     dim_fader_set_timed(&b, 1, 1000, 0);
-    CHECK(b.timed_q == 0);
+    CHECK(b.timed_left == 0);
     CHECK(timed_ticks(&a, 1000, 10000) == timed_ticks(&b, 1000, 10000));
 }
 
@@ -1169,15 +1169,17 @@ static void test_timed_ends_with_a_new_target_or_a_hold_and_stays_for_the_same_t
         dim_fader_tick(&f);
     }
     dim_fader_set(&f, 1, 900);                  /* the same target (a setting written): kept */
-    CHECK(f.timed_q != 0);
-    uint16_t before = f.current;
+    CHECK(f.timed_left != 0);
+    dim_fader_set_timed(&f, 1, 900, 8000);      /* the same target timed again: no new start */
+    int n = timed_ticks(&f, 900, 1000);
+    CHECK(n >= 788 && n <= 791);                /* 8 s from the first, 10 half cycles gone */
+    dim_fader_set_timed(&f, 1, 100, 8000);
     dim_fader_tick(&f);
-    CHECK(f.current - before == 1);
     dim_fader_set(&f, 1, 950);                  /* a new target without a time: the profile */
-    CHECK(f.timed_q == 0);
+    CHECK(f.timed_left == 0);
     dim_fader_set_timed(&f, 1, 200, 5000);
     dim_fader_hold_start(&f, +1, 10, 1000);     /* the finger wins */
-    CHECK(f.timed_q == 0);
+    CHECK(f.timed_left == 0);
 }
 
 static void test_timed_holds_on_60_hz(void) {
@@ -1196,12 +1198,20 @@ static void test_timed_extremes(void) {
     dim_fader_init(&f);
     dim_fader_set(&f, 1, 500);
     timed_ticks(&f, 500, 1000);
-    dim_fader_set_timed(&f, 1, 501, 0xFFFF);    /* 1 step in 65 s: still moves */
-    CHECK(f.timed_q >= 1);
-    dim_fader_set_timed(&f, 1, 1000, 1);        /* under 10 ms: at once */
+    dim_fader_set_timed(&f, 1, 501, 0xFFFF);    /* 1 step in 65.5 s: takes that long */
+    int n = timed_ticks(&f, 501, 10000);
+    CHECK(n >= 6552 && n <= 6554);
+    dim_fader_set_timed(&f, 1, 510, 10000);     /* 9 steps in 10 s, evenly */
+    for (int i = 0; i < 500; i++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current >= 505 && f.current <= 506);
+    n = timed_ticks(&f, 510, 10000);
+    CHECK(n >= 499 && n <= 501);
+    dim_fader_set_timed(&f, 1, 1000, 1);        /* under a half cycle: at once */
     CHECK(dim_fader_tick(&f) == 1000);
     dim_fader_set_timed(&f, 1, 1000, 3000);     /* nowhere to go: the profile */
-    CHECK(f.timed_q == 0);
+    CHECK(f.timed_left == 0);
 }
 
 int main(void) {

@@ -68,6 +68,7 @@ already does).
 | 130..135 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, saves, UART receive losses |
 | 136 / 137 | with the health report (from the first v2 app): CRC-32 of the 4 KB boot sector (the released v1 bootloader: 0xEAC45031), the boot word at start, bits 23..0 (probe answer time, rescue info, LINK, tries; 0 under v1). docs/BOOTLOADER.md section 9 |
 | 150..154 / 155..159 | per channel: fade on ms, fade off ms, soft dim end %, hold ms, hold dim end % (saved) |
+| 160 / 161 | per channel (from build 400): transition time in ms for the network changes of the next second (a Zigbee transition time; one even rate, the min when dark; 0 = the fade settings). Not saved, not in the dump; the module writes it right before the on / off / level |
 | 110..123 | DIAG / MEASURE builds only (statistics every 10 s) |
 | 0xA0..0xA3 | Open Dimmer commands (not Tuya's): update notify / block / result, identity |
 

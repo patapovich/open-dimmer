@@ -39,7 +39,7 @@ void dim_fader_init(dim_fader_t *f) {
     f->acc        = 0;
     f->half_period = DIM_HALF_PERIOD_50HZ;
     f->hold_fine  = 0;
-    f->timed_q    = 0;
+    f->timed_left = 0;
     dim_profile_default(&f->prof);
 }
 
@@ -69,27 +69,30 @@ void dim_fader_set(dim_fader_t *f, uint8_t on, uint16_t level) {
     }
     uint16_t t = on ? level : 0;
     if (t != f->target) {
-        f->timed_q = 0;                     /* a new target: the profile's rates again */
+        f->timed_left = 0;                  /* a new target: the profile's rates again */
     }
     f->target = t;
 }
 
 void dim_fader_set_timed(dim_fader_t *f, uint8_t on, uint16_t level, uint16_t ms) {
+    uint16_t before = f->target;
     dim_fader_set(f, on, level);
-    if (f->hold_dir || ms == 0) {
-        return;
+    if (f->hold_dir || ms == 0 || (f->target == before && f->timed_left)) {
+        return;                             /* no time, or the same move going on */
     }
-    /* The distance the fade covers: dark starts at the floor, going dark ends there. */
+    /* From where the light is (dark starts at the floor) to the target (going dark: the floor,
+     * the moment there counted in). */
     uint16_t from = f->current < f->floor ? f->floor : f->current;
     uint16_t to   = f->target < f->floor ? f->floor : f->target;
-    uint16_t d    = from > to ? (uint16_t)(from - to) : (uint16_t)(to - from);
-    if (ms < 10) {
-        ms = 10;                            /* one half cycle: at once */
+    if (from == to) {
+        return;
     }
-    /* 1/64 steps per 10 ms; at most 1000 * 64 (d <= 1000, ms >= 10). 0 only for d == 0 (the
-     * profile's rates); a very slow move keeps at least 1. */
-    uint32_t q = ((uint32_t)d * (DIM_Q_PER_STEP * 10u) + ms / 2u) / ms;
-    f->timed_q = (uint16_t)(q ? q : d != 0);
+    if (f->target == 0 && ms > f->prof.off_hold_ms) {
+        ms = (uint16_t)(ms - f->prof.off_hold_ms);
+    }
+    f->timed_from  = from;
+    f->timed_to    = to;
+    f->timed_total = f->timed_left = (uint32_t)ms * 50u;   /* 50 ticks = 1 ms */
 }
 
 void dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint16_t lo, uint16_t hi) {
@@ -104,8 +107,8 @@ void dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint16_t lo, uint16_t hi) 
     f->acc       = 0;
     f->target    = f->current;
     f->hold_dir  = dir < 0 ? -1 : 1;
-    f->hold_fine = dir < 0;         /* going down towards the min: fine there */
-    f->timed_q   = 0;
+    f->hold_fine  = dir < 0;        /* going down towards the min: fine there */
+    f->timed_left = 0;
 }
 
 void dim_fader_hold_start_from_dark(dim_fader_t *f, uint16_t lo, uint16_t hi) {
@@ -171,6 +174,19 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
     if (f->hold_dir) {
         return hold_tick(f);
     }
+    if (f->timed_left) {
+        /* A timed move: the even position for the time gone (exact on 50 and 60 Hz). d <= 1000
+         * and the time <= 65535 ms = 3 276 750 ticks: the product fits 32 bits. */
+        f->timed_left = f->timed_left > f->half_period ? f->timed_left - f->half_period : 0;
+        uint16_t a = f->timed_from, b = f->timed_to;
+        uint16_t d = a > b ? (uint16_t)(a - b) : (uint16_t)(b - a);
+        uint16_t m = (uint16_t)((uint32_t)d * (f->timed_total - f->timed_left) / f->timed_total);
+        f->current    = b > a ? (uint16_t)(a + m) : (uint16_t)(a - m);
+        f->floor_hold = 0;
+        f->from_dark  = 0;
+        f->acc        = 0;
+        return f->current;                  /* at its end the target, or the floor going dark */
+    }
     uint16_t cur = f->current, tgt = f->target;
     uint16_t plain_q = (uint16_t)((f->step ? f->step : 1) * DIM_Q_PER_STEP);
 
@@ -180,7 +196,7 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
             cur          = f->floor;        /* light comes on at the lowest lit level */
             f->from_dark = 1;
         }
-        uint16_t step = take(f, f->timed_q ? f->timed_q : f->from_dark ? f->prof.on_q : plain_q);
+        uint16_t step = take(f, f->from_dark ? f->prof.on_q : plain_q);
         cur = (uint16_t)(tgt - cur > step ? cur + step : tgt);
         if (cur == tgt) {
             f->from_dark = 0;
@@ -196,14 +212,12 @@ uint16_t dim_fader_tick(dim_fader_t *f) {
                 cur           = tgt;
             }
         } else if (tgt < f->floor) {
-            /* going dark: the off rate, slowing to 1 step per 10 ms at the floor (a timed move:
-             * its even rate) */
-            uint16_t step = take(f, f->timed_q ? f->timed_q
-                                               : eased_q(f->prof.off_q, DIM_Q_PER_STEP,
-                                                         (uint16_t)(cur - f->floor), f->prof.soft_span));
+            /* going dark: the off rate, slowing to 1 step per 10 ms at the floor */
+            uint16_t step = take(f, eased_q(f->prof.off_q, DIM_Q_PER_STEP, (uint16_t)(cur - f->floor),
+                                            f->prof.soft_span));
             cur = (uint16_t)(cur - f->floor > step ? cur - step : f->floor);
         } else {
-            uint16_t step = take(f, f->timed_q ? f->timed_q : plain_q);
+            uint16_t step = take(f, plain_q);
             cur = (uint16_t)(cur - tgt > step ? cur - step : tgt);
         }
     }
