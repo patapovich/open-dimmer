@@ -76,6 +76,9 @@ static uint32_t g_dirty_ms;
 static uint8_t  g_save_retries;
 static uint32_t g_now;                              /* dimmer_poll's time */
 static uint32_t g_cd_end[DIMMER_CHANNELS];          /* countdown: when it goes off */
+/* After a reset that kept the RAM the light is brought back with no start boost (it was lit
+ * just before; a flash at full on every update would be wrong); until the first poll. */
+static uint8_t  g_no_boost;
 static uint32_t g_ident_end[DIMMER_CHANNELS];       /* identify: when it stops (0: none) */
 static uint8_t  g_ident_s[DIMMER_CHANNELS];         /* ... how long it was asked for */
 static uint16_t g_trans_ms[DIMMER_CHANNELS];        /* DP 160 / 161: a transition time ... */
@@ -135,7 +138,7 @@ static void apply(uint8_t ch) {
     dim_profile_t p;
     dim_profile_set(&p, g_ch[ch].fade_on_ms, g_ch[ch].fade_off_ms, g_ch[ch].soft_end_pct,
                     g_ch[ch].hold_ms, g_ch[ch].hold_end_pct);
-    p.boost_ms = (uint16_t)(g_ch[ch].boost50 * 50u);
+    p.boost_ms = g_no_boost ? 0 : (uint16_t)(g_ch[ch].boost50 * 50u);
     phase_set_profile(ch, &p);
     if (!g_ch[ch].on) {
         g_ch[ch].countdown = 0;       /* an off ends an auto-off countdown */
@@ -250,6 +253,7 @@ uint8_t dimmer_init(uint32_t reset_csr) {
             g_ch[i].level = in_range(&g_ch[i], (r >> (2 + 10 * i)) & 0x3FFu);
         }
         mb->restored = OTA_RESTORED_MAGIC;
+        g_no_boost   = 1;
         /* Saved if flash holds another state: with power-on 'last', an off
          * whose save was not due yet when the reset came stays off after a
          * later power cut too (dimmer_poll writes nothing if they agree). */
@@ -279,7 +283,8 @@ void dimmer_prepare_restart(void) {
 }
 
 void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok) {
-    g_now = now;
+    g_now      = now;
+    g_no_boost = 0;
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
         if (g_ch[ch].countdown && (int32_t)(now - g_cd_end[ch]) >= 0) {
             dimmer_local_set(ch, 0);  /* auto-off: as a switch off (reported; the countdown 0) */
@@ -613,13 +618,16 @@ void dimmer_report_dp(uint8_t dpid) {
     }
 }
 
-static void report_local(uint8_t ch, uint8_t with_level) {
+static void report_local(uint8_t ch, uint8_t with_level, uint8_t countdown_ended) {
     uint8_t base = (uint8_t)(ch * DP_PER_CHANNEL + 1);
 
     tuya_report_begin(0);
     dimmer_report_dp((uint8_t)(base + DP_ON));
     if (with_level) {
         dimmer_report_dp((uint8_t)(base + DP_LEVEL));
+    }
+    if (countdown_ended) {
+        dimmer_report_dp((uint8_t)(base + DP_COUNTDOWN));     /* 0: an off ended it */
     }
     tuya_report_send();
 }
@@ -631,10 +639,11 @@ void dimmer_local_set(uint8_t ch, uint8_t on) {
     if (!on) {
         end_hold(ch);                 /* e.g. the module button during a hold */
     }
+    uint8_t had_countdown = g_ch[ch].countdown != 0;
     g_ch[ch].on = on ? 1 : 0;
     apply(ch);
     mark_dirty();
-    report_local(ch, 0);
+    report_local(ch, 0, had_countdown && !g_ch[ch].on);
 }
 
 void dimmer_local_toggle_all(void) {
@@ -704,7 +713,7 @@ void dimmer_hold_end(uint8_t ch) {
     g_ch[ch].level = in_range(&g_ch[ch], v);
     apply(ch);
     mark_dirty();                   /* a level picked by hand is kept (the stock MCU does too) */
-    report_local(ch, 1);
+    report_local(ch, 1, 0);
 }
 
 void dimmer_hold_cancel(uint8_t ch) {

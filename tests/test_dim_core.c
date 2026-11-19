@@ -1258,8 +1258,32 @@ static void test_boost_goes_on_through_the_level_after_on_and_ends_with_off_or_a
     CHECK(n >= 1 && n <= DIM_OFF_HOLD_MS / 10 + 1);
     boosted(&f, 300);
     dim_fader_set(&f, 1, 400);
-    dim_fader_hold_start_from_dark(&f, 100, 1000);   /* a hold picks from the floor: no boost */
+    dim_fader_hold_start(&f, +1, 100, 1000);         /* a hold from a level: no boost */
     CHECK(f.boost_left == 0);
+    boosted(&f, 300);
+    dim_fader_set(&f, 1, 400);
+    dim_fader_hold_start_from_dark(&f, 100, 1000);   /* from dark: the kick, then from the min */
+    CHECK(f.boost_left > 0);
+    n = 0;
+    while (f.boost_left && n < 100) {
+        CHECK(dim_fader_tick(&f) == DIM_VALUE_MAX || !f.boost_left);
+        n++;
+    }
+    CHECK(n >= 28 && n <= 30 && f.current == 100 && f.hold_dir == 1);
+    dim_fader_tick(&f);
+    CHECK(f.current >= 100 && f.current < 120);      /* the hold rises from the min */
+}
+
+static void test_a_boost_does_not_lengthen_a_timed_on(void) {
+    dim_fader_t f;
+    boosted(&f, 300);
+    dim_fader_set_timed(&f, 1, 600, 1000);           /* on from dark in 1 s, boost 0.3 s */
+    int n = 0;
+    while ((f.timed_left || f.boost_left) && n < 1000) {
+        dim_fader_tick(&f);
+        n++;
+    }
+    CHECK(n >= 99 && n <= 101 && f.current == 600);  /* 1 s in all (10 ms ticks) */
 }
 
 static void test_no_boost_from_lit_or_when_off_and_a_timed_on_after_it(void) {
@@ -1273,13 +1297,14 @@ static void test_no_boost_from_lit_or_when_off_and_a_timed_on_after_it(void) {
     dim_fader_set(&f, 1, 700);                   /* lit to lit: no boost */
     CHECK(f.boost_left == 0);
     boosted(&f, 100);
-    dim_fader_set_timed(&f, 1, 600, 1000);       /* boost, then the timed rise from the floor */
+    dim_fader_set_timed(&f, 1, 600, 1000);       /* boost, then the timed rise where it is by now */
     for (int i = 0; i < 9; i++) {
         CHECK(dim_fader_tick(&f) == 1000);
     }
-    CHECK(dim_fader_tick(&f) == 100);
+    uint16_t at = dim_fader_tick(&f);
+    CHECK(at >= 140 && at <= 160);               /* 0.1 s of 1 s from the floor 100 to 600 */
     int n = timed_ticks(&f, 600, 1000);
-    CHECK(n >= 99 && n <= 101);
+    CHECK(n >= 89 && n <= 91);                   /* the time stays 1 s in all */
 }
 
 int main(void) {
@@ -1341,6 +1366,7 @@ int main(void) {
     test_boost_at_full_then_straight_to_the_level();
     test_boost_goes_on_through_the_level_after_on_and_ends_with_off_or_a_hold();
     test_no_boost_from_lit_or_when_off_and_a_timed_on_after_it();
+    test_a_boost_does_not_lengthen_a_timed_on();
     if (g_failed) {
         printf("%d check(s) failed\n", g_failed);
         return EXIT_FAILURE;

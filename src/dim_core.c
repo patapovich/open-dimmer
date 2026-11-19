@@ -125,8 +125,10 @@ void dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint16_t lo, uint16_t hi) 
 }
 
 void dim_fader_hold_start_from_dark(dim_fader_t *f, uint16_t lo, uint16_t hi) {
+    uint32_t boost = f->boost_left;           /* a hold from dark keeps its start boost */
     dim_fader_hold_start(f, +1, lo, hi);
-    f->hold_fine = 1;
+    f->hold_fine  = 1;
+    f->boost_left = boost;
 }
 
 uint16_t dim_fader_hold_stop(dim_fader_t *f) {
@@ -184,17 +186,26 @@ static uint16_t hold_tick(dim_fader_t *f) {
 }
 
 uint16_t dim_fader_tick(dim_fader_t *f) {
+    if (f->boost_left) {
+        /* At full (also before a hold from dark: the kick an LED driver needs at the min); a
+         * timed move runs on meanwhile, so the transition time stays. Then straight to the
+         * target, where a timed move is now, or the hold's min; switched off during it: from the
+         * floor, the usual way out. */
+        uint16_t hp  = f->half_period;
+        uint8_t  lit = f->target || f->hold_dir;        /* a hold from dark: target still 0 */
+        f->boost_left = lit && f->boost_left > hp ? f->boost_left - hp : 0;
+        if (f->boost_left) {
+            f->timed_left = f->timed_left > hp ? f->timed_left - hp : 0;
+            f->current    = DIM_VALUE_MAX;
+            return f->current;
+        }
+        f->current = f->hold_dir ? f->hold_lo : !f->target ? f->floor : f->target;
+        if (!f->timed_left) {
+            return f->current;
+        }
+    }
     if (f->hold_dir) {
         return hold_tick(f);
-    }
-    if (f->boost_left) {
-        /* At full, then straight to the target (or where a timed move starts); switched off
-         * during it: from the floor, the usual way out. */
-        f->boost_left = f->target && f->boost_left > f->half_period ? f->boost_left - f->half_period
-                                                                     : 0;
-        f->current = f->boost_left ? DIM_VALUE_MAX
-                   : !f->target ? f->floor : f->timed_left ? f->timed_from : f->target;
-        return f->current;
     }
     if (f->timed_left) {
         /* A timed move: the even position for the time gone (exact on 50 and 60 Hz). d <= 1000

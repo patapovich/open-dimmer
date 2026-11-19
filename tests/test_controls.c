@@ -667,6 +667,56 @@ static void test_fast_press_reports_the_press_at_once_and_no_multi_taps(void) {
     CHECK(host_log_find("105=6]") < 0 && c1()->on == 1);
 }
 
+
+static void test_a_mode_change_drops_a_pending_gesture_and_a_press_under_way(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, MOMENTARY);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, DETACHED);
+    run_ms(3000);
+    host_log_clear();
+    s1(1);                                         /* a tap, its single still pending ... */
+    run_ms(120);
+    s1(0);
+    run_ms(100);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, INPUT_OFF);   /* ... when the mode goes off */
+    run_ms(1000);
+    CHECK(host_log_find("105=") < 0);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, 0);           /* normal, the light on */
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    run_ms(100);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, DETACHED);
+    run_ms(50);
+    s1(1);                                         /* pressed in detached ... */
+    run_ms(100);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, 0);           /* ... let go in normal */
+    run_ms(50);
+    s1(0);
+    run_ms(1000);
+    CHECK(c1()->on == 1);                          /* that release is not normal's: still on */
+    s1(1);                                         /* the next press is */
+    run_ms(120);
+    s1(0);
+    run_ms(200);
+    CHECK(c1()->on == 0);
+}
+
+static void test_a_state_switch_says_the_light_when_back_in_normal(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, STATE);
+    run_ms(100);
+    s1(1);
+    run_ms(100);
+    CHECK(c1()->on == 1);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, DETACHED);
+    run_ms(50);
+    s1(0);                                         /* flipped while detached: light stays */
+    run_ms(100);
+    CHECK(c1()->on == 1);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, 0);
+    run_ms(50);
+    CHECK(c1()->on == 0);                          /* normal again: as the switch is */
+}
+
 int main(void) {
     RUN(test_type_change_to_state_syncs);
     RUN(test_type_change_mid_press);
@@ -692,6 +742,8 @@ int main(void) {
     RUN(test_detached_toggle_reports_each_change_as_a_single);
     RUN(test_input_off_ignores_the_switch_and_the_mode_is_saved);
     RUN(test_fast_press_reports_the_press_at_once_and_no_multi_taps);
+    RUN(test_a_mode_change_drops_a_pending_gesture_and_a_press_under_way);
+    RUN(test_a_state_switch_says_the_light_when_back_in_normal);
     if (g_fail) {
         printf("test_controls: FAILED\n");
         return 1;

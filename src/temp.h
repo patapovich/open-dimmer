@@ -2,7 +2,11 @@
  * calibration of each chip (raw values at 30 and 85 degC with Vref+ = 3.3 V, 0x1FFF0F14 /
  * 0x1FFF0F18). Health DP 138, every report. One conversion per report, started at the report
  * before: nothing waits. It is the MCU's own temperature, near the gate MOSFETs on the same
- * board but not theirs: a diagnostic, no protection is built on it. */
+ * board but not theirs: a diagnostic, no protection is built on it. The ADC is ratiometric to
+ * VDD and the calibration is for 3.3 V: VDD 0.1 V off moves it several degC (with the chip's
+ * spread about +-10 degC absolute); the change over time is what it shows well. The calibration
+ * addresses are the PY32F0xx SDK's (F002B parts differ): checked on one chip against a room
+ * temperature before anything trusts DP 138. */
 #ifndef TEMP_H
 #define TEMP_H
 

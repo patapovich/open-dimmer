@@ -708,7 +708,7 @@ static void test_countdown_turns_off_after_its_time(void) {
     CHECK(c1()->on == 1);
     run_ms(200);
     CHECK(c1()->on == 0 && c1()->countdown == 0);          /* off, as by the wall switch */
-    CHECK(host_log_find("A[1=0]") >= 0);
+    CHECK(host_log_find("A[1=0,6=0]") >= 0);              /* with the countdown's end */
     host_log_clear();
     host_write(CH1_COUNTDOWN, TUYA_DP_TYPE_VALUE, 60);    /* while off: nothing to count */
     CHECK(host_log_find("P[6=0] ") >= 0 && c1()->countdown == 0);
@@ -720,6 +720,37 @@ static void test_countdown_turns_off_after_its_time(void) {
     host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
     run_ms(100000);
     CHECK(c1()->on == 1);                                  /* not taken up again */
+    host_write(CH1_COUNTDOWN, TUYA_DP_TYPE_VALUE, 600);
+    host_log_clear();
+    dimmer_local_set(0, 0);                                /* a wall switch off ends it */
+    CHECK(host_log_find("A[1=0,6=0]") >= 0 && c1()->countdown == 0);
+    dimmer_local_set(0, 1);
+    host_log_clear();
+    dimmer_local_set(0, 0);                                /* none running: the off alone */
+    CHECK(host_log_find("A[1=0]") >= 0);
+}
+
+static void test_no_start_boost_after_a_warm_reset(void) {
+    lit_at(400);
+    host_write(CH1_BOOST, TUYA_DP_TYPE_VALUE, 300);
+    host_write(POWER_ON_1, TUYA_DP_TYPE_ENUM, 1);          /* on after a power cut */
+    run_ms(3000);
+    boot(CSR_WATCHDOG);                                    /* the light comes back ... */
+    unsigned full = 0;
+    for (int i = 0; i < 400; i++) {
+        run_ms(1);
+        full += g_host_fader[0].current == 1000;
+    }
+    CHECK(c1()->on == 1 && full == 0);                     /* ... with no flash at full */
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);
+    run_ms(3000);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);              /* later from dark: the boost */
+    run_ms(10);
+    CHECK(g_host_fader[0].current == 1000);
+    run_ms(3000);
+    power_up(0);                                           /* a power cut: from dark, boosted */
+    run_ms(10);
+    CHECK(c1()->on == 1 && g_host_fader[0].current == 1000);
 }
 
 static void test_power_cut_level_and_the_spare_bytes(void) {
@@ -829,6 +860,7 @@ int main(void) {
     RUN(test_transition_is_for_the_next_second_only);
     RUN(test_transition_is_neither_saved_nor_in_the_dump);
     RUN(test_countdown_turns_off_after_its_time);
+    RUN(test_no_start_boost_after_a_warm_reset);
     RUN(test_power_cut_level_and_the_spare_bytes);
     RUN(test_identify_blinks_then_is_as_it_was);
     RUN(test_boost_dp_drives_the_fader_and_the_dump_has_the_new_dps);

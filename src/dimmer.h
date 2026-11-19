@@ -25,19 +25,25 @@
  *     off by the power-on behaviour
  *   DP 166 / 167 identify (value, s, at most 255; ours, not saved): the
  *     channel blinks (dark / full, 0.5 s) that long, then is as it was; 0 stops
+ *     (a network transition still running when it starts is not resumed: the
+ *     channel goes to its state by its fade)
  *   DP 168 / 169 start boost (value, ms in steps of 50 up to 750, 0 = none;
  *     ours, saved): coming on from dark the output is at full that long, then
- *     goes to the level (an LED driver that needs a kick)
+ *     goes to the level (an LED driver that needs a kick); also before a hold
+ *     from dark; a transition time runs on during it; none after a reset that
+ *     kept the light (update, watchdog)
  *   DP 170 / 171 fast press (value 0 / 1, ours, saved): in the detached mode a
  *     momentary switch's press is reported at once as gesture 6, for direct
  *     control without the multi-tap wait; hold and release as before, no
  *     single / double / triple on that channel
  *   DP 6 / 12 countdown (s, up to 86400): auto-off, written while on: the
  *     channel goes off after that long (reported then with 0); an off cancels
- *     it, written while off it stays 0. Not saved
+ *     it (a local off reports the 0), written while off it stays 0. Not saved,
+ *     and RAM only: a reset (update, watchdog) cancels it (the ZTU, which sees
+ *     the MCU restart, takes it as 0)
  *   DP 105 / 106 wall switch gesture of channel 1 / 2, reported only, never
  *     in the DP dump (ours, gesture_core.h): 1 single, 2 double, 3 triple,
- *     4 hold, 5 release
+ *     4 hold, 5 release, 6 press (fast press, DP 170 / 171, detached only)
  *   DP 101 / 102 dimming curve of channel 1 / 2 (enum, curves.h; ours, the
  *   stock MCU has no such DP): 0 linear, 1 led, 2 led_soft, 3 incandescent,
  *   4 led_deep, 5 led_deeper
@@ -58,7 +64,7 @@ typedef struct {
     uint16_t max;
     uint8_t  switch_type;
     uint8_t  curve;
-    uint32_t countdown;  /* seconds, stored and reported only for now */
+    uint32_t countdown;  /* seconds left at the write; 0: none (dimmer.c g_cd_end runs it) */
     /* How the lamp fades and holds (DPs 150.., dim_profile_set). */
     uint16_t fade_on_ms;
     uint16_t fade_off_ms;

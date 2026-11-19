@@ -33,6 +33,10 @@ static uint8_t g_turned_on_by_press[DIMMER_CHANNELS];
 static gesture_t g_gesture[DIMMER_CHANNELS];
 /* Switch type the press state above belongs to. */
 static uint8_t g_type[DIMMER_CHANNELS];
+/* The wall switch mode each channel was handled in (DP 162 / 163 change it under a press), and
+ * a momentary press that began in another mode: its release (and hold) is not acted on. */
+static uint8_t g_mode[DIMMER_CHANNELS];
+static uint8_t g_skip_release;
 /* Inputs closed at boot, until their release (bit per input): that press
  * started before us, so its end is no gesture and no button action. */
 static uint8_t g_boot_held;
@@ -68,6 +72,7 @@ void controls_init(uint8_t cold_start) {
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
         gesture_init(&g_gesture[ch]);
         g_type[ch] = dimmer_channel(ch)->switch_type;
+        g_mode[ch] = dimmer_channel(ch)->input_mode;
         /* A state type switch says what the light is (unless detached or off). */
         if (g_type[ch] == SWITCH_STATE && dimmer_channel(ch)->input_mode == DIMMER_INPUT_NORMAL) {
             dimmer_boot_set(ch, g_in[ch].pressed);
@@ -106,6 +111,19 @@ void controls_tick_1ms(void) {
 
 static void wall_switch(uint8_t ch, uint8_t ev) {
     const dimmer_channel_t *c = dimmer_channel(ch);
+
+    if (g_skip_release & (1u << ch)) {
+        /* A momentary press that began in the other mode: its hold and release are not this
+         * mode's (a new press is). */
+        if (ev == INPUT_EV_PRESS || c->switch_type != SWITCH_MOMENTARY) {
+            g_skip_release &= (uint8_t)~(1u << ch);
+        } else {
+            if (ev != INPUT_EV_HOLD) {
+                g_skip_release &= (uint8_t)~(1u << ch);
+            }
+            return;
+        }
+    }
 
     if (c->input_mode != DIMMER_INPUT_NORMAL) {
         /* Detached: the light is the network's; the switch only reports (a momentary its
@@ -214,6 +232,21 @@ void controls_poll(uint32_t now) {
             g_type[ch] = c->switch_type;
             gesture_init(&g_gesture[ch]);
             g_turned_on_by_press[ch] = 0;
+            if (g_type[ch] == SWITCH_STATE && c->input_mode == DIMMER_INPUT_NORMAL) {
+                dimmer_local_set(ch, g_in[ch].pressed);
+            }
+        }
+        if (c->input_mode != g_mode[ch]) {
+            /* New wall switch mode: no gesture of the old one is finished, a press under way
+             * is not acted on when let go, and back in normal a state switch says the light. */
+            g_mode[ch] = c->input_mode;
+            gesture_init(&g_gesture[ch]);
+            g_turned_on_by_press[ch] = 0;
+            if (g_in[ch].pressed && g_type[ch] == SWITCH_MOMENTARY) {
+                g_skip_release |= (uint8_t)(1u << ch);
+            } else {
+                g_skip_release &= (uint8_t)~(1u << ch);
+            }
             if (g_type[ch] == SWITCH_STATE && c->input_mode == DIMMER_INPUT_NORMAL) {
                 dimmer_local_set(ch, g_in[ch].pressed);
             }
