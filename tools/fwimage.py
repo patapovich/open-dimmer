@@ -4,12 +4,12 @@ the app header, the bootloader identity (boot_id_t at 0x08000010) and the boot s
 tools/mkimage.py and tools/embed_ztu.py import it; tests/test_tools.py checks the numbers below
 against src/ota_proto.h.
 
-    fwimage.py full <full.bin> [--old-boot] [--erase-settings | --keep-settings]
+    fwimage.py full <full.bin> [--erase-settings | --keep-settings]
         check a whole-flash image before an SWD install (tools/swd/install.sh): app header and
         CRC, no SIM build, the app rules of every image (reserved flags, layout, SP exactly
-        0x20000BE0 and an odd reset vector in the image, version byte, build; build 0 only as
-        a 2.1.x app), the bootloader's identity and boot sector CRC; refuses a bootloader
-        without boot_id unless --old-boot, an app over 12 KB unless --erase-settings (the plain
+        0x20000BE0 and an odd reset vector in the image, version byte, build; no build 0, a
+        2.1.x app), the bootloader's identity and boot sector CRC; refuses a bootloader
+        without boot_id (v1), an app over 12 KB unless --erase-settings (the plain
         write erases sector 4) or --keep-settings (install.sh reads sector 4 first and writes it
         back with the image's start merged in)
     fwimage.py notes <boot.bin> [<full.bin>]
@@ -30,7 +30,6 @@ APP_MAGIC, BOOT_ID_MAGIC, BOOT_VERSION = 0x5A445041, 0x4C42444F, 2
 FLAG_SIM, FLAG_MEASURE, FLAG_DIAG, FLAGS_BENCH = 0x01, 0x02, 0x04, 0x07
 FLAG_CONFIRMS, FLAG_RING_HIGH, FLAGS_RESERVED = 0x08, 0x10, 0xE0
 VERSION_OURS_MIN, VERSION_SIM, VERSION_NEVER = 0x80, 0xBF, 0xFF
-VERSION_LEGACY_MAX = 0x9C                                  # 2.1.12: the last app without a build
 BUILD_NONE, BUILD_MIN, BUILD_MAX, BUILD_SIM, BUILD_NEVER = 0, 256, 0xFFFD, 0xFFFE, 0xFFFF
 BUILD_FIRST, BUILD_STEP = 300, 100
 MAILBOX_RAM = 0x20000BE0                                   # also the app's initial SP
@@ -142,23 +141,11 @@ def version_problem(version, flags):
     return None
 
 
-def legacy_problem(h, size):
-    """A 2.1.x app (build 0): version byte up to 0x9C, neither CONFIRMS nor RING_HIGH, 12 KB."""
-    if (h.build != BUILD_NONE or h.version > VERSION_LEGACY_MAX
-            or h.flags & (FLAG_CONFIRMS | FLAG_RING_HIGH)):
-        return (f"a 2.1.x app has build 0, a version byte up to 0x{VERSION_LEGACY_MAX:02X} and neither "
-                f"CONFIRMS nor RING_HIGH; this one: build {h.build}, version 0x{h.version:02X}, "
-                f"flags 0x{h.flags:02X}")
-    if size > APP_LIMIT_LEGACY:
-        return f"a 2.1.x app of {size} bytes (12 KB max)"
-    return None
-
-
 def app_problem(img, h, stocklike=False):
     """The rules every app image follows wherever it goes (mkimage, a full image, the ZTU): no
     reserved flag, the settings layout, the exact vectors (SP 0x20000BE0, so that the stack stays
     below the mailbox; an odd reset vector inside the image), the version byte; then the build
-    rules, or the 2.1.x rules for build 0. stocklike: mkimage's bench build of test T5 (a 1.x
+    rules (build 0, a 2.1.x app, is refused). stocklike: mkimage's bench build of test T5 (a 1.x
     version byte, flashed with a probe only; every other caller keeps the default)."""
     if h.flags & FLAGS_RESERVED:
         return f"flags 0x{h.flags:02X}: 0x20..0x80 are reserved (the bootloader ignores them)"
@@ -167,7 +154,8 @@ def app_problem(img, h, stocklike=False):
     if p:
         return p
     if h.build == BUILD_NONE:
-        return legacy_problem(h, len(img))
+        return ("build 0 (a 2.1.x app): neither installed nor carried (no unit runs one under the "
+                "v2 bootloader)")
     return build_problem(h.build, h.flags)
 
 
@@ -224,7 +212,7 @@ def describe_boot(boot):
     return bid, crc, kind
 
 
-def check_full(full, old_boot=False, erase_settings=False, lines=None, keep_settings=False):
+def check_full(full, erase_settings=False, lines=None, keep_settings=False):
     """The whole-flash image an SWD install writes (section 11, install.sh). Returns the lines
     to show (also collected in `lines` when given, so a refusal can show them); raises Refused."""
     lines = [] if lines is None else lines
@@ -261,17 +249,13 @@ def check_full(full, old_boot=False, erase_settings=False, lines=None, keep_sett
     if h.flags & FLAG_DIAG:
         lines.append("DIAGNOSTICS build: takes no update (back over SWD)")
     if bid is None:
-        if not old_boot:
-            raise Refused("the image's bootloader has no boot_id (v1 or older): every module keeps the "
-                          "bootloader it gets now for good. OLD_BOOT=1 to install it anyway (bench only)")
-        if h.size > APP_LIMIT_LEGACY:
-            raise Refused(f"app of {h.size} bytes under a bootloader without boot_id (12 KB max)")
-    else:
-        p = boot_id_problem(bid)
-        if p:
-            raise Refused(f"bootloader identity: {p}")
-        if h.size > bid["app_max"]:
-            raise Refused(f"app of {h.size} bytes, the bootloader takes {bid['app_max']}")
+        raise Refused("the image's bootloader has no boot_id (v1 or older): every module keeps the "
+                      "bootloader it gets now for good, and v1 is not installed")
+    p = boot_id_problem(bid)
+    if p:
+        raise Refused(f"bootloader identity: {p}")
+    if h.size > bid["app_max"]:
+        raise Refused(f"app of {h.size} bytes, the bootloader takes {bid['app_max']}")
     if len(full) > BOOT_SIZE + APP_LIMIT_LEGACY:          # what pyOCD writes is the whole file
         if erase_settings:
             lines.append("ERASE_SETTINGS=1: the settings in sector 4 are erased with the write")
@@ -299,13 +283,13 @@ def main(argv):
     args = [a for a in argv[1:] if not a.startswith("--")]
     opts = {a for a in argv[1:] if a.startswith("--")}
     try:
-        if (len(args) == 2 and args[0] == "full" and opts <= {"--old-boot", "--erase-settings", "--keep-settings"}
+        if (len(args) == 2 and args[0] == "full" and opts <= {"--erase-settings", "--keep-settings"}
                 and not {"--erase-settings", "--keep-settings"} <= opts):
             with open(args[1], "rb") as f:
                 data = f.read()
             lines = []
             try:
-                check_full(data, "--old-boot" in opts, "--erase-settings" in opts, lines,
+                check_full(data, "--erase-settings" in opts, lines,
                            keep_settings="--keep-settings" in opts)
             finally:
                 print("\n".join(lines), flush=True)

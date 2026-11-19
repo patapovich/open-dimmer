@@ -25,8 +25,6 @@
 #                                  the newest release from GitHub, IMAGE=release:vX.Y.Z that
 #                                  one; both are checked against the release's SHA256SUMS,
 #                                  bootloader region included (boot.bin + app image)
-#   OLD_BOOT=1                     accept a full image whose bootloader has no boot_id (v1 or
-#                                  older): bench only, a module keeps that bootloader
 #   ERASE_SETTINGS=1               an image over 12 KB erases the settings in sector 4 (pyOCD
 #                                  erases whole 4 KB sectors). Without it such an image keeps
 #                                  them: sector 4 is read first and written back with the
@@ -84,7 +82,7 @@ case "$PROBE" in
     jlink)     OCD_IF=(-f interface/jlink.cfg -c "transport select swd") ;;
     *)         die "PROBE must be cmsis-dap, stlink or jlink" ;;
 esac
-for v in OLD_BOOT ERASE_SETTINGS WRP; do   # "0" must not mean yes
+for v in ERASE_SETTINGS WRP; do   # "0" must not mean yes
     case "${!v:-}" in "" | 1) ;; *) die "$v must be 1 or unset" ;; esac
 done
 [ -x "$PYOCD" ] || die "pyOCD not found at $PYOCD (see docs/INSTALL.md)"
@@ -126,7 +124,7 @@ PY
     say "SHA256SUMS of $TAG: full image, bootloader and app image OK"
 fi
 [ -f "$IMAGE" ] || die "image not found: $IMAGE (make, or IMAGE=release)"
-python3 "$FW/tools/fwimage.py" full "$IMAGE" ${OLD_BOOT:+--old-boot} \
+python3 "$FW/tools/fwimage.py" full "$IMAGE" \
     $([ -n "${ERASE_SETTINGS:-}" ] && echo --erase-settings || echo --keep-settings) ||
     die "not a usable full image"
 BOOT_CRC=$(python3 -c "import sys, zlib; print('0x%08X' % zlib.crc32(open(sys.argv[1], 'rb').read()[:4096]))" "$IMAGE")

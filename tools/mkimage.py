@@ -6,9 +6,9 @@ against the rules of docs/BOOTLOADER.md (sections 1, 2 and 11).
         app image, as written at 0x08001000. --test N (1..99, make FW_TEST=N): a spare test
         build, whose build number must be the release build + N (with make FW_PREV=1: the
         previous release build + N)
-    mkimage.py app.img --full boot.bin out.bin [--old-boot]
+    mkimage.py app.img --full boot.bin out.bin
         boot padded to 4 KB + app: the whole flash image for an SWD install. The bootloader
-        must have its boot_id at 0x10 (--old-boot: a v1 bootloader, bench only). The app must
+        must have its boot_id at 0x10 (a v1 bootloader is refused). The app must
         follow the rules below (a 2.1.x image, build 0, is refused)
 The CRC is CRC-32 (zlib) of the whole image with the crc field read as 0, and never 0.
 
@@ -112,27 +112,23 @@ def make_app(data: bytes, test: int = 0) -> bytes:
     return bytes(data)
 
 
-def make_full(app: bytes, boot: bytes, old_boot: bool = False) -> bytes:
+def make_full(app: bytes, boot: bytes) -> bytes:
     if len(boot) > fw.BOOT_SIZE:
         refuse(f"bootloader is {len(boot)} bytes, max {fw.BOOT_SIZE}")
     bid, crc, kind = fw.describe_boot(boot)
-    if bid is None and not old_boot:
-        refuse("bootloader without boot_id at 0x10 (v1 or older): --old-boot for a bench image with it")
-    if bid is not None and old_boot:
-        refuse("--old-boot, but the bootloader has a boot_id")
     p = fw.boot_vector_problem(boot)
     if p:
         refuse(p)
-    if bid is not None:
-        p = fw.boot_id_problem(bid)
-        if p:
-            refuse(f"bootloader identity: {p}")
+    if bid is None:
+        refuse("bootloader without boot_id at 0x10 (v1 or older): not put into a full image")
+    p = fw.boot_id_problem(bid)
+    if p:
+        refuse(f"bootloader identity: {p}")
     h = fw.finished(app)
     print(summary(h, len(app)), file=sys.stderr)
     check_app(app, h, test=None)
-    ceiling = fw.APP_LIMIT_LEGACY if bid is None else bid["app_max"]
-    if len(app) > ceiling:
-        refuse(f"app of {len(app)} bytes, the bootloader takes {ceiling}")
+    if len(app) > bid["app_max"]:
+        refuse(f"app of {len(app)} bytes, the bootloader takes {bid['app_max']}")
     print(f"bootloader: {kind}, {len(boot)} bytes; boot sector CRC-32 0x{crc:08X} (DP 136)",
           file=sys.stderr)
     return boot + b"\xff" * (fw.BOOT_SIZE - len(boot)) + app
@@ -148,7 +144,7 @@ def parse(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--old-boot", "--stocklike"):
+        if a == "--stocklike":
             opts[a] = True
         elif a.startswith("--"):
             sys.exit(f"unknown option {a}\n{__doc__}")
@@ -165,7 +161,7 @@ def main(argv):
     if STOCKLIKE and "--test" not in opts and "--full" not in opts:
         sys.exit("--stocklike is a test build's (make STOCKLIKE_TEST=1 FW_TEST=n)")
     try:
-        if len(args) == 2 and "--full" not in opts and "--old-boot" not in opts:
+        if len(args) == 2 and "--full" not in opts:
             test = 0
             if "--test" in opts:
                 if not opts["--test"].isdigit() or not 1 <= int(opts["--test"]) <= 99:
@@ -180,7 +176,7 @@ def main(argv):
                 app = f.read()
             with open(opts["--full"], "rb") as f:
                 boot = f.read()
-            full = make_full(app, boot, "--old-boot" in opts)
+            full = make_full(app, boot)
             with open(args[1], "wb") as f:
                 f.write(full)
         else:

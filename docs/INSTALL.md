@@ -223,8 +223,7 @@ so give `FREQ=400000` as above.
 The bootloader written here stays on the module for good (docs/BOOTLOADER.md). Before it
 attaches, the script shows the image's bootloader version and its boot sector CRC (the value the
 module later reports as DP 136; note it per module) and refuses:
-- a full image whose bootloader has no identity (`boot_id`, the v1 bootloader of 2.1.x):
-  `OLD_BOOT=1` takes it anyway, for bench work only;
+- a full image whose bootloader has no identity (`boot_id`, the v1 bootloader of 2.1.x);
 - an image over 12 KB reaches sector 4, which pyOCD erases whole: `install.sh` reads the sector
   first and writes it back with the image merged in, so the settings (switch type, curves,
   levels) stay; `ERASE_SETTINGS=1` erases them instead.

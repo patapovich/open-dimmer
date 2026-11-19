@@ -381,20 +381,14 @@ class MkImageFull(ToolRun):
         self.assertIn(f"boot sector CRC-32 0x{fw.boot_sector_crc(boot):08X} (DP 136)", out)
         self.assertIn("bootloader: version 2 (features 0x0F tries+probe+button+link", out)
 
-    def test_boot_without_boot_id_only_with_old_boot(self):
-        img = finished_img()
-        self.assert_refused(self.full(img, boot_v1()), "without boot_id at 0x10")
-        rc, out, made = self.full(img, boot_v1(), "--old-boot")
-        self.assertEqual(rc, 0, out)
-        self.assertIn("v1 or older", out)
-        self.assert_refused(self.full(img, boot_v2(), "--old-boot"), "--old-boot, but the bootloader has a boot_id")
-        self.assert_refused(self.full(finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=13 * KB), boot_v1(),
-                                      "--old-boot"), "the bootloader takes 12288")
+    def test_boot_without_boot_id_refused(self):
+        """The v1 bootloader (no boot_id) never goes into a full image: it was never distributed."""
+        self.assert_refused(self.full(finished_img(), boot_v1()), "without boot_id at 0x10 (v1 or older)")
+        self.assert_refused(self.full(finished_img(), boot_v1(), "--old-boot"), "unknown option --old-boot")
 
     def test_no_legacy_app(self):
         """A 2.1.x app (build 0) never goes into a full image: no unit runs one under v2."""
         self.assert_refused(self.full(legacy_img(), boot_v2()), "a 2.1.x image does not go into a full image")
-        self.assert_refused(self.full(legacy_img(0x9B), boot_v1(), "--old-boot"), "build 0")
         self.assert_refused(self.full(finished_img(), boot_v2(), "--legacy-app"), "unknown option --legacy-app")
 
     def test_app_rules_apply_to_an_existing_image(self):
@@ -413,7 +407,7 @@ class MkImageFull(ToolRun):
     def test_refusals(self):
         self.assert_refused(self.full(finished_img(), b"\0" * 4097), "bootloader is 4097 bytes")
         self.assert_refused(self.full(finished_img(), boot_v2(mailbox=0x20000C00)), "bootloader identity")
-        self.assert_refused(self.full(finished_img(), b"\xff" * 64, "--old-boot"), "not a bootloader for sector 0")
+        self.assert_refused(self.full(finished_img(), b"\xff" * 64), "not a bootloader for sector 0")
         self.assert_refused(self.full(finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=13 * KB),
                                       boot_v2(app_max=0x3000)), "the bootloader takes 12288")
         bad = bytearray(finished_img())
@@ -472,15 +466,11 @@ class EmbedZtu(ToolRun):
         rc, out, _ = self.embed(finished_img(0x9D, CONFIRMS, 256))
         self.assertEqual(rc, 0, out)
 
-    def test_build_0_only_as_a_legacy_rollback(self):
-        self.assert_refused(self.embed(legacy_img()), "only as a rollback with --legacy")
-        rc, out, made = self.embed(legacy_img(), "--legacy")
-        self.assertEqual(rc, 0, out)
-        self.assertIn("Image build: none (2.1.x rollback)", self.read("out", "r"))
-        self.assert_refused(self.embed(legacy_img(0x9D), "--legacy"), "up to 0x9C")
-        self.assert_refused(self.embed(legacy_img(0x9C, CONFIRMS), "--legacy"), "neither CONFIRMS nor RING_HIGH")
-        self.assert_refused(self.embed(legacy_img(0x9C, RING_HIGH), "--legacy"), "neither CONFIRMS nor RING_HIGH")
-        self.assert_refused(self.embed(finished_img(), "--legacy"), "--legacy is for 2.1.x images")
+    def test_build_0_refused(self):
+        """No 2.1.x app (build 0) is carried: no unit runs one under the v2 bootloader."""
+        self.assert_refused(self.embed(legacy_img()), "without a build number (2.1.x)")
+        self.assert_refused(self.embed(legacy_img(), "--legacy"), "unknown option --legacy")
+        self.assert_refused(self.embed(finished_img(), "--legacy"), "unknown option --legacy")
 
     def test_image_info_vectors(self):
         """The phase-3 ZTU's image_info: SP exactly 0x20000BE0, an odd reset vector in the image."""
@@ -533,14 +523,13 @@ class FullImageCheck(ToolRun):
         self.assertIn(f"boot sector CRC-32: 0x{fw.boot_sector_crc(boot):08X} (DP 136", out)
         self.assertIn("build 300", out)
 
-    def test_old_boot(self):
+    def test_v1_boot_refused(self):
         f = full_img(boot_v1(), finished_img())
         rc, out = self.check(f)
         self.assertNotEqual(rc, 0)
-        self.assertIn("OLD_BOOT=1", out)
+        self.assertIn("has no boot_id (v1 or older)", out)
         rc, out = self.check(f, "--old-boot")
-        self.assertEqual(rc, 0, out)
-        self.assertIn("v1 or older", out)
+        self.assertNotEqual(rc, 0)
 
     def test_over_12_kb_erases_the_settings(self):
         f = full_img(boot_v2(), finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=13 * KB))
@@ -556,10 +545,6 @@ class FullImageCheck(ToolRun):
         self.assertNotEqual(rc, 0)
         rc, out = self.check(full_img(boot_v2(), finished_img(size=12 * KB)))
         self.assertEqual(rc, 0, out)
-        rc, out = self.check(full_img(boot_v1(), finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=13 * KB)),
-                             "--old-boot", "--erase-settings")
-        self.assertNotEqual(rc, 0)
-        self.assertIn("without boot_id (12 KB max)", out)
 
     def test_refusals(self):
         boot = boot_v2()
@@ -577,7 +562,7 @@ class FullImageCheck(ToolRun):
         self.assertIn("the bootloader takes 12288", out)
         rc, out = self.check(full_img(boot, finished_img()) + b"\0")
         self.assertIn("not 0xFF", out)
-        rc, out = self.check(full_img(b"\xff" * 64, finished_img()), "--old-boot")
+        rc, out = self.check(full_img(b"\xff" * 64, finished_img()))
         self.assertNotEqual(rc, 0)
         self.assertIn("not a bootloader for sector 0", out)
 
@@ -595,8 +580,8 @@ class FullImageCheck(ToolRun):
                                (finished_img(0x9D, CONFIRMS, 0xFFFE), (), "reserved for SIM builds"),
                                (finished_img(0x9D, 0, 300), (), "without the CONFIRMS flag"),
                                (finished_img(0xFF, CONFIRMS, 300), (), "version byte 0xFF"),
-                               (legacy_img(0x9C, CONFIRMS), (), "a 2.1.x app has build 0"),
-                               (legacy_img(0x9D), (), "version byte up to 0x9C")):
+                               (legacy_img(), (), "build 0 (a 2.1.x app)"),
+                               (legacy_img(0x9B), (), "build 0 (a 2.1.x app)")):
             rc, out = self.check(full_img(boot, img), *opts)
             self.assertNotEqual(rc, 0, msg)
             self.assertIn(msg, out)
@@ -605,12 +590,6 @@ class FullImageCheck(ToolRun):
         rc, out = self.check(full_img(boot, crc_forced_zero(bytes(d))))
         self.assertNotEqual(rc, 0)
         self.assertIn("app CRC 0", out)
-        # a 2.1.x app: under the v2 bootloader (bench test B6) and under v1 (a 2.1.x release)
-        rc, out = self.check(full_img(boot, legacy_img()))
-        self.assertEqual(rc, 0, out)
-        self.assertIn("build none (2.1.x)", out)
-        rc, out = self.check(full_img(boot_v1(), legacy_img(0x9B)), "--old-boot")
-        self.assertEqual(rc, 0, out)
 
     def test_refusal_still_shows_the_bootloader(self):
         rc, out = self.check(full_img(boot_v1(), finished_img()))
@@ -1142,7 +1121,7 @@ class FakeChip(unittest.TestCase):
         e = dict(os.environ, PATH=self.bin + os.pathsep + os.environ["PATH"], FAKE_STATE=self.tmp.name,
                  PYOCD=os.path.join(self.bin, "pyocd"), PACK=self.pack, FAKE_RELEASE=self.rel,
                  FAKE_TAG="v2.1.13", REPO_URL="https://example.invalid/o/r")
-        for k in ("IMAGE", "OLD_BOOT", "ERASE_SETTINGS", "WRP", "YES"):
+        for k in ("IMAGE", "OLD_BOOT", "ERASE_SETTINGS", "WRP", "YES"):   # OLD_BOOT: no longer read
             e.pop(k, None)
         e.update({k: str(v) for k, v in kw.items()})
         return e
@@ -1299,19 +1278,15 @@ class FakeChip(unittest.TestCase):
         self.assertIn("warning: the boot word could not be cleared", out)
         self.assertEqual([r[1] for r in self.events("reset")], ["load", "reset"])
 
-    def test_old_boot(self):
+    def test_v1_boot_refused(self):
+        """A full image with the v1 bootloader (no boot_id) is refused, OLD_BOOT=1 or not."""
         full = full_img(boot_v1(), finished_img())
         self.chip()
-        rc, out = self.install(full)
-        self.assertNotEqual(rc, 0)
-        self.assertIn("OLD_BOOT=1", out)
-        self.assertEqual(self.st()["log"], [], "nothing done before the image is accepted")
-        rc, out = self.install(full, OLD_BOOT=1)
-        self.assertEqual(rc, 0, out)
-        self.assertIn("v1 or older", out)
-        self.assert_every_reset_clean()
-        rc, out = self.install(full, OLD_BOOT="yes")
-        self.assertIn("OLD_BOOT must be 1 or unset", out)
+        for kw in ({}, {"OLD_BOOT": 1}):
+            rc, out = self.install(full, **kw)
+            self.assertNotEqual(rc, 0)
+            self.assertIn("has no boot_id (v1 or older)", out)
+            self.assertEqual(self.st()["log"], [], "nothing done before the image is accepted")
 
     def test_app_rules_before_anything_is_done(self):
         """The app in a full image follows the rules of every image (SP 0x20000BE0, an odd reset
