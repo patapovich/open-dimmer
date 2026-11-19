@@ -41,7 +41,8 @@ RING_HIGH:
 - B9: an offered update (2.2.2 → 2.2.3) with both channels lit: both came back at their levels.
   The dark time was not caught (the Zigbee module's 30-entry MCU log had moved on).
 - `install.sh` with an image over 12 KB kept the settings on the hardware (sector 4 merged).
-- B6 not run (see the table). 2 more B7 cuts when a switchable plug is at hand; B10 trial running.
+- B6 dropped: no unit runs a 2.1.x app under the v2 bootloader (v1 was never distributed; every
+  install is a full image of one generation). 2 more B7 cuts when a switchable plug is at hand; B10 trial running.
 
 ## Flash layout and budget
 

@@ -276,7 +276,7 @@ build. The app's answer stays 1 byte (0 = accepted).
 | 2.1.x | v1 | phase 1 | byte | - | - | The spare today |
 | 2.1.x | v1 | phase 3 | byte (7-byte identity) | - | - | The spare in rollout step 3, until it takes the release's app |
 | v2 app | v1 | phase 1 / phase 3 | byte / build | - | - | The spare between the app OTA and its SWD re-flash. `app_limit()` is 12 KB (no boot_id). The confirmation writes are ignored. The link watchdog stays off (no `BOOT_FEAT_LINK`). |
-| 2.1.x | v2 | any | byte | yes (any build counts as newer than build 0) | no (no CONFIRMS) | Only after a rescue downgrade, or bench test B6. Button rescue still works. |
+| 2.1.x | v2 | any | byte | yes (any build counts as newer than build 0) | no (no CONFIRMS) | Not in use anywhere (v1 was never distributed; installs are full images of one generation). Button rescue would still work. |
 | v2 app | v2 | phase 1 | byte | yes | yes | A module whose ZTU lags behind |
 | v2 app | v2 | phase 3 | build | yes | yes | Target |
 | stock 1.x | stock | own ZTU, phase 1 / 3 | never asked | - | - | Phase 3 is UART-identical to phase 1 towards it (section 15) |
@@ -1474,7 +1474,7 @@ the update wait, from the implementation review, is 8 of them).
 | B3 | Broken update path: a test build in the range below R (e.g. 299), normal flags with CONFIRMS, its offer handler patched to decline (SWD; `make OFFER_DECLINE_TEST=1 FW_PREV=1 FW_TEST=n`); the ZTU carries R | The offer is declined (ZTU log); after a power cut the probe installs R (DIAG and MEASURE builds cannot be used here: the probe skips bench builds) |
 | B4 | Crash loop: a test build R+1 that faults 1 s after start (SWD; `make CRASH_TEST=1 FW_TEST=n`), ZTU carries R | 3 crashes, then a window installs R; DP 137 shows RESCUE and WRITTEN; the light uses the power-on behaviour |
 | B5 | Button held through power-up and released when the LED lights; carried image different / same; then held for > 5 s | Different: installed, DP 137 BUTTON. Same: app after ~30 s. Held: app after ~5 s, STUCK, nothing written. Never a rejoin or factory reset. |
-| B6 | 2.1.12 app under v2 (full image from the v2.1.12 app with `--legacy-app` and v2 boot), watchdog resets via a halt without `DBG_IWDG_STOP` | No window; a power cut lets the probe take the carried build. (2026-11-19: not run: with a carried image over 12 KB the last step cannot pass by design — no image over 12 KB goes over a 12 KB-layout app; 2.1.x reaches 2.2.x through 2.1.14) |
+| B6 | 2.1.12 app under v2 (full image from the v2.1.12 app with `--legacy-app` and v2 boot), watchdog resets via a halt without `DBG_IWDG_STOP` | No window; a power cut lets the probe take the carried build. (2026-11-19: dropped: no unit runs this combination, v1 was never distributed. Its last step could not pass either: with a carried image over 12 KB the last step cannot pass by design — no image over 12 KB goes over a 12 KB-layout app; 2.1.x reaches 2.2.x through 2.1.14) |
 | B7 | Mains cut at ~50 % of a probe-started update (fast LED blink), 3 times | Each recovers on the next power-up |
 | B8 | Reset flags: DP 131 after a power cycle that follows a software reset; flags unchanged by the bootloader's LSION write; IWDG running or not after `NVIC_SystemReset` (SWD) | PWR only (cold); results recorded in STATUS |
 | B9 | Normal offered OTA with both channels lit | Light restored; dark time measured |
