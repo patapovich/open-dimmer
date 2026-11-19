@@ -90,6 +90,19 @@ print(fver)
 PY
 ) || die "refusing to deploy $F (from $C)"
 
+# --- what the build brings: its section of the fork's build changelog (home-dimmer
+# docs/changelog_home_dimmer.md, stamped by py32-bump when it started the build); shown only
+BUILD_ID=$(printf '%s\n' "$F" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+-[0-9a-f]{7,16}' | tail -1 || true)
+if [ -n "$BUILD_ID" ] && git -C "$ZTU_DIR" fetch -q "$ZTU_REMOTE" home-dimmer 2>/dev/null &&
+   git -C "$ZTU_DIR" show "$ZTU_REMOTE/home-dimmer:helper_scripts/home_dimmer_changelog.py" > "$TMP/hdc.py" 2>/dev/null &&
+   git -C "$ZTU_DIR" show "$ZTU_REMOTE/home-dimmer:docs/changelog_home_dimmer.md" > "$TMP/hdc.md" 2>/dev/null &&
+   python3 -I "$TMP/hdc.py" section "$BUILD_ID" "$TMP/hdc.md" > "$TMP/notes.txt" 2>/dev/null; then
+    echo "changes in this build (home-dimmer docs/changelog_home_dimmer.md):" >&2
+    sed 's/^/  /' "$TMP/notes.txt" >&2
+else
+    echo "no changelog section for ${BUILD_ID:-$F} on $ZTU_REMOTE/home-dimmer" >&2
+fi
+
 # --- the modules: Z2M friendly name and installed file version from the HA registries (read only)
 REG=1
 python3 "$HA_WS" --json '{"type":"config/device_registry/list"}' '{"type":"config/entity_registry/list"}' \

@@ -165,7 +165,11 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
   different image of the same version (unless force; the hourly run only notes it), runs
   lint + tests, commits to `home-dimmer`, rebuilds `home-dimmer_build`
   (= home-dimmer + branch `fork-ci`) and starts `build.yml`, whose "Update firmware files"
-  commit has the OTA image. `release.sh` starts it right after the release and waits for both;
+  commit has the OTA image. It then stamps the fork's build changelog (home-dimmer
+  `docs/changelog_home_dimmer.md`: its "Next" becomes the section of that build, named by the
+  `swBuildId` Z2M shows); new ZTU changes go under "Next" with their commit, and
+  `tools/ha/deploy_ota.sh` shows the section of the build it deploys. `release.sh` starts it
+  right after the release and waits for both;
   `LOCAL_BUMP=1` does the carrying in `~/projects/tzs-diag` instead.
 - **Instant hand-over (set up 2026-11-18, tested):** a secret `ZTU_DISPATCH_TOKEN` in zdms16-py32 (fine-grained
   PAT for `patapovich/tuya-zigbee-switch` with Actions: read and write only, no Contents
