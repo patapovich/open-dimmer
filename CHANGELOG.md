@@ -3,6 +3,11 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
+## 2.2.1 (2026-11-19)
+
+- Health: the die temperature (DP 138) is measured at every report again; 2.2.0 gave it once,
+  then "none" (its ADC start disabled the ADC).
+
 ## 2.2.0 (2026-11-19)
 
 - Up to 14 KB (after 2.1.14's ring move; needs the v2 bootloader on the module).

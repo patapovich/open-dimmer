@@ -26,7 +26,9 @@ int16_t temp_take(void) {
     if (g_started && (ADC1->ISR & ADC_ISR_EOC)) {
         t = temp_from_raw(ADC1->DR & 0xFFFu, TS_CAL30, TS_CAL85);   /* reading DR clears EOC */
     }
-    ADC1->CR  = ADC_CR_ADSTART;                       /* ADEN stays (a 0 there does nothing) */
+    /* ADEN written along: on the PY32 a 0 there disables the ADC (2.2.0 wrote ADSTART alone:
+     * the start written with it still ran, every later one did not: one temperature only). */
+    ADC1->CR  = ADC_CR_ADEN | ADC_CR_ADSTART;
     g_started = 1;
     return t;
 }
