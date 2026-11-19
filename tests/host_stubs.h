@@ -27,6 +27,7 @@ extern char     g_host_log[16384];
 void            host_log_clear(void);
 /** Offset of `what` in the log, -1 if not there. */
 long            host_log_find(const char *what);
+long            host_log_find_from(long from, const char *what);
 
 /* phase.c: the faders, ticked by host_halfcycle(). */
 extern dim_fader_t g_host_fader[2];

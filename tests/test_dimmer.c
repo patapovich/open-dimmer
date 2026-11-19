@@ -612,6 +612,7 @@ static void run(void (*test)(void), const char *name) {
 /* ---- transition time: DP 160 / 161 (a Zigbee transition time from the module) ------ */
 
 #define CH1_TRANSITION 160
+#define CH1_INPUT_MODE_DP 162
 
 /* ms until channel 1's light is at v (10 ms half cycles), 0 if not within max ms. */
 static uint32_t ms_to(uint16_t v, uint32_t max) {
@@ -689,6 +690,110 @@ static void test_transition_is_neither_saved_nor_in_the_dump(void) {
     CHECK(!dimmer_write_dp(CH1_TRANSITION, TUYA_DP_TYPE_BOOL, (const uint8_t *)"\1", 1));   /* a value DP */
 }
 
+
+/* ---- 2.2.0: countdown, power-cut level, identify, start boost, the spare bytes ---------- */
+
+#define CH1_COUNTDOWN    6
+#define CH1_POWER_LEVEL  164
+#define CH1_IDENTIFY     166
+#define CH1_BOOST        168
+#define CH2_BOOST        169
+
+static void test_countdown_turns_off_after_its_time(void) {
+    lit_at(500);
+    host_log_clear();
+    host_write(CH1_COUNTDOWN, TUYA_DP_TYPE_VALUE, 5);
+    CHECK(host_log_find("P[6=5] ") >= 0);                 /* the ack */
+    run_ms(4900);
+    CHECK(c1()->on == 1);
+    run_ms(200);
+    CHECK(c1()->on == 0 && c1()->countdown == 0);          /* off, as by the wall switch */
+    CHECK(host_log_find("A[1=0]") >= 0);
+    host_log_clear();
+    host_write(CH1_COUNTDOWN, TUYA_DP_TYPE_VALUE, 60);    /* while off: nothing to count */
+    CHECK(host_log_find("P[6=0] ") >= 0 && c1()->countdown == 0);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    host_write(CH1_COUNTDOWN, TUYA_DP_TYPE_VALUE, 100000);   /* capped at a day */
+    CHECK(c1()->countdown == 86400);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);              /* an off cancels it */
+    CHECK(c1()->countdown == 0);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    run_ms(100000);
+    CHECK(c1()->on == 1);                                  /* not taken up again */
+}
+
+static void test_power_cut_level_and_the_spare_bytes(void) {
+    lit_at(500);
+    host_write(POWER_ON_1, TUYA_DP_TYPE_ENUM, 1);          /* on after a power cut */
+    host_write(CH1_POWER_LEVEL, TUYA_DP_TYPE_VALUE, 301);  /* kept in steps of 4 */
+    host_write(CH1_INPUT_MODE_DP, TUYA_DP_TYPE_VALUE, 1);
+    host_write(CH2_BOOST, TUYA_DP_TYPE_VALUE, 230);        /* 50 ms steps: 200 */
+    host_log_clear();
+    dimmer_report_dp(CH1_POWER_LEVEL);
+    dimmer_report_dp(CH2_BOOST);
+    run_ms(3000);                                          /* saved */
+    host_saved_t s;
+    memcpy(&s, g_host_flash, sizeof(s));
+    CHECK(s.reserved[0] == 0x01 && s.reserved[1] == 0x40 && s.reserved[2] == 75 &&
+          s.reserved[3] == 0);
+    power_up(0);                                           /* a power cut */
+    CHECK(c1()->on == 1 && c1()->level == 300);            /* at the power-cut level */
+    CHECK(c1()->input_mode == 1 && dimmer_channel(1)->boost50 == 4);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 700);
+    run_ms(3000);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    boot(CSR_WATCHDOG);                                    /* a warm reset restores, as before */
+    CHECK(c1()->level == 700);
+    host_write(CH1_POWER_LEVEL, TUYA_DP_TYPE_VALUE, 0);    /* 0: the last level again */
+    run_ms(3000);
+    power_up(0);
+    CHECK(c1()->level == 700);
+    /* An older record (spare bytes 0): as before. */
+    memcpy(&s, g_host_flash, sizeof(s));
+    memset(s.reserved, 0, sizeof(s.reserved));
+    memcpy(g_host_flash, &s, sizeof(s));
+    power_up(0);
+    CHECK(c1()->input_mode == 0 && c1()->power_level4 == 0 && dimmer_channel(1)->boost50 == 0);
+}
+
+static void test_identify_blinks_then_is_as_it_was(void) {
+    lit_at(400);
+    host_write(CH1_IDENTIFY, TUYA_DP_TYPE_VALUE, 3);
+    unsigned dark = 0, full = 0;
+    for (int i = 0; i < 280; i++) {                        /* 2.8 s */
+        run_ms(10);
+        dark += g_host_fader[0].current == 0;
+        full += g_host_fader[0].current == 1000;
+    }
+    CHECK(dark > 100 && full > 100);                       /* at once both ways, 0.5 s each */
+    run_ms(500);
+    CHECK(g_host_fader[0].target == 400 && c1()->on == 1); /* as it was */
+    host_saved_t s;
+    memcpy(&s, g_host_flash, sizeof(s));
+    CHECK(s.ch[0].level == 400);                           /* nothing of it saved */
+    host_write(CH1_IDENTIFY, TUYA_DP_TYPE_VALUE, 60);
+    run_ms(600);
+    host_write(CH1_IDENTIFY, TUYA_DP_TYPE_VALUE, 0);       /* 0 stops it */
+    run_ms(20);
+    CHECK(g_host_fader[0].target == 400);
+}
+
+static void test_boost_dp_drives_the_fader_and_the_dump_has_the_new_dps(void) {
+    power_up(1);
+    host_write(CH1_BOOST, TUYA_DP_TYPE_VALUE, 150);
+    CHECK(!dimmer_write_dp(CH1_BOOST, TUYA_DP_TYPE_VALUE, (const uint8_t *)"\0\0\x03\x00", 4));  /* 768 */
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    run_ms(10);
+    CHECK(g_host_fader[0].current == 1000);                /* at full first */
+    run_ms(200);
+    CHECK(g_host_fader[0].current == 1000 || g_host_fader[0].current == DIMMER_LEVEL_MAX);
+    host_log_clear();
+    dimmer_report_all();
+    CHECK(host_log_find("162=0") >= 0 && host_log_find("164=0") >= 0 && host_log_find("168=150") >= 0);
+    CHECK(host_log_find("163=") >= 0 && host_log_find("169=") >= 0);
+    CHECK(host_log_find("166=") < 0);                      /* identify: not in the dump */
+}
+
 int main(void) {
     RUN(test_power_up_takes_power_on_rule);
     RUN(test_watchdog_reset_restores_live_state);
@@ -713,6 +818,10 @@ int main(void) {
     RUN(test_transition_on_from_dark_and_off);
     RUN(test_transition_is_for_the_next_second_only);
     RUN(test_transition_is_neither_saved_nor_in_the_dump);
+    RUN(test_countdown_turns_off_after_its_time);
+    RUN(test_power_cut_level_and_the_spare_bytes);
+    RUN(test_identify_blinks_then_is_as_it_was);
+    RUN(test_boost_dp_drives_the_fader_and_the_dump_has_the_new_dps);
     RUN(test_dimmer_dark);
     RUN(test_link_restart_restores_off);
     RUN(test_link_restart_waits);

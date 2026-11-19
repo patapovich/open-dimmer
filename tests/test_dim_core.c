@@ -1214,6 +1214,74 @@ static void test_timed_extremes(void) {
     CHECK(f.timed_left == 0);
 }
 
+
+/* ---- 2.2.0: start boost -------------------------------------------------------------- */
+
+static void boosted(dim_fader_t *f, uint16_t ms) {
+    dim_profile_t p;
+    dim_fader_init(f);
+    dim_fader_set_floor(f, 100);
+    dim_profile_default(&p);
+    p.boost_ms = ms;
+    dim_fader_set_profile(f, &p);
+}
+
+static void test_boost_at_full_then_straight_to_the_level(void) {
+    dim_fader_t f;
+    boosted(&f, 200);
+    dim_fader_set(&f, 1, 300);
+    for (int i = 0; i < 19; i++) {
+        CHECK(dim_fader_tick(&f) == 1000);       /* 200 ms at full (20 half cycles) */
+    }
+    dim_fader_tick(&f);
+    CHECK(f.current == 300);                     /* then the level at once */
+    dim_fader_set(&f, 0, 300);
+    timed_ticks(&f, 0, 1000);
+    dim_fader_set(&f, 1, 300);                   /* dark again: a boost again */
+    CHECK(dim_fader_tick(&f) == 1000);
+}
+
+static void test_boost_goes_on_through_the_level_after_on_and_ends_with_off_or_a_hold(void) {
+    dim_fader_t f;
+    boosted(&f, 300);
+    dim_fader_set(&f, 1, 1000);                  /* the module: on (the old level) ... */
+    dim_fader_tick(&f);
+    dim_fader_set(&f, 1, 250);                   /* ... then its level, 3 ms later */
+    int n = timed_ticks(&f, 250, 100);
+    CHECK(n >= 28 && n <= 30);                   /* the boost went on to its end */
+    boosted(&f, 300);
+    dim_fader_set(&f, 1, 400);
+    dim_fader_tick(&f);
+    dim_fader_set(&f, 0, 400);                   /* off during it: out from the floor */
+    CHECK(f.boost_left == 0 && f.current == 100);
+    n = timed_ticks(&f, 0, 50);
+    CHECK(n >= 1 && n <= DIM_OFF_HOLD_MS / 10 + 1);
+    boosted(&f, 300);
+    dim_fader_set(&f, 1, 400);
+    dim_fader_hold_start_from_dark(&f, 100, 1000);   /* a hold picks from the floor: no boost */
+    CHECK(f.boost_left == 0);
+}
+
+static void test_no_boost_from_lit_or_when_off_and_a_timed_on_after_it(void) {
+    dim_fader_t f;
+    boosted(&f, 0);
+    dim_fader_set(&f, 1, 300);
+    CHECK(f.boost_left == 0);                    /* none set */
+    boosted(&f, 200);
+    dim_fader_set(&f, 1, 300);
+    timed_ticks(&f, 300, 100);
+    dim_fader_set(&f, 1, 700);                   /* lit to lit: no boost */
+    CHECK(f.boost_left == 0);
+    boosted(&f, 100);
+    dim_fader_set_timed(&f, 1, 600, 1000);       /* boost, then the timed rise from the floor */
+    for (int i = 0; i < 9; i++) {
+        CHECK(dim_fader_tick(&f) == 1000);
+    }
+    CHECK(dim_fader_tick(&f) == 100);
+    int n = timed_ticks(&f, 600, 1000);
+    CHECK(n >= 99 && n <= 101);
+}
+
 int main(void) {
     test_fade_up_takes_two_seconds();
     test_fade_lands_exactly_on_target();
@@ -1270,6 +1338,9 @@ int main(void) {
     test_timed_ends_with_a_new_target_or_a_hold_and_stays_for_the_same_target();
     test_timed_holds_on_60_hz();
     test_timed_extremes();
+    test_boost_at_full_then_straight_to_the_level();
+    test_boost_goes_on_through_the_level_after_on_and_ends_with_off_or_a_hold();
+    test_no_boost_from_lit_or_when_off_and_a_timed_on_after_it();
     if (g_failed) {
         printf("%d check(s) failed\n", g_failed);
         return EXIT_FAILURE;

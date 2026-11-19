@@ -565,6 +565,68 @@ static void run(void (*test)(void), const char *name) {
 
 #define RUN(t) run(t, #t)
 
+
+/* ---- 2.2.0: wall switch mode (DP 162 / 163) ----------------------------------------- */
+
+#define CH1_INPUT_MODE 162
+#define DETACHED 1
+#define INPUT_OFF 2
+
+static void test_detached_momentary_reports_gestures_and_leaves_the_light(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, MOMENTARY);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, DETACHED);
+    run_ms(3000);
+    host_log_clear();
+    s1(1);                                         /* a tap */
+    run_ms(120);
+    s1(0);
+    run_ms(1000);
+    CHECK(c1()->on == 0 && g_host_fader[0].target == 0);   /* the light is the network's */
+    CHECK(host_log_find("105=1]") >= 0 && host_log_find("A[1=") < 0);
+    host_log_clear();
+    s1(1);                                         /* a hold: reported, no dimming */
+    run_ms(1500);
+    s1(0);
+    run_ms(500);
+    CHECK(host_log_find("105=4]") >= 0 && host_log_find("105=5]") >= 0);
+    CHECK(c1()->on == 0 && g_host_fader[0].hold_dir == 0);
+}
+
+static void test_detached_toggle_reports_each_change_as_a_single(void) {
+    power_up(1);                                   /* toggle type */
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, DETACHED);
+    run_ms(3000);
+    host_log_clear();
+    s1(1);
+    run_ms(100);
+    s1(0);
+    run_ms(100);
+    CHECK(c1()->on == 0 && host_log_find("A[1=") < 0);
+    long first = host_log_find("105=1]");
+    CHECK(first >= 0 && host_log_find_from(first + 1, "105=1]") >= 0);   /* both flips */
+}
+
+static void test_input_off_ignores_the_switch_and_the_mode_is_saved(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, STATE);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, INPUT_OFF);
+    run_ms(3000);                                  /* saved */
+    host_log_clear();
+    s1(1);
+    run_ms(200);
+    CHECK(c1()->on == 0 && host_log_find("A[") < 0);
+    boot(DIMMER_RESET_POWER);                      /* a power cut with the state switch closed */
+    run_ms(200);
+    CHECK(c1()->input_mode == INPUT_OFF && c1()->on == 0);   /* it does not set the light */
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, 0);       /* back to normal */
+    s1(0);
+    run_ms(100);
+    s1(1);
+    run_ms(100);
+    CHECK(c1()->on == 1);
+}
+
 int main(void) {
     RUN(test_type_change_to_state_syncs);
     RUN(test_type_change_mid_press);
@@ -586,6 +648,9 @@ int main(void) {
     RUN(test_dp_on_during_hold_from_dark);
     RUN(test_hold_cap);
     RUN(test_tap_from_dark_fastest_hold);
+    RUN(test_detached_momentary_reports_gestures_and_leaves_the_light);
+    RUN(test_detached_toggle_reports_each_change_as_a_single);
+    RUN(test_input_off_ignores_the_switch_and_the_mode_is_saved);
     if (g_fail) {
         printf("test_controls: FAILED\n");
         return 1;

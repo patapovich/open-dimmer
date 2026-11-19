@@ -37,6 +37,14 @@ long host_log_find(const char *what) {
     return p ? (long)(p - g_host_log) : -1;
 }
 
+long host_log_find_from(long from, const char *what) {
+    if (from < 0 || (size_t)from > strlen(g_host_log)) {
+        return -1;
+    }
+    const char *p = strstr(g_host_log + from, what);
+    return p ? (long)(p - g_host_log) : -1;
+}
+
 /* ---- tuya.c report builder and send ---------------------------------------- */
 
 static char    g_frame[512];
