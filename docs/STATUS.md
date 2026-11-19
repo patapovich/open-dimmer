@@ -1,4 +1,4 @@
-# Open Dimmer: status (2026-11-19, release 2.2.2)
+# Open Dimmer: status (2026-11-19, release 2.2.3)
 
 Open Dimmer is open-source firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2,
 updated over Zigbee by the fork's Zigbee (ZTU) firmware (`patapovich/tuya-zigbee-switch`,
@@ -15,6 +15,29 @@ branch `home-dimmer`).
 | SWD tools | `tools/swd/install.sh` (one-contact install, docs/INSTALL.md; untested on a stock module yet), the single steps beside it (`.venv` and `pack/` next to the clone, see docs/INSTALL.md) |
 | HA / Z2M helpers | `tools/ha/` (see its README): expose dump and configure check with the real zhc, websocket client, OTA deploy |
 | Docs | `docs/INSTALL.md`, `docs/REVIEW-2026-11-17.md`, `docs/ZC-DELAY-MEASUREMENT.md`, `docs/stock-firmware-analysis.md` |
+
+## Bench tests (spare, 2026-11-19; docs/BOOTLOADER.md bench table)
+
+On probe power (mains off; CN2 VCC feeds the Zigbee module too, so it serves its image over the
+UART), with the ZTU's ring gate letting bootloader requests through when the installed app has
+RING_HIGH:
+- B1, B2 (probe answer 172..184 ms, also with a carried image over 12 KB: the gate's refusal
+  answer ends the probe at once), B7 once (mains cut in the middle of an update: mode-2
+  recovery, running 4 s after the power-up; 2 more cuts with the next release).
+- B3: a build declining every offer (`make OFFER_DECLINE_TEST=1 FW_PREV=1 FW_TEST=1`) declined
+  it; after a power cut the probe installed the release (182 ms, WRITTEN).
+- B4: a build faulting 1 s after start (`make CRASH_TEST=1 FW_TEST=1`): RESCUE + WRITTEN, the
+  release back within seconds.
+- B5: button through power-up: same image → BUTTON, nothing written, the app after the 30 s
+  window; held 8 s → STUCK, nothing written, no rejoin; different image → BUTTON + WRITTEN.
+- B8: DP 131 = PWR only after a power cycle that follows a software reset; the software flag
+  survives the bootloader (its LSION write keeps the flags); the IWDG does not survive
+  `NVIC_SystemReset` (RCC_CSR 0x10000000 with LSI off; no watchdog reset in 3 s halted with the
+  freeze off).
+- B11 (`make LINK_WDG_TEST=1 FW_PREV=1 FW_TEST=2`): a channel on for 9+ min → no restart; both
+  off → a restart ~1 min later, LINK + WRITTEN, link probe 8 ms, the release installed. Not run
+  yet: "nothing newer" and the 10 cycles (they need the test build carried).
+- B6 not run (see the table). B9 and 2 more B7 cuts at the next release; B10 trial running.
 
 ## Flash layout and budget
 

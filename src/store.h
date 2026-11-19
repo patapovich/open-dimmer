@@ -32,7 +32,8 @@ static inline uint8_t store_save(const uint8_t *data) {
 /** Saves done since boot (diagnostics). */
 uint32_t store_save_count(void);
 /** 1 when the newest record is in this app's own ring (after the ring moved up: once its copy is
- * saved; health DP 137 bit 25). */
+ * saved), or when there is no record at all (nothing an image could overwrite); health DP 137
+ * bit 25. */
 uint8_t store_in_own_ring(void);
 /** 1 when store_load found the newest record below the ring and could not copy it up: the
  * caller saves the same data again (any save to the ring is the copy). */

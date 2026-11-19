@@ -35,6 +35,7 @@ extern const uint8_t _store_scan_start[];
 #define STORE_SKIP_MAX  (STORE_PAGES - 2u)
 
 static int16_t  g_newest = -1;   /* page index of the newest valid record */
+static uint8_t  g_found;         /* store_load found a valid record anywhere in its scan */
 static uint8_t  g_copy_due;      /* the newest record lies below the ring, not copied up yet */
 static uint32_t g_seq;           /* sequence number of the newest record or attempt */
 static uint8_t  g_skip;
@@ -75,6 +76,7 @@ uint8_t store_load(uint8_t *data) {
             g_seq = r->seq;
         }
     }
+    g_found = best != NULL;
     if (best == NULL) {
         return 0;
     }
@@ -98,7 +100,9 @@ uint8_t store_copy_due(void) {
 }
 
 uint8_t store_in_own_ring(void) {
-    return g_newest >= 0;
+    /* The newest record in this app's ring, or no record at all (an erased flash, a fresh
+     * install): either way an image up to the ring's start loses no settings (DP 137 bit 25). */
+    return g_newest >= 0 || !g_found;
 }
 
 uint8_t store_save_tries(const uint8_t *data, uint8_t attempts) {

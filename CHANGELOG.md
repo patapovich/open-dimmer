@@ -3,6 +3,12 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
+## 2.2.3 (2026-11-19)
+
+- Health: DP 137 bit 25 ("settings ring moved") is also set when there are no settings at all
+  (a fresh install, erased settings): nothing an image over 12 KB could overwrite, so the module
+  may offer such an update at once instead of after the first saved setting.
+
 ## 2.2.2 (2026-11-19)
 
 - Health: the die temperature (DP 138) at every report: the ADC converts continuously (as the

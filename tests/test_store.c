@@ -438,6 +438,20 @@ static void test_a_version_1_record_below_is_copied_as_version_2(void) {
     CHECK(memcmp(d, want, sizeof(d)) == 0 && newest_is(want) && newest_page() >= 0);
 }
 
+static void test_an_empty_flash_reports_no_settings_to_lose(void) {
+    uint8_t d[STORE_DATA_SIZE];
+    memset(g_flash, 0xFF, sizeof(g_flash));          /* a fresh install: no record anywhere */
+    CHECK(!store_load(d));
+    CHECK(store_in_own_ring() && !store_copy_due()); /* bit 25: an image over 12 KB loses nothing */
+    old_ring();                                      /* a record below only, its copy failing ... */
+    for (unsigned pg = 0; pg < RPAGES; pg++) {
+        g_worn[pg] = 1;
+    }
+    CHECK(store_load(d));
+    CHECK(!store_in_own_ring());                     /* ... is something to lose: not reported */
+    memset(g_worn, 0, sizeof(g_worn));
+}
+
 #if SCAN_OFF
 static void test_code_below_the_scan_start_is_never_a_record(void) {
     uint8_t d[STORE_DATA_SIZE], want[STORE_DATA_SIZE];
@@ -466,6 +480,7 @@ int main(void) {
     test_a_failed_copy_is_made_at_the_next_start();
     test_a_newer_record_up_there_is_taken_without_a_copy();
     test_a_version_1_record_below_is_copied_as_version_2();
+    test_an_empty_flash_reports_no_settings_to_lose();
 #endif
     if (g_failures) {
         printf("test_store (ring high, scan +%d): %d FAILED\n", SCAN_OFF, g_failures);
