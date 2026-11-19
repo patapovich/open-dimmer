@@ -204,6 +204,9 @@ uint8_t dimmer_init(uint32_t reset_csr) {
         }
     }
     snapshot(&g_saved);               /* what flash holds */
+    if (store_copy_due()) {
+        mark_dirty();                 /* the ring move's copy failed: saved again by dimmer_poll */
+    }
 
     /* Back from a reset that kept the RAM and was not a power-up or brown-out:
      * a firmware update (or the bootloader giving up on one), the watchdog or a
@@ -266,7 +269,7 @@ void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok) {
 
     saved_t s;
     snapshot(&s);
-    if (memcmp(&s, &g_saved, sizeof(s)) == 0) {
+    if (memcmp(&s, &g_saved, sizeof(s)) == 0 && !store_copy_due()) {
         return;
     }
     if (store_save((const uint8_t *)&s)) {

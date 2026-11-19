@@ -31,6 +31,9 @@ __asm__(".globl _settings_start\n.set _settings_start, g_flash + 2048\n"
         ".globl _store_scan_start\n.set _store_scan_start, g_flash + " STR(SCAN_OFF) "\n");
 #define RING_OFF 2048u
 #endif
+/* The ring's pages (all 32, or the upper 16): the tests below count pages from the ring's start. */
+#define RPAGES ((uint32_t)(sizeof(g_flash) - RING_OFF) / PAGE)
+#define RING   (g_flash + RING_OFF)
 
 static int      g_failures;
 static unsigned g_erases[PAGES];
@@ -72,7 +75,7 @@ uint8_t flash_write_page(uint32_t addr, const uint32_t *src) {
         return 0;
     }
     uint8_t *p = g_flash + off;
-    unsigned pg = off / PAGE;
+    unsigned pg = (off - RING_OFF) / PAGE;          /* the ring's page */
     if (memcmp(p, src, PAGE) == 0) {
         return 1;
     }
@@ -103,7 +106,7 @@ static void flash_reset(void) {
 
 static uint32_t page_seq(unsigned pg) {
     uint32_t s;
-    memcpy(&s, g_flash + pg * PAGE + 4, 4);
+    memcpy(&s, RING + pg * PAGE + 4, 4);
     return s;
 }
 
@@ -112,8 +115,8 @@ static uint32_t page_seq(unsigned pg) {
  * copied to d (version 2 records only). */
 static int ref_newest(uint8_t *d) {
     int best = -1;
-    for (unsigned pg = 0; pg < PAGES; pg++) {
-        const uint8_t *p = g_flash + pg * PAGE;
+    for (unsigned pg = 0; pg < RPAGES; pg++) {
+        const uint8_t *p = RING + pg * PAGE;
         uint32_t magic, crc;
         memcpy(&magic, p, 4);
         memcpy(&crc, p + 8 + STORE_DATA_SIZE, 4);
@@ -125,7 +128,7 @@ static int ref_newest(uint8_t *d) {
         }
     }
     if (best >= 0 && d) {
-        memcpy(d, g_flash + (unsigned)best * PAGE + 8, STORE_DATA_SIZE);
+        memcpy(d, RING + (unsigned)best * PAGE + 8, STORE_DATA_SIZE);
     }
     return best;
 }
@@ -155,13 +158,13 @@ static void test_empty_and_ring_order(void) {
         g_calls_erases = 0;
         CHECK(store_save(d) == 1);
         CHECK(g_calls_erases == 1);
-        CHECK(g_erases[n % PAGES] >= 1);        /* page by page from page 0 */
+        CHECK(g_erases[n % RPAGES] >= 1);        /* page by page from page 0 */
     }
     CHECK(store_save_count() >= 40);
     CHECK(store_load(o) == 1);
     data_of(d, 39);
     CHECK(memcmp(o, d, STORE_DATA_SIZE) == 0);
-    CHECK(newest_page() == 39 % PAGES);
+    CHECK(newest_page() == 39 % RPAGES);
 }
 
 /* The sequence number decides, also across its 32-bit wrap. */
@@ -181,7 +184,7 @@ static void test_newest_by_sequence_across_the_wrap(void) {
         r.seq   = seqs[i];
         data_of(r.data, (unsigned)i + 100);
         r.crc = crc32_update(0, (const uint8_t *)&r, 8 + STORE_DATA_SIZE);
-        memcpy(g_flash + pages[i] * PAGE, &r, sizeof(r));
+        memcpy(RING + pages[i] * PAGE, &r, sizeof(r));
     }
     CHECK(store_load(o) == 1);
     data_of(d, 102);
@@ -206,7 +209,7 @@ static void test_version_1_record(void) {
         v1.data[i] = (uint8_t)(i + 1);
     }
     v1.crc = crc32_update(0, (const uint8_t *)&v1, 28);
-    memcpy(g_flash + 5 * PAGE, &v1, sizeof(v1));
+    memcpy(RING + 5 * PAGE, &v1, sizeof(v1));
     memset(o, 0xEE, sizeof(o));
     CHECK(store_load(o) == 1);
     CHECK(o[0] == 1 && o[19] == 20 && o[20] == 0 && o[STORE_DATA_SIZE - 1] == 0);
@@ -273,13 +276,13 @@ static void test_all_pages_worn_never_erase_the_newest(void) {
     }
     CHECK(newest_page() == 11);
     unsigned keep_erases[2] = { g_erases[10], g_erases[11] };
-    for (unsigned pg = 0; pg < PAGES; pg++) {
+    for (unsigned pg = 0; pg < RPAGES; pg++) {
         if (pg != 10 && pg != 11) {
             g_worn[pg] = 1;
         }
     }
     data_of(d, 99);
-    for (unsigned n = 0; n < 3 * PAGES; n++) {
+    for (unsigned n = 0; n < 3 * RPAGES; n++) {
         g_calls_erases = 0;
         CHECK(store_save(d) == 0);
         CHECK(g_calls_erases == 1);
@@ -289,7 +292,7 @@ static void test_all_pages_worn_never_erase_the_newest(void) {
     CHECK(newest_is(d));
     CHECK(store_load(o) == 1 && memcmp(o, d, STORE_DATA_SIZE) == 0);
     /* Each of the other 30 pages was tried in turn. */
-    for (unsigned pg = 0; pg < PAGES; pg++) {
+    for (unsigned pg = 0; pg < RPAGES; pg++) {
         if (pg != 10 && pg != 11) {
             CHECK(g_erases[pg] >= 3);
         }
@@ -355,6 +358,7 @@ static void old_ring(void) {
     memset(g_flash, 0xFF, sizeof(g_flash));
     memset(g_erases, 0, sizeof(g_erases));
     memset(g_worn, 0, sizeof(g_worn));
+    memset(g_stuck_pad, 0, sizeof(g_stuck_pad));
     put_record(3, 41, 1, 0);
     put_record(4, 43, 2, 0);              /* the newest */
     put_record(5, 42, 3, 0);
@@ -369,7 +373,7 @@ static void test_records_below_are_found_and_copied_up_once(void) {
     data_of(want, 2);
     CHECK(memcmp(d, want, sizeof(d)) == 0);          /* the newest of the whole sector */
     int pg = newest_page();
-    CHECK(pg >= 16 && page_seq((unsigned)pg) == 44); /* its copy, up in the ring, seq + 1 */
+    CHECK(pg >= 0 && page_seq((unsigned)pg) == 44);  /* its copy, up in the ring, seq + 1 */
     CHECK(store_in_own_ring());
     CHECK(memcmp(below, g_flash, sizeof(below)) == 0);   /* the lower half as it was */
     unsigned before = g_calls_erases;
@@ -386,16 +390,31 @@ static void test_records_below_are_found_and_copied_up_once(void) {
 static void test_a_failed_copy_is_made_at_the_next_start(void) {
     uint8_t d[STORE_DATA_SIZE], want[STORE_DATA_SIZE];
     old_ring();
-    for (unsigned pg = 16; pg < 32; pg++) {
+    for (unsigned pg = 0; pg < RPAGES; pg++) {
         g_worn[pg] = 1;                              /* the copy cannot take (a power cut) */
     }
+    unsigned before = g_calls_erases;
     CHECK(store_load(d));
+    CHECK(g_calls_erases - before == 1);             /* one page attempt at start, no more */
     data_of(want, 2);
     CHECK(memcmp(d, want, sizeof(d)) == 0);          /* the settings are there all the same */
-    CHECK(!store_in_own_ring());                     /* "ring moved" not reported */
+    CHECK(!store_in_own_ring() && store_copy_due()); /* "ring moved" not reported; saved again */
+    CHECK(!store_save(d));                           /* still worn: due */
+    CHECK(store_copy_due());
+    memset(g_worn, 0, sizeof(g_worn));
+    CHECK(store_save(d));                            /* the caller's next save is the copy */
+    CHECK(!store_copy_due() && store_in_own_ring() && newest_is(want));
+    for (unsigned pg = 0; pg < RPAGES; pg++) {
+        g_worn[pg] = 1;
+    }
+    old_ring();                                      /* or a later start copies it */
+    for (unsigned pg = 0; pg < RPAGES; pg++) {
+        g_worn[pg] = 1;
+    }
+    CHECK(store_load(d) && store_copy_due());
     memset(g_worn, 0, sizeof(g_worn));
     CHECK(store_load(d) && memcmp(d, want, sizeof(d)) == 0);
-    CHECK(store_in_own_ring() && newest_page() >= 16);
+    CHECK(store_in_own_ring() && !store_copy_due() && newest_page() >= 0);
 }
 
 static void test_a_newer_record_up_there_is_taken_without_a_copy(void) {
@@ -416,7 +435,7 @@ static void test_a_version_1_record_below_is_copied_as_version_2(void) {
     uint8_t want[STORE_DATA_SIZE];
     data_of(want, 6);
     memset(want + 20, 0, STORE_DATA_SIZE - 20);      /* the newer fields: 0 */
-    CHECK(memcmp(d, want, sizeof(d)) == 0 && newest_is(want) && newest_page() >= 16);
+    CHECK(memcmp(d, want, sizeof(d)) == 0 && newest_is(want) && newest_page() >= 0);
 }
 
 #if SCAN_OFF
@@ -435,6 +454,14 @@ int main(void) {
 #if SCAN_OFF
     test_code_below_the_scan_start_is_never_a_record();   /* the old ring's pages are code here */
 #else
+    test_empty_and_ring_order();                       /* the general suite on the 16 pages */
+    test_newest_by_sequence_across_the_wrap();
+    test_version_1_record();
+    test_worn_page_one_erase_per_call();
+    test_two_worn_pages_are_passed();
+    test_all_pages_worn_never_erase_the_newest();
+    test_two_attempts_pass_one_worn_page();
+    test_failed_page_with_a_valid_record_is_older();
     test_records_below_are_found_and_copied_up_once();
     test_a_failed_copy_is_made_at_the_next_start();
     test_a_newer_record_up_there_is_taken_without_a_copy();

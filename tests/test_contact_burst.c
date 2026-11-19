@@ -64,6 +64,9 @@ uint8_t store_save_tries(const uint8_t *data, uint8_t attempts) {
     (void)attempts;
     return 1;
 }
+uint8_t store_copy_due(void) {
+    return 0;
+}
 uint32_t store_save_count(void) {
     return 0;
 }

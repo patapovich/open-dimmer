@@ -47,7 +47,7 @@ def check_header(img, kind, build):
     flags, got = img[HDR + 0x0D], struct.unpack_from("<H", img, HDR + 0x0E)[0]
     want = BUILD_SIM if kind == "sim" else build
     errors = []
-    wanted = KINDS[kind] | (flags & RING_HIGH if got >= RING_MOVER_BUILD else 0)
+    wanted = KINDS[kind] | (RING_HIGH if build >= RING_MOVER_BUILD else 0)   # the release's
     if flags != wanted:
         errors.append("flags 0x%02X, a %s build wants 0x%02X" % (flags, kind, wanted))
     if got != want:

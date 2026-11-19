@@ -28,6 +28,9 @@
 #ifndef RING_HIGH
 #define RING_HIGH 0                /* set by the Makefile with the linker layout */
 #endif
+#if (RING_HIGH != 0) != (FW_BUILD_NUMBER >= 400)
+#error "RING_HIGH exactly from release M (build 400) on: builds below it keep the low layout"
+#endif
 
 /* Found by the bootloader right after the vector table; size and CRC are
  * filled in by tools/mkimage.py. Every build confirms its runs (bootif.c);

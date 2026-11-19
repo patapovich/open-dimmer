@@ -35,6 +35,7 @@ extern const uint8_t _store_scan_start[];
 #define STORE_SKIP_MAX  (STORE_PAGES - 2u)
 
 static int16_t  g_newest = -1;   /* page index of the newest valid record */
+static uint8_t  g_copy_due;      /* the newest record lies below the ring, not copied up yet */
 static uint32_t g_seq;           /* sequence number of the newest record or attempt */
 static uint8_t  g_skip;
 static uint32_t g_saves;
@@ -83,11 +84,17 @@ uint8_t store_load(uint8_t *data) {
         g_newest = (int16_t)((uint32_t)((const uint8_t *)best - _settings_start) / PAGE_SIZE);
     } else {
         /* The newest record lies below this app's ring (the ring moved up): copied into the
-         * ring at once, seq + 1 (newer than every old record), the old one left as it is. A
-         * power cut before the copy took leaves it, and the next start copies again. */
-        (void)store_save_tries(data, (uint8_t)(STORE_PAGES - 2u));
+         * ring at once, seq + 1 (newer than every old record), the old one left as it is. One
+         * page attempt here, before the main loop refreshes the watchdog; if it fails the
+         * caller saves again by its usual path (store_copy_due), and a power cut first leaves
+         * the old record, so the next start copies again. */
+        g_copy_due = !store_save_tries(data, 1);
     }
     return 1;
+}
+
+uint8_t store_copy_due(void) {
+    return g_copy_due;
 }
 
 uint8_t store_in_own_ring(void) {
@@ -111,8 +118,9 @@ uint8_t store_save_tries(const uint8_t *data, uint8_t attempts) {
         /* g_newest -1 (nothing saved yet): page g_skip */
         uint32_t page = ((uint32_t)g_newest + 1u + g_skip) % STORE_PAGES;
         if (flash_write_page((uint32_t)(uintptr_t)(_settings_start + page * PAGE_SIZE), page_buf)) {
-            g_newest = (int16_t)page;
-            g_skip   = 0;
+            g_newest   = (int16_t)page;
+            g_skip     = 0;
+            g_copy_due = 0;
             g_saves++;
             return 1;
         }

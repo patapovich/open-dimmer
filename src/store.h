@@ -34,5 +34,8 @@ uint32_t store_save_count(void);
 /** 1 when the newest record is in this app's own ring (after the ring moved up: once its copy is
  * saved; health DP 137 bit 25). */
 uint8_t store_in_own_ring(void);
+/** 1 when store_load found the newest record below the ring and could not copy it up: the
+ * caller saves the same data again (any save to the ring is the copy). */
+uint8_t store_copy_due(void);
 
 #endif

@@ -81,7 +81,9 @@ ASRCS    := $(SDK)/CMSIS/Device/PY32F0xx/Source/gcc/startup_py32f002a.s
 # still finds the records of the 4 KB ring below it (src/store.c). RING_HIGH=0: the layout up to
 # 2.1.13 (12 KB, the ring at 0x08004000). The linker script of the high layout is made from the
 # low one.
-RING_HIGH ?= 1
+# A test build below the release (FW_PREV) of release M itself lies below M: the low layout.
+RELEASE_BUILD := $(shell sed -n 's/^\#define FW_BUILD  *\([0-9][0-9]*\)$$/\1/p' src/tuya.h)
+RING_HIGH ?= $(if $(and $(filter 1,$(FW_PREV)),$(filter 400,$(RELEASE_BUILD))),0,1)
 ifneq ($(filter-out 0 1,$(RING_HIGH)),)
   $(error RING_HIGH=$(RING_HIGH): 0 or 1)
 endif
@@ -145,6 +147,14 @@ $(BUILD)/app_ring_high.ld: py32f002a_app.ld | $(BUILD)
 	sed -e 's/^\(  FLASH (rx)     : ORIGIN = 0x08001000, LENGTH = \)12K/\114K/' \
 	    -e 's/^\(  SETTINGS (r)   : ORIGIN = \)0x08004000, LENGTH = 4K/\10x08004800, LENGTH = 2K/' $< > $@
 	grep -q 'LENGTH = 14K' $@ && grep -q 'ORIGIN = 0x08004800, LENGTH = 2K' $@
+
+# A flip of RING_HIGH in the same build dir rebuilds everything (the flag is in the objects and
+# the layout in the link): a stamp per value.
+RING_STAMP := $(BUILD)/.ring_high_$(RING_HIGH)
+$(RING_STAMP): | $(BUILD)
+	rm -f $(BUILD)/.ring_high_*
+	touch $@
+$(OBJS): $(RING_STAMP)
 
 $(BUILD)/$(PROJECT).elf: $(OBJS) $(LDSCRIPT)
 	$(CC) $(LDFLAGS) -Os $(APP_LTO) $(OBJS) -o $@

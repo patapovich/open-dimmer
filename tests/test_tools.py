@@ -1813,11 +1813,14 @@ class CheckApp(unittest.TestCase):
                                    ("measure", 0x0A, 300), ("sim", 0x09, 0xFFFE)):
             self.assertEqual(ca.check_header(header_img(flags, build), kind, 300), [], kind)
         self.assertEqual(ca.check_header(header_img(0x08, 307), "normal", 307), [])
-        # from release M (build 400) the ring mover's RING_HIGH, with or without
-        for flags in (0x08, 0x18):
-            self.assertEqual(ca.check_header(header_img(flags, 400), "normal", 400), [], flags)
+        # from release M (build 400) on: RING_HIGH, the ring mover's layout
+        self.assertEqual(ca.check_header(header_img(0x18, 400), "normal", 400), [])
+        self.assertTrue(any("flags 0x08" in e for e in
+                            ca.check_header(header_img(0x08, 400), "normal", 400)))
         self.assertEqual(ca.check_header(header_img(0x1C, 400), "diag", 400), [])
         self.assertEqual(ca.check_header(header_img(0x19, 0xFFFE), "sim", 400), [])
+        self.assertTrue(ca.check_header(header_img(0x09, 0xFFFE), "sim", 400))   # SIM of M: high
+        self.assertTrue(ca.check_header(header_img(0x18, 305), "normal", 305))   # below M: low
 
     def test_header_refusals(self):
         ca = load_check_app()
