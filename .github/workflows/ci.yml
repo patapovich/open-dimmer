@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  # Weekly on main: keeps the toolchain cache below alive (GitHub drops a cache unused for
+  # 7 days, and releases can be further apart) and notices a changed runner image early.
+  schedule:
+    - cron: "17 4 * * 1"
 
 # Read-only by default; only the tag-only release job may write (the release itself).
 permissions:
@@ -36,16 +40,48 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Toolchain
-        # A stalled package mirror once hung this step for 15 min (normally ~40 s): fail fast,
-        # each apt call gets a time limit and one retry.
-        timeout-minutes: 8
+      # The ARM toolchain comes from Ubuntu's packages (the compiler the released images were
+      # built with), its .deb files cached under a key made of their exact versions: a stalled
+      # mirror hung the ~574 MB download twice (one release failed on it). With the cache only
+      # the package index comes from the mirror, and a new package version makes a new cache.
+      # Each apt call gets a time limit and one retry.
+      - name: Toolchain packages (versions)
+        id: tc
+        timeout-minutes: 4
         run: |
           apt() { timeout 180 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 "$@" \
                   || { sleep 10; timeout 180 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 "$@"; }; }
           apt update -q
-          apt install -y -q gcc-arm-none-eabi libnewlib-arm-none-eabi
+          debs=$(sudo apt-get install --print-uris -qq gcc-arm-none-eabi libnewlib-arm-none-eabi \
+                 | cut -d"'" -f2 | xargs -r -n1 basename | sort)
+          [ -n "$debs" ] || { echo "::error::no toolchain packages to install"; exit 1; }
+          echo "$debs"
+          echo "key=arm-toolchain-$(lsb_release -rs)-$(echo "$debs" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Toolchain cache
+        id: tc-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/apt-arm
+          key: ${{ steps.tc.outputs.key }}
+
+      - name: Toolchain
+        timeout-minutes: 8
+        run: |
+          apt() { timeout 180 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 "$@" \
+                  || { sleep 10; timeout 180 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 "$@"; }; }
+          mkdir -p ~/apt-arm/partial
+          o=(-o Dir::Cache::Archives="$HOME/apt-arm" -o APT::Keep-Downloaded-Packages=true)
+          echo "to download: $(sudo apt-get install --print-uris -qq "${o[@]}" gcc-arm-none-eabi libnewlib-arm-none-eabi | wc -l) package(s)"
+          apt install -y -q "${o[@]}" gcc-arm-none-eabi libnewlib-arm-none-eabi
           arm-none-eabi-gcc --version | head -1
+
+      - name: Toolchain cache (save)
+        if: steps.tc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/apt-arm
+          key: ${{ steps.tc.outputs.key }}
 
       - name: PY32 SDK
         run: |
