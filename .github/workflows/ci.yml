@@ -70,7 +70,10 @@ jobs:
         timeout-minutes: 8
         run: |
           mkdir -p ~/apt-arm/partial
-          o=(-o Dir::Cache::Archives="$HOME/apt-arm" -o APT::Keep-Downloaded-Packages=true --no-install-recommends)
+          # Sandbox user root: apt's _apt user cannot reach the runner's home, so apt downloads as root
+          # anyway, only with a warning.
+          o=(-o Dir::Cache::Archives="$HOME/apt-arm" -o APT::Keep-Downloaded-Packages=true
+             -o APT::Sandbox::User=root --no-install-recommends)
           echo "to download: $(sudo apt-get install --print-uris -qq "${o[@]}" gcc-arm-none-eabi libnewlib-arm-none-eabi | wc -l) package(s)"
           tools/ci/apt.sh install -y -q "${o[@]}" gcc-arm-none-eabi libnewlib-arm-none-eabi
           # apt leaves its lock and partial/ root-only: the cache keeps the .deb files alone
