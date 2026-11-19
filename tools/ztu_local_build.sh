@@ -2,10 +2,12 @@
 # Local build of the ZDMS16-2 Zigbee firmware (the ZTU fork's MODULE_AVATTO_ZDMS16_2 router image and
 # its OTA file) for quick rounds on the spare, without the CI chain (release, py32-bump, module
 # build: ~20 min). The version is made as the fork's CI makes it (board.mk): swBuildId
-# "<VERSION>-<short hash>", file version 0x<maj><min><patch>30<commits since the fork's main, + 1
-# for the CI's fork-ci commit>; so a local build of a commit the CI also built has the same file
-# version, and a build of a newer commit a higher one (the module takes only a different version). Only committed work is built (the hash must say what is inside). The tree's tracked
-# files are not touched: the build goes to <tree>/build/ (ignored), the OTA file is copied to $OUT.
+# "<VERSION>-<short hash>", file version 0x<maj><min><patch><0x30 + depth / 256><depth % 256>,
+# depth = commits since the fork's main, + 1 for the CI's fork-ci commit; so a local build of a
+# commit the CI also built has the same file version, and a build of a newer commit a higher one
+# (the module takes only a different version). Only committed work is built (the hash must say
+# what is inside). The tree's tracked files are not touched: the build goes to <tree>/build/
+# (ignored), the OTA file is copied to $OUT.
 # Releases to the house still go through the CI chain (traceable builds).
 #
 # Usage: tools/ztu_local_build.sh [<fork tree>]          (default ~/projects/tzs-diag)
@@ -44,9 +46,9 @@ IFS=. read -r MAJ MIN PAT <<< "$V"
 HASH=$(git -C "$TREE" rev-parse --short=8 HEAD)
 # CI builds home-dimmer_build = this branch + the fork-ci commit: one deeper than the branch itself.
 DEPTH=$(( $(git -C "$TREE" rev-list --count "$ZTU_REMOTE/main..HEAD") + 1 ))
-[ "$DEPTH" -le 255 ] || die "$DEPTH commits since $ZTU_REMOTE/main: the file version's last byte (board.mk) overflows"
 VERSION_STR=$(echo "$V-$HASH" | cut -c1-16)
-FILE_VERSION=$(printf '0x%s%s%02d30%02X' "$MAJ" "$MIN" "$PAT" "$DEPTH")
+# board.mk: a depth over 255 carries into the third byte (STACK_RELEASE 0x30 + depth / 256).
+FILE_VERSION=$(printf '0x%s%s%02d%02X%02X' "$MAJ" "$MIN" "$PAT" $((48 + DEPTH / 256)) $((DEPTH % 256)))
 
 eval "$("$PYTHON" -I - "$TREE/device_db.yaml" "$BOARD" <<'PY'
 import shlex, sys, yaml
