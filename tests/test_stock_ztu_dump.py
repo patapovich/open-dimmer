@@ -19,7 +19,13 @@ Pinned (section 11 table, section 15):
     0xA2 and 0xC0 fail the range check, and 0x02, 0x04, 0x28 ... find no handler);
   - 0xC8E4 stops timer 0x2E and returns: no branch to the TX queue 0xDCD8 in 0xC8E4..0xC8F0, and
     on every path to its return no call but the timer's (no TX, no pending-ack entry 0xB898, no
-    NV write).
+    NV write);
+  - its bootloader region 0x0-0x6A0C holds no Telink UART register literal (0x800090-0x80009F),
+    the app region has them from 0x22878 on: no request reaches a serial loader;
+  - the 0x05 handler 0xD60C is not gated by the product-info flag 0x842428: the flag is read at
+    0xC45A, 0xC750, 0xCE24, 0xD956 and 0xD9FE, written at 0xDBB0 (in the 0x01 handler 0xDA5A),
+    and none of these is reached from 0xD60C (its own branches and every call, 8 levels deep).
+The facts are written down in docs/stock-firmware-analysis.md, "Stock ZTU and unknown commands".
 Addresses are file offsets (the Telink TLSR8258 runs the image from flash address 0). The code
 is tc32 (Telink's Thumb-like set): only the few encodings below are decoded.
 """
@@ -41,6 +47,14 @@ HANDLED = {0x01, 0x03, 0x05, 0x06, 0x08, 0x0B, 0x0D, 0x0E, 0x20, 0x24, 0x25, 0x2
 TX_QUEUE, PENDING_ACK = 0xDCD8, 0xB898
 TIMER_STOP, TIMER_START = 0x11354, 0x11480
 EPILOGUE = 0xC878               # restores the registers and returns
+BOOT_REGION = (0x0, 0x6A0C)     # the Tuya bootloader; the app (KNLT) starts at 0x8000
+APP_REGION = (0x8000, 0x8000 + 0x42214)
+UART_REGS = (0x800090, 0x80009F)
+FIRST_APP_UART_LITERAL = 0x22878
+DP_REPORT, PRODUCT_INFO = 0xD60C, 0xDA5A   # handlers of 0x05 and 0x01
+INFO_FLAG = 0x842428            # set by the 0x01 handler (the product info arrived)
+INFO_FLAG_READS = {0xC45A, 0xC750, 0xCE24, 0xD956, 0xD9FE}
+INFO_FLAG_WRITES = {0xDBB0}
 
 
 def load_dump():
@@ -87,6 +101,54 @@ def decode(d, addr):
     if ins & 0xFF00 == 0x6D00 or ins & 0xFF87 == 0x0687:   # tpop {.., pc} / tmov pc, rX
         return 2, "ret", None
     return 2, None, None
+
+
+def words_in(d, lo, hi, pred):
+    """Word-aligned 32-bit values in [lo, hi) for which pred holds: {address: value}."""
+    return {a: word(d, a) for a in range(lo & ~3, hi - 3, 4) if pred(word(d, a))}
+
+
+def literal_loads(d, lo, hi, value):
+    """Addresses of the pc-relative loads in [lo, hi) that load value."""
+    pools = set(words_in(d, lo, hi, lambda w: w == value))
+    out = set()
+    for addr in range(lo, hi, 2):
+        ins = hw(d, addr)
+        if 0x0800 <= ins <= 0x0FFF and ((addr + 4) & ~3) + (ins & 0xFF) * 4 in pools:
+            out.add(addr)
+    return out
+
+
+def reachable(d, start, depth, limit=6000):
+    """Every instruction address on the paths from start (its branches; a table jump `mov pc,
+    r3` ends a path), and those of the functions it calls, depth calls deep."""
+    seen, done, frontier = set(), set(), {start}
+    for _ in range(depth + 1):
+        calls = set()
+        for f in frontier - done:
+            done.add(f)
+            todo, body = [f], set()
+            while todo:
+                addr = todo.pop()
+                while addr not in body and len(body) < limit:
+                    body.add(addr)
+                    try:
+                        n, kind, target = decode(d, addr)
+                    except AssertionError:          # not code (a literal pool)
+                        break
+                    if kind == "bl":
+                        calls.add(target)
+                    elif kind == "b":
+                        todo.append(target)
+                        break
+                    elif kind == "bcond":
+                        todo.append(target)
+                    elif kind == "ret" or hw(d, addr) == 0x069F:
+                        break
+                    addr += n
+            seen |= body
+        frontier = calls
+    return seen
 
 
 def calls_until_return(d, start, limit=64):
@@ -186,6 +248,33 @@ class StockZtuDump(unittest.TestCase):
         self.assertNotIn(TX_QUEUE, calls)
         self.assertNotIn(PENDING_ACK, calls)
         self.assertEqual(decode(self.d, EPILOGUE + 0x10), (2, "ret", None))   # tpop {r4-r7, pc}
+
+
+    def test_no_uart_in_the_bootloader_region(self):
+        """0x0-0x6A0C holds no literal of a Telink UART register (0x800090-0x80009F); the app has
+        them from 0x22878 on. So no request of ours reaches a serial loader."""
+        uart = lambda w: UART_REGS[0] <= w <= UART_REGS[1]
+        self.assertEqual(words_in(self.d, *BOOT_REGION, uart), {})
+        app = words_in(self.d, *APP_REGION, uart)
+        self.assertEqual(min(app), FIRST_APP_UART_LITERAL)
+        self.assertEqual(app[FIRST_APP_UART_LITERAL], 0x800096)
+
+    def test_dp_reports_not_gated_by_product_info(self):
+        """The 0x05 handler 0xD60C does not read the product-info flag 0x842428, which only the
+        0x01 handler sets: DP reports of an MCU that never answers 0x01 (the health DPs 130..137
+        of Open Dimmer) are passed on."""
+        table = struct.unpack_from(f"<{CMDS}I", self.d, CMD_TABLE)
+        self.assertEqual((table[0x05 - 1], table[0x01 - 1]), (DP_REPORT, PRODUCT_INFO))
+        loads = literal_loads(self.d, *APP_REGION, INFO_FLAG)
+        self.assertEqual(loads, INFO_FLAG_READS | INFO_FLAG_WRITES)
+        for a in INFO_FLAG_READS:
+            self.assertEqual(hw(self.d, a + 2) & 0xF800, 0x4800, f"0x{a:X}: tloadrb")   # read
+        for a in INFO_FLAG_WRITES:
+            self.assertEqual(hw(self.d, a + 2) & 0xF800, 0x4000, f"0x{a:X}: tstorerb")  # write
+        self.assertLessEqual(INFO_FLAG_WRITES, reachable(self.d, PRODUCT_INFO, 0))   # the 0x01 handler sets it
+        reach = reachable(self.d, DP_REPORT, 8)
+        self.assertGreater(len(reach), 1000)
+        self.assertFalse(INFO_FLAG_READS & reach)
 
 
 class Decoder(unittest.TestCase):

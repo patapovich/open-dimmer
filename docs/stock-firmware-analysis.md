@@ -58,7 +58,8 @@ Timers TIM1 and TIM16 are used heavily (phase-angle control); USART1 once.
 ## Update support in the WiFi PY32 firmware (checked 2026-11-16)
 - Product info: {"p":"chfpey4klfcp1ipl","v":"1.0.3","m":0}; no MCU OTA fields.
 - Frame parser 0x08004050: needs 55 AA 00 (version byte 0, no seq field), data ≤ 31 bytes
-  (frame ≤ 0x26, RX buffer 31). Commands handled (dispatcher 0x080025D0): 0x00 heartbeat,
+  (frame ≤ 0x26, RX buffer 31). The exact limits, and the frames that wedge it: "Stock MCU parser
+  limits" below. Commands handled (dispatcher 0x080025D0): 0x00 heartbeat,
   0x01 product info, 0x02 working mode, 0x03 WiFi status, 0x04/0x05 reset, 0x06 DP write,
   0x08 query, 0x0E, 0x34. No 0x0A/0x0B (WiFi MCU OTA): no update over UART.
 - Flash writes (HAL unlock 0x08000A54) only touch the last 128-byte page 0x08004F80 → settings.
@@ -198,3 +199,68 @@ Dimming engine (the reference for Open Dimmer):
 - 2026-11-17 Zigbee board check (spare, Open Dimmer DIAG build): wall push button wired L–S1 (module label) pulls PB1 low
   as a STEADY level while pressed (no 50 Hz pulses); N–S1 gives nothing. ZC detector PA4: symmetric square
   wave 10.07/10.02 ms, ±20 µs jitter, clean under an LED load.
+
+## Stock ZTU and unknown commands (stock ZTU dump, 2026-11-19)
+What the stock Tuya ZTU does with the frames of Open Dimmer's v2 bootloader and app that it does
+not know (docs/BOOTLOADER.md section 15, "Open Dimmer under a stock Tuya ZTU", review FB-3).
+Source: the public 1 MB dump of the _TZE284_jtbgusdc ZTU named above (sha256 f4afb7a8b559...,
+one dump of unknown version; nothing of this ran on hardware). Addresses are file offsets; the
+TLSR8258 runs the image from flash address 0. `tests/test_stock_ztu_dump.py` pins these facts
+against the file (`STOCK_ZTU_DUMP=<path>`; skipped without it).
+- Byte parser 0xC858, state table 0x487E0 (10 states): it takes 55 AA 02, a length ≤ 246
+  (0xC9A8) and a good checksum (0xC8B4-0xC8E2), with a 100 ms inter-byte timer 0x2E
+  (0xC942-0xC948).
+- Then len ≤ 255 (0xC9EE) and (cmd − 1) ≤ 0x39 (0xCA02-0xCA0E, `cmp r3, #57` at 0xCA0A); a frame
+  that fails either goes to 0xC8E4. So 0xA0..0xA3 and 0xC0 never reach a handler.
+- Command table 0x48808, 58 entries for 0x01..0x3A: handlers only for 0x01, 0x03, 0x05, 0x06,
+  0x08, 0x0B, 0x0D, 0x0E, 0x20, 0x24-0x27, 0x29, 0x2C, 0x36-0x38 and 0x3A; the other 39 entries
+  point at 0xC8E4 too.
+- Drop path 0xC8E4: stops timer 0x2E and returns to the parser. No call to the TX queue 0xDCD8,
+  no pending-ack entry (0xB898), no NV write. The bootloader's 16-byte 0xA1 header requests
+  (probe, rescue windows, no-app mode, link probe) are therefore dropped silently, at any rate
+  and for days: they cannot stall it, reset it, make it leave the network or factory-reset it.
+  No 0xA2 is ever sent (nothing is written without an answer).
+- Its bootloader region 0x0-0x6A0C holds no Telink UART register literal (0x800090-0x80009F);
+  the app region has them from 0x22878 on. No request reaches a serial loader.
+- The 0x05 handler 0xD60C (DP report) is not gated by the product-info flag 0x842428: that flag
+  is read at 0xC45A, 0xC750, 0xCE24, 0xD956 and 0xD9FE and written at 0xDBB0 in the 0x01
+  handler 0xDA5A, and none of these is reached from 0xD60C. The app's health DPs 130..137
+  probably reach Zigbee2MQTT as unknown raw Tuya DPs: log noise, not harm.
+- The app's other frames: 0x20 network queries, DP reports 0x05 / 0x06, 0x03 after a 3 s
+  module-button hold, all with handlers. It never answers the stock ZTU's 0x01 product query, so
+  the stock ZTU keeps querying every 1 s and, without its NV UART lock record, cycles its UART
+  setting (9600 / 115200 × 2 configurations, a step every 1 s, 0xBB10-0xBCC2). The dump holds
+  the record (0xEA20A: `aa 00 01 c2 00 01 aa`) and the full name (0xEC641: "_TZE284_jtbgusdc");
+  the default name "TS0601" / "_TZE284_" is set at 0xB6BC and the PID appended only in the 0x01
+  handler. Why that combination is unsupported and how to leave it: BOOTLOADER.md section 15.
+- For other stock releases the design assumes only that a Tuya MCU-SDK module ignores commands
+  it does not know (the Zigbee serial protocol has no NAK). The bootloader needs nothing from a
+  stock ZTU, and its traffic is bounded at 10 frames per second for 3 s, then at most 2 per
+  second.
+
+## Stock MCU parser limits (WiFi 1.0.3 dump, inferred for Zigbee 1.0.7, 2026-11-19)
+The limits every frame of an own ZTU to a factory MCU must respect (review FA-5): the written
+basis of ZTU contract item 6 (`src/ota_proto.h`, fork `src/zigbee/tuya_mcu_ota.h`), which every
+later ZTU release keeps. From the disassembly of the WiFi DMS16-W1 dump (mainflash.bin, above).
+The Zigbee PY32 1.0.7 is read-protected ("SWD read of the Zigbee PY32" above) and probably
+shares the vendor template, so for 1.0.7 these limits are **inferred**, not read:
+- The USART ISR ring holds 23 bytes (0x200001D3..0x200001EA) and drops bytes when it is full
+  (0x080038F8-0x0800393E).
+- The linear parse buffer holds 31 bytes (`cmp r0, #31` at 0x08004070, 0x0800406E-0x08004072),
+  but frame lengths up to 38 bytes are accepted (`cmp r5, #38` at 0x080040C8). A frame of
+  32..38 bytes therefore never completes: no byte is read while the count is 31, and the parser
+  waits for the rest (0x080040D8 → 0x08004112). RX stays wedged until a power cut; the unit is
+  then controllable only from the wall switch.
+- Back-to-back bursts over 23 bytes lose bytes while the MCU blocks its main loop (the 600 ms
+  LED blink, a flash save).
+- `main` runs `HAL_Delay(1500)` before its init (0x08002A68). The Zigbee unit's SWD window of
+  ~1.5 s after power-up fits the same start.
+- Unknown commands: the dispatcher ignores them (0x080026CA). The Zigbee 1.0.7 answers 0x0B in
+  3 ms with 0x47 and ignores 0x0C (the probes above).
+
+What follows for an own ZTU (contract item 6): towards an MCU not identified as Open Dimmer at
+most 29 bytes per frame (the largest frame the phase-1 queue builds: 8 + 4 + 16 + 1), one queued
+frame in flight, and at most 23 bytes for frames less than 2 ms apart (a reply counts too).
+Frames over 29 bytes (the 38 / 86-byte 0xA1 answers) go only as the direct reply to an 0xA1
+request, which a stock MCU never sends. Phase 3's own frames are 9 bytes (0xA3) and 20 bytes
+(0xA0 v2).

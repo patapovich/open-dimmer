@@ -1587,8 +1587,9 @@ What it does with them (stock ZTU dump):
 - Its bootloader region 0x0-0x6A0C contains no Telink UART register literal (the app region has
   them from 0x22878 on), so no request reaches a serial loader.
 - The health DPs probably reach Zigbee2MQTT as unknown raw Tuya DPs: its 0x05 handler (0xD60C)
-  is not gated by its product-info flag (0x842428 is read only at 0xC45A, 0xC750, 0xCE24 and
-  0xD956). That is log noise, not harm.
+  is not gated by its product-info flag (0x842428 is read only at 0xC45A, 0xC750, 0xCE24,
+  0xD956 and 0xD9FE, none of them reached from 0xD60C, and written at 0xDBB0 in the 0x01
+  handler). That is log noise, not harm.
 
 The assumption for other stock releases: a Tuya MCU-SDK module ignores commands it does not
 know, because the Zigbee serial protocol has no NAK. The design relies on nothing more. The
@@ -1854,6 +1855,14 @@ pinned by a host test (`make test`, `make test-boot`, or the fork's stub tests).
   from the app's start.
 - `make FW_PREV=1 FW_TEST=n` builds below the release (B3, B11), and `LINK_WDG_TEST=1` builds
   only there. The Makefile and `src/tuya.h` refuse every other combination, with the same words.
+
+**Docs.** `docs/stock-firmware-analysis.md` holds the two sections of section 14, step 1
+("Stock ZTU and unknown commands", "Stock MCU parser limits", the 1.0.7 limits marked inferred),
+and contract item 6 in `src/ota_proto.h` and the fork's `tuya_mcu_ota.h` points at the second.
+A re-check of the dump found a fifth read of the product-info flag (0xD9FE, next to 0xD956);
+it is not reached from the 0x05 handler either, so the statement above holds.
+`tests/test_stock_ztu_dump.py` also pins the bootloader region without UART register literals
+and the flag's readers.
 
 **Tools.** `mkimage.py` and `embed_ztu.py` refuse more than section 11 lists, all on the safe
 side (version byte < 0x80, vectors the bootloader would not start, a build that is not a

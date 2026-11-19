@@ -131,7 +131,9 @@ typedef struct {
  * Not needed by the frozen code, pinned the same way:
  *  6. Factory MCUs (not identified as Open Dimmer): only the phase-1 command set, one queued frame
  *     in flight, <= 29 bytes per frame, <= 23 bytes per burst (< 2 ms apart); frames over 29 bytes
- *     only as the direct reply to an 0xA1 request.
+ *     only as the direct reply to an 0xA1 request. The basis: docs/stock-firmware-analysis.md,
+ *     "Stock MCU parser limits" (23-byte ISR ring; 31-byte parse buffer, so a 32..38-byte frame
+ *     wedges RX until a power cut; read from the WiFi 1.0.3, inferred for the Zigbee 1.0.7).
  *  7. No 0x01 (product query) to any MCU: the v2 app takes 0x01 without 0xA3 as a stock Tuya ZTU.
  *  8. Heard: an MCU identified as Open Dimmer gets a well-formed frame at least every 30 min; in
  *     practice every 0x20 network query (the app sends one every 30 s) is answered, as in phase 1.
