@@ -6,6 +6,10 @@
 #include "tuya.h"
 #include "uart.h"
 
+#ifndef RING_HIGH
+#define RING_HIGH 0                /* set by the Makefile with the linker layout */
+#endif
+
 #define HEALTH_FIRST_MS    60000u
 #define HEALTH_EVERY_MS    120000u
 #define MINUTE_MS          60000u
@@ -40,6 +44,9 @@ void health_poll(uint32_t now) {
     tuya_report_value(134, store_save_count());
     tuya_report_value(135, uart_dropped());
     tuya_report_value(136, g_boot_info.sector_crc);   /* 8 DPs: one 64-byte report */
-    tuya_report_value(137, g_boot_info.word);
+    /* Bits 31..24 are the app's: 24 the settings ring is the upper half (RING_HIGH), 25 the
+     * newest record is in it ("ring moved", the check before apps over 12 KB). */
+    tuya_report_value(137, g_boot_info.word | (uint32_t)RING_HIGH << 24 |
+                           (uint32_t)store_in_own_ring() << 25);
     tuya_report_send();
 }

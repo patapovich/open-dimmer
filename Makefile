@@ -76,13 +76,22 @@ SRCS     := $(wildcard src/*.c) \
             $(SDK)/CMSIS/Device/PY32F0xx/Source/system_py32f0xx.c \
             $(addprefix $(SDK)/PY32F0xx_LL_Driver/Src/,$(LL_SRCS))
 ASRCS    := $(SDK)/CMSIS/Device/PY32F0xx/Source/gcc/startup_py32f002a.s
-LDSCRIPT := py32f002a_app.ld
+# The settings ring: from release M (2.1.14) the sector's upper half (0x08004800, 2 KB, 16 pages),
+# with RING_HIGH in the header, so apps up to 14 KB fit (docs/BOOTLOADER.md section 1); the app
+# still finds the records of the 4 KB ring below it (src/store.c). RING_HIGH=0: the layout up to
+# 2.1.13 (12 KB, the ring at 0x08004000). The linker script of the high layout is made from the
+# low one.
+RING_HIGH ?= 1
+ifneq ($(filter-out 0 1,$(RING_HIGH)),)
+  $(error RING_HIGH=$(RING_HIGH): 0 or 1)
+endif
+LDSCRIPT := $(if $(filter 1,$(RING_HIGH)),$(BUILD)/app_ring_high.ld,py32f002a_app.ld)
 
 INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Include \
             -I$(SDK)/PY32F0xx_LL_Driver/Inc
 DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) -DMEASURE=$(MEASURE) -DDIAG_REPORT=$(DIAG) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE),$(if $(filter 1,$(MEASURE)),-DFW_VERSION=0x8F,$(if $(filter 1,$(DIAG)),-DFW_VERSION=0x8E))) \
             $(if $(FW_TEST),-DFW_TEST=$(FW_TEST)) $(if $(FW_PREV),-DFW_PREV=$(FW_PREV)) \
-            $(if $(filter 1,$(LINK_WDG_TEST)),-DLINK_WDG_TEST=1)
+            $(if $(filter 1,$(LINK_WDG_TEST)),-DLINK_WDG_TEST=1) -DRING_HIGH=$(RING_HIGH)
 ARCH     := -mcpu=cortex-m0plus -mthumb
 # Data stays in common sections (no -fdata-sections): GCC then reaches a file's statics from one
 # anchor instead of a literal per variable (-188 bytes in the normal build); unused data is
@@ -132,8 +141,13 @@ $(BOOT_BUILD)/%.o: %.c | $(BOOT_BUILD)
 $(BOOT_BUILD)/%.o: %.s | $(BOOT_BUILD)
 	$(CC) $(ARCH) -c $< -o $@
 
-$(BUILD)/$(PROJECT).elf: $(OBJS)
-	$(CC) $(LDFLAGS) -Os $(APP_LTO) $^ -o $@
+$(BUILD)/app_ring_high.ld: py32f002a_app.ld | $(BUILD)
+	sed -e 's/^\(  FLASH (rx)     : ORIGIN = 0x08001000, LENGTH = \)12K/\114K/' \
+	    -e 's/^\(  SETTINGS (r)   : ORIGIN = \)0x08004000, LENGTH = 4K/\10x08004800, LENGTH = 2K/' $< > $@
+	grep -q 'LENGTH = 14K' $@ && grep -q 'ORIGIN = 0x08004800, LENGTH = 2K' $@
+
+$(BUILD)/$(PROJECT).elf: $(OBJS) $(LDSCRIPT)
+	$(CC) $(LDFLAGS) -Os $(APP_LTO) $(OBJS) -o $@
 	$(SIZE) $@
 
 $(BUILD)/$(PROJECT).bin: $(BUILD)/$(PROJECT).elf
@@ -251,6 +265,10 @@ test:
 	$(BUILD)/host/test_controls
 	cc $(HOST_CFLAGS) tests/test_store.c src/store.c -o $(BUILD)/host/test_store
 	$(BUILD)/host/test_store
+	cc $(HOST_CFLAGS) -Wno-unused-function -DRING_HIGH_TEST tests/test_store.c src/store.c -o $(BUILD)/host/test_store_high
+	$(BUILD)/host/test_store_high
+	cc $(HOST_CFLAGS) -Wno-unused-function -DRING_HIGH_TEST -DSCAN_OFF=1024 tests/test_store.c src/store.c -o $(BUILD)/host/test_store_high_code
+	$(BUILD)/host/test_store_high_code
 	@# the write range linked as the app's settings region (absolute symbols: no PIE)
 	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -fno-pie -no-pie -Itests/host \
 	   -Isrc -x c++ src/flash_drv.c tests/test_flash_drv.cpp -o $(BUILD)/host/test_flash_drv \
@@ -277,7 +295,7 @@ test:
 	$(call link_wdg_test,diag,-DDIAG_REPORT=1 -DFW_VERSION=0x8E)
 	cc $(HOST_CFLAGS) tests/test_uart.c src/uart.c -o $(BUILD)/host/test_uart
 	$(BUILD)/host/test_uart
-	cc $(HOST_CFLAGS) tests/test_health.c src/health.c -o $(BUILD)/host/test_health
+	cc $(HOST_CFLAGS) -DRING_HIGH=1 tests/test_health.c src/health.c -o $(BUILD)/host/test_health
 	$(BUILD)/host/test_health
 	cc $(HOST_CFLAGS) tests/test_contact_burst.c src/tuya.c src/dimmer.c src/dim_core.c \
 	   -o $(BUILD)/host/test_contact_burst

@@ -20,8 +20,14 @@ _Static_assert(STORE_DATA_SIZE >= STORE_V1_SIZE, "a version 1 record must fit");
 
 extern const uint8_t _settings_start[];
 extern const uint8_t _settings_end[];
+/* The lowest page a record may lie in: the sector start, or above this app's own image when that
+ * reaches into the sector (linker script). From release M (RING_HIGH) the ring is the upper half
+ * and the records of the ring before it still lie below it: they are found and the newest is
+ * copied up (store_load). Only the own ring is ever written. */
+extern const uint8_t _store_scan_start[];
 
 #define STORE_PAGES     ((uint32_t)(_settings_end - _settings_start) / PAGE_SIZE)
+#define SCAN_PAGES      ((uint32_t)(_settings_end - _store_scan_start) / PAGE_SIZE)
 
 /* A save tries page g_newest + 1 + g_skip. g_skip counts the pages after the
  * newest record that did not verify and stays below STORE_PAGES - 2, so a save
@@ -35,10 +41,6 @@ static uint32_t g_saves;
 
 static uint32_t crc32(const uint8_t *p, uint32_t n) {
     return crc32_update(0, p, n);
-}
-
-static const record_t *page_record(uint32_t page) {
-    return (const record_t *)(_settings_start + page * PAGE_SIZE);
 }
 
 /* Data size of a valid record (version 2 or the older version 1), else 0. */
@@ -58,25 +60,38 @@ static uint32_t record_size(const record_t *r) {
 }
 
 uint8_t store_load(uint8_t *data) {
+    const record_t *best = NULL;
+
     g_newest = -1;
     g_skip   = 0;
-    for (uint32_t i = 0; i < STORE_PAGES; i++) {
-        const record_t *r = page_record(i);
+    for (uint32_t i = 0; i < SCAN_PAGES; i++) {
+        const record_t *r = (const record_t *)(_store_scan_start + i * PAGE_SIZE);
         if (!record_size(r)) {
             continue;
         }
-        if (g_newest < 0 || (int32_t)(r->seq - g_seq) > 0) {
-            g_newest = (int16_t)i;
-            g_seq    = r->seq;
+        if (best == NULL || (int32_t)(r->seq - g_seq) > 0) {
+            best  = r;
+            g_seq = r->seq;
         }
     }
-    if (g_newest < 0) {
+    if (best == NULL) {
         return 0;
     }
-    const record_t *r = page_record((uint32_t)g_newest);
     memset(data, 0, STORE_DATA_SIZE);              /* fields newer than the record: 0 */
-    memcpy(data, r->data, record_size(r));
+    memcpy(data, best->data, record_size(best));
+    if ((const uint8_t *)best >= _settings_start) {
+        g_newest = (int16_t)((uint32_t)((const uint8_t *)best - _settings_start) / PAGE_SIZE);
+    } else {
+        /* The newest record lies below this app's ring (the ring moved up): copied into the
+         * ring at once, seq + 1 (newer than every old record), the old one left as it is. A
+         * power cut before the copy took leaves it, and the next start copies again. */
+        (void)store_save_tries(data, (uint8_t)(STORE_PAGES - 2u));
+    }
     return 1;
+}
+
+uint8_t store_in_own_ring(void) {
+    return g_newest >= 0;
 }
 
 uint8_t store_save_tries(const uint8_t *data, uint8_t attempts) {

@@ -1813,6 +1813,11 @@ class CheckApp(unittest.TestCase):
                                    ("measure", 0x0A, 300), ("sim", 0x09, 0xFFFE)):
             self.assertEqual(ca.check_header(header_img(flags, build), kind, 300), [], kind)
         self.assertEqual(ca.check_header(header_img(0x08, 307), "normal", 307), [])
+        # from release M (build 400) the ring mover's RING_HIGH, with or without
+        for flags in (0x08, 0x18):
+            self.assertEqual(ca.check_header(header_img(flags, 400), "normal", 400), [], flags)
+        self.assertEqual(ca.check_header(header_img(0x1C, 400), "diag", 400), [])
+        self.assertEqual(ca.check_header(header_img(0x19, 0xFFFE), "sim", 400), [])
 
     def test_header_refusals(self):
         ca = load_check_app()

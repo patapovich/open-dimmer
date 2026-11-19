@@ -177,7 +177,14 @@ SECTIONS
 
 
 
+/* The settings records may lie anywhere in the last sector above this app's own image (src/store.c
+ * scan rule, docs/BOOTLOADER.md section 1): a ring that moved up (RING_HIGH) still finds the
+ * records of the ring below it; code is never taken for a record. */
+_store_scan_start = MAX(0x08004000, ALIGN(LOADADDR(.data) + SIZEOF(.data), 128));
+
 ASSERT(g_app_header == ORIGIN(FLASH) + 0xC0, "app header must follow the 48-entry vector table")
+ASSERT(_store_scan_start <= _settings_start && _store_scan_start % 128 == 0,
+       "the settings scan starts above the code and at or below the ring")
 ASSERT(_flash_write_start >= ORIGIN(FLASH) + LENGTH(FLASH) && _flash_write_start < _flash_write_end &&
        _flash_write_end <= 0x08005000 && _flash_write_start % 128 == 0 && _flash_write_end % 128 == 0,
        "flash write range: whole pages above the app's code, inside the 20 KB flash")

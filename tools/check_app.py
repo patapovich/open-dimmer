@@ -2,8 +2,9 @@
 """Check a built app against what docs/BOOTLOADER.md section 9 wants of every build kind:
 
   - the image header (items 1, 10): flags = APP_FLAG_CONFIRMS plus the bench flag of the kind,
-    nothing else (RING_HIGH comes with release M); build = the release build FW_BUILD of
-    src/tuya.h (0xFFFE for SIM);
+    and RING_HIGH from release M on (build 400: the ring mover, docs/BOOTLOADER.md section 1;
+    tools/check_elf.py checks it against the linker layout), nothing else; build = the release
+    build FW_BUILD of src/tuya.h (0xFFFE for SIM);
   - the watchdog first (item 2): in main() the watchdog's start (the key 0xCCCC) comes before
     any call and before the clock setup (the HSI calibration read at 0x1FFF0F10 or a call into
     it), so a hang anywhere in the init resets too.
@@ -22,6 +23,8 @@ CONFIRMS = 0x08
 KINDS = {"normal": CONFIRMS, "sim": CONFIRMS | 0x01, "measure": CONFIRMS | 0x02,
          "diag": CONFIRMS | 0x04}
 BUILD_SIM = 0xFFFE
+RING_HIGH = 0x10
+RING_MOVER_BUILD = 400            # release M (2.1.14): the first app with RING_HIGH
 IWDG_KEY_START = 0x0000CCCC       # main.c watchdog_start(): IWDG->KR = 0xCCCC
 HSI_CALIB_24MHZ = 0x1FFF0F10      # clock_init(): LL_RCC_HSI_SetCalibFreq(LL_RCC_HSICALIBRATION_24MHz)
 CLOCK_CALLS = ("clock_init", "SystemCoreClockUpdate", "LL_SetSystemCoreClock", "LL_Init1msTick")
@@ -44,8 +47,9 @@ def check_header(img, kind, build):
     flags, got = img[HDR + 0x0D], struct.unpack_from("<H", img, HDR + 0x0E)[0]
     want = BUILD_SIM if kind == "sim" else build
     errors = []
-    if flags != KINDS[kind]:
-        errors.append("flags 0x%02X, a %s build wants 0x%02X" % (flags, kind, KINDS[kind]))
+    wanted = KINDS[kind] | (flags & RING_HIGH if got >= RING_MOVER_BUILD else 0)
+    if flags != wanted:
+        errors.append("flags 0x%02X, a %s build wants 0x%02X" % (flags, kind, wanted))
     if got != want:
         errors.append("build %d (0x%04X), a %s build wants %d (0x%04X)" % (got, got, kind, want, want))
     return errors

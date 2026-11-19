@@ -27,6 +27,10 @@ static uint32_t        g_saves, g_uart_lost;
 uint32_t store_save_count(void) {
     return g_saves;
 }
+static uint8_t g_own_ring;
+uint8_t store_in_own_ring(void) {
+    return g_own_ring;
+}
 uint32_t uart_dropped(void) {
     return g_uart_lost;
 }
@@ -76,7 +80,7 @@ int main(void) {
     CHECK(g_dp_seen[134] && g_dp[134] == 70000);
     CHECK(g_dp_seen[135] && g_dp[135] == 5);
     CHECK(g_dp_seen[136] && g_dp[136] == 0xEAC45031u);
-    CHECK(g_dp_seen[137] && g_dp[137] == 0x009041u);
+    CHECK(g_dp_seen[137] && g_dp[137] == (0x009041u | (uint32_t)RING_HIGH << 24));   /* not moved yet */
     for (unsigned dp = 0; dp < 256; dp++) {
         CHECK(g_dp_seen[dp] == (dp >= 130 && dp <= 137));
     }
@@ -84,8 +88,10 @@ int main(void) {
     CHECK(g_units == 8 && g_units * 8u <= 64u);
     health_poll(now + 119999u);
     CHECK(g_reports == 1);
+    g_own_ring = 1;
     health_poll(now + 120000u);
     CHECK(g_reports == 2 && g_dp[130] == 3);
+    CHECK(g_dp[137] == (0x009041u | 1u << 25 | (uint32_t)RING_HIGH << 24));   /* the app's bits */
 
     /* 60 days in 1 s steps: the uptime keeps counting minutes past the wrap
      * of the ms clock at 2^32 ms (49.7 days); a report every 2 min. */

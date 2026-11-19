@@ -11,7 +11,9 @@
  *   136 CRC-32 of the 4 KB boot sector, which tells the bootloader build (the
  *       released v1: 0xEAC45031)
  *   137 the boot word at start, bits 23..0 (ota_proto.h BOOT_*: probe answer
- *       time, rescue info, LINK, tries); 0 when it was not valid (v1)
+ *       time, rescue info, LINK, tries; 0 when it was not valid, v1); bit 24 the
+ *       settings ring is the sector's upper half (RING_HIGH, from release M),
+ *       bit 25 the newest settings record is in this app's own ring
  * All since start; none wraps in a trial (uptime counts minutes, not the
  * millisecond clock that wraps after 49.7 days). */
 #ifndef HEALTH_H

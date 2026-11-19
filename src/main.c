@@ -26,10 +26,7 @@
 /* Settings ring at 0x08004800 and images up to 14 KB: only from the ring-move release M on
  * (docs/BOOTLOADER.md section 1), with its linker layout and store scan rule. */
 #ifndef RING_HIGH
-#define RING_HIGH 0
-#endif
-#if RING_HIGH
-#error "RING_HIGH needs release M's linker layout and settings scan rule (BOOTLOADER.md 1)"
+#define RING_HIGH 0                /* set by the Makefile with the linker layout */
 #endif
 
 /* Found by the bootloader right after the vector table; size and CRC are

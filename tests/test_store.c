@@ -11,10 +11,26 @@
 #define PAGES       32
 #define PAGE        128u
 
-/* The linker symbols of the settings sector, on the fake flash. */
+/* The linker symbols of the settings sector, on the fake flash. RING_HIGH_TEST: the layout from
+ * release M (the ring in the upper half, the scan from SCAN_OFF, the sector start unless the app's
+ * image reaches into the sector). */
 uint8_t g_flash[PAGES * PAGE] __attribute__((aligned(4096)));
+#ifndef RING_HIGH_TEST
 __asm__(".globl _settings_start\n.set _settings_start, g_flash\n"
-        ".globl _settings_end\n.set _settings_end, g_flash + 4096\n");
+        ".globl _settings_end\n.set _settings_end, g_flash + 4096\n"
+        ".globl _store_scan_start\n.set _store_scan_start, g_flash\n");
+#define RING_OFF 0u
+#else
+#ifndef SCAN_OFF
+#define SCAN_OFF 0
+#endif
+#define STR2(x) #x
+#define STR(x) STR2(x)
+__asm__(".globl _settings_start\n.set _settings_start, g_flash + 2048\n"
+        ".globl _settings_end\n.set _settings_end, g_flash + 4096\n"
+        ".globl _store_scan_start\n.set _store_scan_start, g_flash + " STR(SCAN_OFF) "\n");
+#define RING_OFF 2048u
+#endif
 
 static int      g_failures;
 static unsigned g_erases[PAGES];
@@ -43,9 +59,14 @@ uint32_t crc32_update(uint32_t crc, const uint8_t *p, uint32_t n) {
 
 /* As src/flash_drv.c: an identical page is left alone, else erase + program
  * + read back. store.c hands over the address as 32 bits. */
+static int below_ring(uint32_t off) {
+    uint32_t ring = RING_OFF;               /* a variable: no "always false" for the 0 of RING_OFF */
+    return off < ring;
+}
+
 uint8_t flash_write_page(uint32_t addr, const uint32_t *src) {
     uint32_t off = addr - (uint32_t)(uintptr_t)g_flash;
-    if (off >= sizeof(g_flash) || off % PAGE) {
+    if (below_ring(off) || off >= sizeof(g_flash) || off % PAGE) {
         printf("FAIL: write outside the settings sector (offset %u)\n", off);
         g_failures++;
         return 0;
@@ -313,6 +334,120 @@ static void test_failed_page_with_a_valid_record_is_older(void) {
     CHECK((int32_t)(page_seq(2) - page_seq(1)) > 0);
 }
 
+#ifdef RING_HIGH_TEST
+/* ---- the ring moved up (release M): records of the old ring below it ----------------- */
+
+/* A record as an older app wrote it, at a page of the whole sector (version 2, or 1). */
+static void put_record(unsigned pg, uint32_t seq, unsigned n, int version1) {
+    uint8_t *p = g_flash + pg * PAGE;
+    uint8_t  d[STORE_DATA_SIZE];
+    data_of(d, n);
+    memset(p, 0xFF, PAGE);
+    uint32_t magic = version1 ? 0x5A445331u : 0x5A445332u;
+    memcpy(p, &magic, 4);
+    memcpy(p + 4, &seq, 4);
+    memcpy(p + 8, d, version1 ? 20u : STORE_DATA_SIZE);
+    uint32_t crc = crc32_update(0, p, 8 + (version1 ? 20u : STORE_DATA_SIZE));
+    memcpy(p + 8 + (version1 ? 20u : STORE_DATA_SIZE), &crc, 4);
+}
+
+static void old_ring(void) {
+    memset(g_flash, 0xFF, sizeof(g_flash));
+    memset(g_erases, 0, sizeof(g_erases));
+    memset(g_worn, 0, sizeof(g_worn));
+    put_record(3, 41, 1, 0);
+    put_record(4, 43, 2, 0);              /* the newest */
+    put_record(5, 42, 3, 0);
+    put_record(20, 12, 4, 0);             /* an old one up there too (an old ring's 20th page) */
+}
+
+static void test_records_below_are_found_and_copied_up_once(void) {
+    uint8_t d[STORE_DATA_SIZE], want[STORE_DATA_SIZE], below[2048];
+    old_ring();
+    memcpy(below, g_flash, sizeof(below));
+    CHECK(store_load(d));
+    data_of(want, 2);
+    CHECK(memcmp(d, want, sizeof(d)) == 0);          /* the newest of the whole sector */
+    int pg = newest_page();
+    CHECK(pg >= 16 && page_seq((unsigned)pg) == 44); /* its copy, up in the ring, seq + 1 */
+    CHECK(store_in_own_ring());
+    CHECK(memcmp(below, g_flash, sizeof(below)) == 0);   /* the lower half as it was */
+    unsigned before = g_calls_erases;
+    CHECK(store_load(d) && memcmp(d, want, sizeof(d)) == 0);
+    CHECK(g_calls_erases == before);                 /* the next start copies nothing */
+    for (unsigned i = 0; i < 40; i++) {              /* saves round the 16 pages, never below */
+        data_of(d, 100 + i);
+        CHECK(store_save(d));
+    }
+    CHECK(memcmp(below, g_flash, sizeof(below)) == 0);
+    CHECK(store_load(want) && newest_is(d) && memcmp(want, d, sizeof(d)) == 0);
+}
+
+static void test_a_failed_copy_is_made_at_the_next_start(void) {
+    uint8_t d[STORE_DATA_SIZE], want[STORE_DATA_SIZE];
+    old_ring();
+    for (unsigned pg = 16; pg < 32; pg++) {
+        g_worn[pg] = 1;                              /* the copy cannot take (a power cut) */
+    }
+    CHECK(store_load(d));
+    data_of(want, 2);
+    CHECK(memcmp(d, want, sizeof(d)) == 0);          /* the settings are there all the same */
+    CHECK(!store_in_own_ring());                     /* "ring moved" not reported */
+    memset(g_worn, 0, sizeof(g_worn));
+    CHECK(store_load(d) && memcmp(d, want, sizeof(d)) == 0);
+    CHECK(store_in_own_ring() && newest_page() >= 16);
+}
+
+static void test_a_newer_record_up_there_is_taken_without_a_copy(void) {
+    uint8_t d[STORE_DATA_SIZE], want[STORE_DATA_SIZE];
+    old_ring();
+    put_record(17, 50, 5, 0);                        /* this app saved already */
+    unsigned before = g_calls_erases;
+    CHECK(store_load(d));
+    data_of(want, 5);
+    CHECK(memcmp(d, want, sizeof(d)) == 0 && g_calls_erases == before && store_in_own_ring());
+}
+
+static void test_a_version_1_record_below_is_copied_as_version_2(void) {
+    uint8_t d[STORE_DATA_SIZE];
+    memset(g_flash, 0xFF, sizeof(g_flash));
+    put_record(0, 7, 6, 1);
+    CHECK(store_load(d));
+    uint8_t want[STORE_DATA_SIZE];
+    data_of(want, 6);
+    memset(want + 20, 0, STORE_DATA_SIZE - 20);      /* the newer fields: 0 */
+    CHECK(memcmp(d, want, sizeof(d)) == 0 && newest_is(want) && newest_page() >= 16);
+}
+
+#if SCAN_OFF
+static void test_code_below_the_scan_start_is_never_a_record(void) {
+    uint8_t d[STORE_DATA_SIZE], want[STORE_DATA_SIZE];
+    memset(g_flash, 0xFF, sizeof(g_flash));
+    put_record(0, 900, 7, 0);                        /* under the app's code: not settings */
+    put_record(SCAN_OFF / PAGE, 30, 8, 0);
+    CHECK(store_load(d));
+    data_of(want, 8);
+    CHECK(memcmp(d, want, sizeof(d)) == 0);
+}
+#endif
+
+int main(void) {
+#if SCAN_OFF
+    test_code_below_the_scan_start_is_never_a_record();   /* the old ring's pages are code here */
+#else
+    test_records_below_are_found_and_copied_up_once();
+    test_a_failed_copy_is_made_at_the_next_start();
+    test_a_newer_record_up_there_is_taken_without_a_copy();
+    test_a_version_1_record_below_is_copied_as_version_2();
+#endif
+    if (g_failures) {
+        printf("test_store (ring high, scan +%d): %d FAILED\n", SCAN_OFF, g_failures);
+        return 1;
+    }
+    printf("test_store (ring high, scan +%d): all passed\n", SCAN_OFF);
+    return 0;
+}
+#else
 int main(void) {
     test_empty_and_ring_order();
     test_newest_by_sequence_across_the_wrap();
@@ -329,3 +464,4 @@ int main(void) {
     printf("test_store: all passed\n");
     return 0;
 }
+#endif

@@ -3,6 +3,16 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
+## 2.1.14 (2026-11-19)
+
+- Transition time: a Zigbee transition (Home Assistant's `transition`) makes the change take
+  exactly that long at one even rate, on, off and level alike (DPs 160 / 161, with a Zigbee
+  firmware that sends them); without one the fade settings apply as before.
+- The settings ring moves to the sector's upper half (2 KB), so later versions can be up to
+  14 KB: the settings are found where they were and copied up once; health DP 137 bit 25 says
+  when that is done (bit 24: the new layout).
+- Built with link-time optimization: 384 bytes smaller, same behaviour.
+
 ## 2.1.13 (2026-11-19)
 
 - Bootloader v2 (build 300 of the app, the first with a build number). It is installed over SWD

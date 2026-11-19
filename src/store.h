@@ -6,6 +6,9 @@
  * never erased.
  *
  * Record: magic, sequence number, STORE_DATA_SIZE bytes of data, CRC-32.
+ * From release M (2.1.14, RING_HIGH) the ring is the sector's upper half (16 pages); store_load
+ * scans the whole sector above the app's own image and copies a newer record from below up into
+ * the ring (docs/BOOTLOADER.md section 1).
  * A page erase takes ~3.5 ms and a program ~1 ms, during which the CPU
  * (running from flash) and its interrupts stall: one page attempt (erase +
  * program + verify, ~5 ms) per call, unless the caller asks for more. */
@@ -28,5 +31,8 @@ static inline uint8_t store_save(const uint8_t *data) {
 }
 /** Saves done since boot (diagnostics). */
 uint32_t store_save_count(void);
+/** 1 when the newest record is in this app's own ring (after the ring moved up: once its copy is
+ * saved; health DP 137 bit 25). */
+uint8_t store_in_own_ring(void);
 
 #endif
