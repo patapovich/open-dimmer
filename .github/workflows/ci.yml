@@ -62,7 +62,7 @@ jobs:
         id: tc-cache
         uses: actions/cache/restore@v6
         with:
-          path: ~/apt-arm
+          path: ~/apt-arm/*.deb
           key: ${{ steps.tc.outputs.key }}
 
       - name: Toolchain
@@ -74,13 +74,16 @@ jobs:
           o=(-o Dir::Cache::Archives="$HOME/apt-arm" -o APT::Keep-Downloaded-Packages=true)
           echo "to download: $(sudo apt-get install --print-uris -qq "${o[@]}" gcc-arm-none-eabi libnewlib-arm-none-eabi | wc -l) package(s)"
           apt install -y -q "${o[@]}" gcc-arm-none-eabi libnewlib-arm-none-eabi
+          # apt leaves its lock and partial/ root-only: the cache keeps the .deb files alone
+          sudo chown -R "$(id -u):$(id -g)" ~/apt-arm
+          ls ~/apt-arm/*.deb | wc -l | sed 's/^/cached .deb files: /'
           arm-none-eabi-gcc --version | head -1
 
       - name: Toolchain cache (save)
         if: steps.tc-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
-          path: ~/apt-arm
+          path: ~/apt-arm/*.deb
           key: ${{ steps.tc.outputs.key }}
 
       - name: PY32 SDK
