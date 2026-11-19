@@ -91,6 +91,11 @@ CFLAGS   := $(ARCH) $(DEFS) $(INCLUDES) -Os -g -Wall -Wextra -Wno-unused-paramet
             -ffunction-sections -std=c11 -MMD -MP
 LDFLAGS  := $(ARCH) -T$(LDSCRIPT) -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(PROJECT).map \
             --specs=nano.specs --specs=nosys.specs
+# The app (not the bootloader, which stays byte for byte as installed) is optimized as a whole at
+# link time: -384 bytes. The vector table, the header and the boot_id are kept by the linker
+# script and the handlers by their names; src/libc_min.c keeps its loops by a per-function
+# attribute that LTO carries, and CI checks that mem* call nothing.
+APP_LTO  := -flto
 
 OBJS     := $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o))) $(addprefix $(BUILD)/,$(notdir $(ASRCS:.s=.o)))
 
@@ -116,7 +121,7 @@ $(BUILD) $(BOOT_BUILD):
 	mkdir -p $@
 
 $(BUILD)/%.o: %.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(APP_LTO) -c $< -o $@
 
 $(BUILD)/%.o: %.s | $(BUILD)
 	$(CC) $(ARCH) -c $< -o $@
@@ -128,7 +133,7 @@ $(BOOT_BUILD)/%.o: %.s | $(BOOT_BUILD)
 	$(CC) $(ARCH) -c $< -o $@
 
 $(BUILD)/$(PROJECT).elf: $(OBJS)
-	$(CC) $(LDFLAGS) $^ -o $@
+	$(CC) $(LDFLAGS) -Os $(APP_LTO) $^ -o $@
 	$(SIZE) $@
 
 $(BUILD)/$(PROJECT).bin: $(BUILD)/$(PROJECT).elf

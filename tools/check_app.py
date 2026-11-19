@@ -69,7 +69,10 @@ def check_order(disasm):
     for i, (op, args) in enumerate(steps):
         lit = re.search(r"\[pc, #\d+\]\s*@ \(([0-9a-f]+)", args) if op.startswith("ldr") else None
         value = words.get(int(lit.group(1), 16)) if lit else None
-        call = re.search(r"<([^>+]+)>", args).group(1) if op in ("bl", "blx") and "<" in args else None
+        # "bl <f>", "bl <f+0x12>" (a call into a function's middle, e.g. main's own outlined part
+        # after LTO) or "blx r3" (no label: the call itself still counts)
+        label = re.search(r"<([^>+]+)(?:\+0x[0-9a-f]+)?>", args) if op in ("bl", "blx") else None
+        call = label.group(1) if label else None
         if op in ("bl", "blx") and call != "watchdog_start" and first_call is None:
             first_call = (i, call or args)
         if watchdog is None and (value == IWDG_KEY_START or call == "watchdog_start"):

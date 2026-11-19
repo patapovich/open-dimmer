@@ -1865,6 +1865,15 @@ class CheckApp(unittest.TestCase):
                                              " 8002c4c:")
         self.assertEqual(ca.check_order(called), [])
         self.assertEqual(ca.check_order(""), ["no main() in the disassembly"])
+        # after LTO: a call into main's own middle and a call through a register, both later: fine
+        lto = MAIN_OK + ("\n 8003000:\tf7ff fbe1 \tbl\t8003040 <main+0x768>"
+                         "\n 8003004:\t4798      \tblx\tr3")
+        self.assertEqual(ca.check_order(lto), [])
+        # ... and before the watchdog they count as calls
+        early = self.move(lto, "<main+0x768>", " 8002c4c:")
+        self.assertEqual(ca.check_order(early), ["main() calls main before it starts the watchdog"])
+        early = self.move(lto, "blx\tr3", " 8002c4c:")
+        self.assertEqual(ca.check_order(early), ["main() calls r3 before it starts the watchdog"])
 
 
 class Changelog(unittest.TestCase):
