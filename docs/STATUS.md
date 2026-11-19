@@ -349,13 +349,16 @@ resets that are not explained.
 
 ## Open (for the next session)
 
-1. **Rename endpoints dimmer_left/right → l1/l2** (user's choice). All modules at once (shared
-   converter): their entities get new unique_ids (history restarts); clean up the deleted ones,
-   give the new ones the `_l1`/`_l2` ids, update the references (automations). Dry run first
-   (expose dump + predicted ids). In the same migration: the device-level entities
-   `device_config`, `device_config_ext`, `mcu_version`, `multi_press_reset_count` move off
-   `dimmer_left` (upstream template puts them on the first endpoint) to the device (no
-   endpoint), where `mcu_firmware` already is.
+1. ~~Rename endpoints dimmer_left/right → l1/l2~~ done 2026-11-19 (fork home-dimmer 88d63066,
+   PR #558 too): channels `l1` / `l2` as zigbee-herdsman-converters' stock ZDMS16-2 names them
+   (a module moved from the stock firmware keeps its light and switch type entities);
+   `mcu_version`, `multi_press_reset_count`, `device_config`, `device_config_ext` on the device.
+   Same change: Open Dimmer times in seconds (`fade_on_time`, `fade_off_time`, `hold_time`,
+   `start_boost`; the MCU keeps ms), `soft_dim_end` / `hold_dim_end` → `fade_off_slow_zone` /
+   `hold_slow_zone`, labels (Wall switch type / mode / fast press, On level (wall switch),
+   Power-on level), `mcu_temperature_calibration` not exposed. Home Assistant: new unique_ids;
+   rename the old entities to the new ids before the switch (history follows the entity id),
+   remove the old entries while Z2M is stopped, copy names / hidden / Assist exposure.
 1b. ~~Converter configure read the Open Dimmer settings too early after a module restart~~ done
    2026-11-18 (home-dimmer 8ea5a25e): configure waits for a real `mcu_version` first (checked
    with `tools/ha/configure_check.js`; on hardware at the next OTA).
