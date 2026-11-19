@@ -148,7 +148,17 @@ over the air from the stock firmware, no opening needed:
    - images, if you install them by hand:
      [bin/router/MODULE_AVATTO_ZDMS16_2](https://github.com/patapovich/tuya-zigbee-switch/tree/home-dimmer_build/bin/router/MODULE_AVATTO_ZDMS16_2)
      (`*-from_tuya.zigbee` converts a stock module, the plain `.zigbee` updates a converted one)
-2. Reconfigure the device in Zigbee2MQTT after the conversion, and check that it works with the
+2. Wait after the conversion and leave the power on. The new firmware can take several minutes
+   (about 6 seen) to come back on the network after the transfer. Zigbee2MQTT stops waiting
+   after 2 minutes, reports the update as done, and shows the stock values from its database
+   until then. The module's LED stays dark. The conversion is through when Zigbee2MQTT shows
+   the model id `TS0601-ZDMS16-2` and the software build `1.1.3-…` for it.
+3. Interview the device in Zigbee2MQTT (Devices → the device → Interview), then reconfigure
+   it. The interview is needed first: the database still holds the stock firmware's endpoints
+   (1 and 242), and a reconfigure without it fails with "Cannot read properties of undefined
+   (reading 'bind')". Without the reconfigure the reporting binds are missing, and wall
+   switch changes never reach Zigbee2MQTT.
+4. Check that it works with the
    stock MCU: `mcu_version` shows the stock version (for example 1.0.7) and `mcu_firmware` shows
    "Tuya (stock)". Only then open the module for the MCU part below. An older converter of the
    fork has no `mcu_firmware`: there `mcu_version` alone is the check, Open Dimmer shows later
