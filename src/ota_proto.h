@@ -301,6 +301,8 @@ typedef struct {
  * BOOT_FEAT_LINK, only while every channel is off, never in a bench build. */
 #define LINK_WDG_SILENCE_MS   (30u * 60u * 1000u)        /* no well-formed frame from the ZTU for 30 min */
 #define LINK_WDG_UPTIME_MS    (4u * 60u * 60u * 1000u)   /* and this run lasted 4 h: at most one per 4 h */
+#define LINK_WDG_QUIET_MS     (60u * 1000u)              /* and a minute dark with no input: a switch
+                                                            flipped back right after an off is never lost */
 
 /* ---- layout checks: the offsets the frozen and the released code read ----------------------- */
 

@@ -398,9 +398,10 @@ What v2 does by itself:
   start and installs any other image the Zigbee firmware carries, older ones too. The light then
   takes the power-on setting.
 - **Link watchdog** (from 2.1.13, needs v2): if the app hears nothing from the Zigbee firmware
-  for 30 min while every channel is off, it restarts once (at most every ~4 h) and the
-  bootloader checks for a newer build. The light state stays; the wall switch is not read for
-  up to ~3 s.
+  for 30 min, it restarts (at most every ~4 h, and only once every channel has been off and no
+  switch or button used for a minute) and the bootloader checks for a newer build. The light
+  state stays; the wall switch is not read for up to ~3 s, longer while a newer build is being
+  installed (~2.5 s more; a transfer that stalls ends 10 s later with the old app unharmed).
 
 ### Button rescue (v2)
 

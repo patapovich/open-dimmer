@@ -232,7 +232,7 @@ static void in_child(void (*test)(void), const char *name) {
 
 /* ---- the decision, a pure function ------------------------------------------- */
 static void test_decision(void) {
-    link_track_t t   = { 0, 0, 1 };
+    link_track_t t   = { 0, 0, 1, 0 };
     uint32_t     now = LINK_SILENCE_MS;
     uint32_t     w   = WORD_AT_START;
     CHECK(link_restart_due(&t, now, 1, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2, 1));
@@ -247,6 +247,10 @@ static void test_decision(void) {
     CHECK(!link_restart_due(&t, now, 1, APP_FLAG_CONFIRMS, 0, 1));                       /* v1 */
     CHECK(!link_restart_due(&t, now, 1, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2,
                             BOOT_WORD_VALID(w, ~w ^ 1u)));                                /* torn */
+    t.busy_ms = now - LINK_QUIET_MS + 1u;
+    CHECK(!link_restart_due(&t, now, 1, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2, 1));        /* not quiet */
+    t.busy_ms = now - LINK_QUIET_MS;
+    CHECK(link_restart_due(&t, now, 1, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2, 1));         /* a minute */
     t.aged = 0;
     CHECK(!link_restart_due(&t, now, 1, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2, 1));        /* young */
 }
@@ -254,8 +258,33 @@ static void test_decision(void) {
 /* Silence and uptime from the tracker: exactly 30 min after the last frame in a run of 4 h,
  * not before 4 h, and the ms counter's wrap after 49.7 days changes nothing. */
 static uint8_t due_at(link_track_t *t, uint32_t now, uint32_t frames) {
-    link_track(t, now, frames);
+    link_track(t, now, frames, 1);
     return link_restart_due(t, now, 1, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2, 1);
+}
+
+/* The quiet time: a pass with a light or an input starts it again, the restart comes exactly
+ * LINK_QUIET_MS after the last such pass (a switch flipped back right after an off is never
+ * lost to a restart). */
+static void test_quiet(void) {
+    link_track_t t   = { 0 };
+    uint32_t     now = 0;
+    for (; now <= 5u * 3600000u; now += 10u) {                  /* dead link, lit until 5 h */
+        link_track(&t, now, 0, 0);
+        CHECK(!link_restart_due(&t, now, 0, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2, 1));
+    }
+    uint32_t last = now - 10u;                                  /* the last lit pass */
+    for (; now < last + LINK_QUIET_MS; now += 10u) {
+        link_track(&t, now, 0, 1);
+        CHECK(!link_restart_due(&t, now, 1, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2, 1));
+    }
+    link_track(&t, now, 0, 1);
+    CHECK(now == last + LINK_QUIET_MS && link_restart_due(&t, now, 1, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2, 1));
+    link_track(&t, now, 0, 0);                                  /* an input at that pass: again */
+    CHECK(!link_restart_due(&t, now, 0, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2, 1));
+    link_track(&t, now + 10u, 0, 1);
+    CHECK(!link_restart_due(&t, now + 10u, 1, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2, 1));
+    link_track(&t, now + LINK_QUIET_MS, 0, 1);
+    CHECK(link_restart_due(&t, now + LINK_QUIET_MS, 1, APP_FLAG_CONFIRMS, BOOT_FEATURES_V2, 1));
 }
 
 static void test_tracker(void) {
@@ -386,11 +415,13 @@ static void test_dead_link_day(void) {
         restarts[n++] = g_day_from + at;
         g_day_from += at + 100u;                  /* the new run starts after the reset */
     }
-    /* 4, 8 h; 12 h lies in the lit time: 13 h; then 17, 21 h. */
+    /* 4, 8 h; 12 h lies in the lit time: a minute after its last lit pass (13 h - 100 ms); then
+     * 4 h later each. */
+    const uint32_t q = LINK_QUIET_MS - 100u;
     CHECK(n == 5);
     CHECK(n >= 5 && restarts[0] == 4u * HOUR && restarts[1] == 8u * HOUR + 100u &&
-          restarts[2] == 13u * HOUR && restarts[3] == 17u * HOUR + 100u &&
-          restarts[4] == 21u * HOUR + 200u);
+          restarts[2] == 13u * HOUR + q && restarts[3] == 17u * HOUR + 100u + q &&
+          restarts[4] == 21u * HOUR + 200u + q);
     for (uint32_t i = 1; i < n; i++) {
         CHECK(restarts[i] - restarts[i - 1] >= LINK_UPTIME_MS);
     }
@@ -404,8 +435,8 @@ static void pressed_never(void) {
     run_start(1, BOOT_FEATURES_V2, WORD_AT_START);
     g_idle = 0;
     CHECK(run_loop(ZTU_SILENT, 0, 12u * HOUR, 0, 0) == 0);
-    g_idle = 1;
-    CHECK(run_loop(ZTU_SILENT, 12u * HOUR, 13u * HOUR, 0, 0) == 12u * HOUR);
+    g_idle = 1;                                   /* a minute after the last pressed pass */
+    CHECK(run_loop(ZTU_SILENT, 12u * HOUR, 13u * HOUR, 0, 0) == 12u * HOUR - 100u + LINK_QUIET_MS);
 }
 static void v1_never(void) {
     run_start(0, 0, WORD_AT_START);              /* even with a word that looks valid */
@@ -469,7 +500,8 @@ static void b11_fires_at_5_min(void) {
 }
 static void b11_never_lit(void) {
     run_start(1, BOOT_FEATURES_V2, WORD_AT_START);
-    CHECK(run_loop(ZTU_OWN, 0, HOUR, 0, 30u * MINUTE) == 30u * MINUTE);
+    /* the quiet minute counts from the last lit pass (30 min - 100 ms), as in a release */
+    CHECK(run_loop(ZTU_OWN, 0, HOUR, 0, 30u * MINUTE) == 30u * MINUTE - 100u + LINK_QUIET_MS);
 }
 static void test_b11(void) {
     RUN(b11_fires_at_5_min);
@@ -491,6 +523,7 @@ static void bench_never(void) {
 int main(void) {
     RUN(test_decision);
     RUN(test_tracker);
+    RUN(test_quiet);
 #if !BENCH && !LINK_WDG_TEST
     test_streams();
     test_dead_link_day();

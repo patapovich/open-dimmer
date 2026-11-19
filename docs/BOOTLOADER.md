@@ -1012,7 +1012,11 @@ bootloader's (-188). Release R: 11 632 bytes, 656 free; DIAG / MEASURE / SIM 11 
         debounced, and the button, momentary and state switches are open. A toggle switch (the
         default type) resting closed is not pressed: the restart takes it as where it rests,
         and its next change toggles the light as before (a state switch resting closed would
-        light its channel at the restart).
+        light its channel at the restart);
+      - and that has held for `LINK_WDG_QUIET_MS` = 1 min: every pass with a light, a fade or
+        an input starts the minute again. Without it the restart could come ~0.8 s after a
+        wall-switch off (once the fade ends), and a flip back during the ~3 s restart would be
+        lost (conformance review, 2026-11-19).
     - **Action**, the planned-restart path of an accepted offer: `phase_shutdown()` (gates low
       first, although they are low already), `dimmer_prepare_restart()` (a due settings save,
       the light state into the mailbox, `restored` = 0), then
@@ -1857,7 +1861,9 @@ pinned by a host test (`make test`, `make test-boot`, or the fork's stub tests).
   event waiting, no change being debounced; a toggle switch resting closed does not block it.
   "Dark": both channels off and the fader output 0. "A frame": what the app's parser takes
   (55 AA 02, at most 96 data bytes, checksum). The silence is `now -` the last frame's time;
-  only the 4 h flag is sticky.
+  only the 4 h flag is sticky. Added after the conformance review: the idle condition must have
+  held for `LINK_WDG_QUIET_MS` (1 min), so a switch flipped back right after an off is never
+  lost to the restart (+20 bytes).
 - The app's watchdog start has bounded waits like the bootloader's.
 - The confirmation is idempotent (it writes only while tries != 0); a well-formed 0x01 is cmd
   0x01 with length 0.

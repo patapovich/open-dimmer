@@ -559,7 +559,8 @@ static void test_link_restart_restores_off(void) {
     across_real_reset(link_dead_while_off, CSR_SOFTWARE, back_off_after_link_restart);
 }
 
-/* Not while a fade out runs, nor while an input is pressed, nor after frames came. */
+/* Not while a fade out runs nor in the minute after it, nor while an input is pressed, nor after
+ * frames came. */
 static void test_link_restart_waits(void) {
     v2_power_up();
     host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
@@ -570,8 +571,10 @@ static void test_link_restart_waits(void) {
     uint32_t off_at = T;
     loop_until(T + 10u);
     CHECK(g_resets == 0 && g_host_fader[0].current > 0);
+    loop_until(off_at + LINK_WDG_QUIET_MS);        /* dark, but not a minute yet */
+    CHECK(g_resets == 0 && g_host_fader[0].current == 0);
     loop_until(T + 60000u);
-    CHECK(g_resets == 1 && g_host_fader[0].current == 0 && T > off_at + 10u);
+    CHECK(g_resets == 1 && g_host_fader[0].current == 0 && T > off_at + LINK_WDG_QUIET_MS);
 
     power_up(1);                                   /* a new run */
     g_resets = g_shutdowns = 0;

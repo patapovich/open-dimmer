@@ -420,8 +420,11 @@ static void test_link_restart_waits_for_state_switch(void) {
     host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);
     loop_until(24u * 3600000u);
     CHECK(g_resets == 0 && c1()->on == 0);
-    s1(0);                                         /* opened: the restart comes */
-    loop_until(T + 1000u);
+    s1(0);                                         /* opened: the restart a minute later */
+    uint32_t opened = T;
+    loop_until(opened + LINK_WDG_QUIET_MS);
+    CHECK(g_resets == 0);
+    loop_until(opened + LINK_WDG_QUIET_MS + 1000u);
     CHECK(g_resets == 1);
 }
 

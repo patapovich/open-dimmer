@@ -72,8 +72,9 @@ void bootif_poll(uint32_t now) {
     }
 
 #if LINK_WDG_BUILT
-    link_track(&g_link, now, LINK_WDG_TEST ? 0u : g_tuya_frames);
-    if (link_restart_due(&g_link, now, dimmer_dark() && controls_idle(), LINK_WDG_APP_FLAGS,
+    uint8_t idle = dimmer_dark() && controls_idle();
+    link_track(&g_link, now, LINK_WDG_TEST ? 0u : g_tuya_frames, idle);
+    if (link_restart_due(&g_link, now, idle, LINK_WDG_APP_FLAGS,
                          g_boot_info.features, 1)) {
         /* The planned restart of an accepted offer (the gates go low first, although the light
          * is dark already; the state comes back after it), with the probe request and tries 0

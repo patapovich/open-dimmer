@@ -15,9 +15,10 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
   windows in which any other carried image is installed, older ones included. Holding the
   module button while the power comes (pressed through the insulated case, never opened on
   mains) forces such a window.
-- v2: link watchdog. If the Zigbee firmware sends nothing for 30 min while every channel is
-  off, the app restarts once (at most every ~4 h) and checks for a newer build; the light state
-  stays, the wall switch is not read for up to ~3 s.
+- v2: link watchdog. If the Zigbee firmware sends nothing for 30 min, the app restarts (at
+  most every ~4 h, only after every channel has been off and no switch used for a minute) and
+  checks for a newer build; the light state stays, the wall switch is not read for up to ~3 s
+  (longer while a newer build is being installed).
 - Updates go by build number with a Zigbee firmware that knows it, by version byte otherwise.
 - Health: DP 136 (bootloader sector CRC) and DP 137 (boot word: probe time, rescue, button,
   written, stuck and link flags, tries).
