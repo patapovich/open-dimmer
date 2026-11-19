@@ -8,10 +8,10 @@ branch `home-dimmer`).
 
 | What | Version / place |
 |---|---|
-| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-ed1016b5 (0x1103304d, carries PY32 v2.1.12), MCU **Open Dimmer 2.1.12** since 2026-11-18 (phase 2: updated by the ZTU over the UART, settings kept, health clean) |
+| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-db24e888 (0x11033058, phase-3 ZTU, carries PY32 v2.1.13), MCU **Open Dimmer 2.1.13** (release R) since 2026-11-19, still on the v1 bootloader (taken by the version byte at once; DP 136 0xEAC45031, DP 137 0; on, level, On while on, off checked; health clean) |
 | Other modules | none runs Open Dimmer yet: see "Before further modules" |
 | PY32 source | this repo (github.com/patapovich/zdms16-py32) |
-| ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (carries PY32 v2.1.12; the phase-3 ZTU is not released yet); `home-dimmer_build` has the generated converter and the OTA images |
+| ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (phase-3 ZTU since 2026-11-19, carries PY32 v2.1.13; build changelog in `docs/changelog_home_dimmer.md`); `home-dimmer_build` has the generated converter and the OTA images |
 | SWD tools | `tools/swd/install.sh` (one-contact install, docs/INSTALL.md; untested on a stock module yet), the single steps beside it (`.venv` and `pack/` next to the clone, see docs/INSTALL.md) |
 | HA / Z2M helpers | `tools/ha/` (see its README): expose dump and configure check with the real zhc, websocket client, OTA deploy |
 | Docs | `docs/INSTALL.md`, `docs/REVIEW-2026-11-17.md`, `docs/ZC-DELAY-MEASUREMENT.md`, `docs/stock-firmware-analysis.md` |
@@ -298,12 +298,12 @@ Implemented and integrated, tested on the PC only; nothing of it has run on hard
   bootloader rule broken.
 
 Still to do, in this order (docs/BOOTLOADER.md section 14):
-1. Release R with `ZTU_OTA=<the phase-3 ZTU's ZDMS16-2 OTA file> tools/release/release.sh`
-   (the margin is measured against the ZTU that will carry R, not the older one on
-   home-dimmer_build); record its boot sector CRC (release notes).
-2. The phase-3 ZTU release carrying R's app, spare first (the spare takes R under v1 by the
-   version byte), then the other modules' ZTUs one at a time with their stock MCUs, each with
-   the per-module check of migration step 2.
+1. Done 2026-11-19: release R = v2.1.13 (build 300, boot sector CRC of its v2 bootloader
+   0x7D215316), with `ZTU_OTA` set to a local build of the phase-3 ZTU (1530 bytes below
+   0x34000 with R carried).
+2. Phase-3 ZTU 1.1.3-db24e888 carrying R: on the spare 2026-11-19 (the spare took R under v1
+   by the version byte). Still to do: the other modules' ZTUs one at a time with their stock
+   MCUs, each with the per-module check of migration step 2.
 3. Spare: `IMAGE=<R's zdms16_py32_full.bin> tools/swd/install.sh` (also the first run of the
    re-flash path), then the bench tests B1..B11 of docs/BOOTLOADER.md section 14 on the spare,
    with the mains rules (the case closed on mains, the button pressed through it). None has run
