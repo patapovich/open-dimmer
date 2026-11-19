@@ -33,9 +33,10 @@ unchanged (2 136 bytes, byte-identical to the released one).
 Phase 3 (bootloader v2, release R = 2.1.13, build 300; integrated, not released yet): app
 12 120 bytes (168 bytes free of 12 KB, so CI warns; +648 on 2.1.12, the range guard of the
 shared flash driver included); DIAG / MEASURE / SIM 11 732 / 11 744 / 11 772 (the link
-watchdog and the confirmation are compiled out of the bench builds). Bootloader v2 3 356 of
-4 096 bytes (740 free; the design's prototype 3 252), boot sector CRC-32 0xA4D57FB4 for this
-build (the release notes give the released value). The Zigbee firmware's OTA file with this app
+watchdog and the confirmation are compiled out of the bench builds). Bootloader v2 3 364 of
+4 096 bytes (732 free; the design's prototype 3 252; +8 for the watchdog reload after its
+update wait), boot sector CRC-32 0x7D215316 for this build (the release notes give the
+released value). The Zigbee firmware's OTA file with this app
 carried (phase-3 ZTU, ZDMS16-2 build): 211 938 bytes, 1 054 below the 0x34000 limit; the next
 app growth must be measured against it (docs/BOOTLOADER.md section 12).
 

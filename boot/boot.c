@@ -133,7 +133,10 @@ static void clock_and_uart(void) {
 
 /* The watchdog with this bootloader's own period at every boot (~1 s: LSI / 32, reload 1000, as
  * the app sets it), so neither the reset values nor an app's choice matter, and whether a
- * software reset stops a running IWDG does not either. Option byte IWDG_SW stays 1. */
+ * software reset stops a running IWDG does not either. A new RLR reaches the counter only at a
+ * reload, and 0xCCCC does not reload a running IWDG: the reload after the update wait ends a
+ * short countdown that a previous app left running, before app_valid() and before the boot
+ * counts. Option byte IWDG_SW stays 1. */
 static void watchdog_start(void) {
     RCC->CSR |= RCC_CSR_LSION;
     for (uint32_t n = WAIT_LOOPS; !(RCC->CSR & RCC_CSR_LSIRDY) && --n;) {
@@ -144,6 +147,7 @@ static void watchdog_start(void) {
     IWDG->RLR = 1000;
     for (uint32_t n = WAIT_LOOPS; IWDG->SR && --n;) {
     }
+    IWDG->KR = 0xAAAA;                                               /* reload: the new period */
 }
 
 /* Every pass of every loop: the watchdog, and the ms count. */

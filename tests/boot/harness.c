@@ -9,6 +9,13 @@
  *   read costs 20 us (one pass of a bootloader loop), a CRC byte 3.75 us, a page write 4.5 ms,
  *   a byte on the wire 87 us. SysTick's COUNTFLAG is a flag, as on the chip, so a loop pass that
  *   takes longer than 1 ms counts one ms.
+ * - The IWDG counts (LSI 32768 Hz) and resets the chip when it runs out (RAM kept). 0xCCCC
+ *   starts it from 0xFFF and does not reload a running one; only 0xAAAA reloads, with the RLR
+ *   in effect; a PR / RLR write takes effect after the update time, a new PR at once on the
+ *   count under way. A warm reset keeps it running with its counter, PR and RLR (the
+ *   pessimistic reading of bench test B8), and after it ran out it starts again from RLR; a
+ *   power-up stops it. The app that a boot jumps to runs it at PR 3 / RLR 1000 and has just
+ *   reloaded it when it resets, unless a scenario says otherwise (app_watchdog()).
  * - USART1: the ZTU's bytes reach a one-byte data register one every 87 us; a byte that arrives
  *   while RXNE is still set is lost and sets ORE, as on the chip. TX takes 87 us per byte.
  * - The ZTU: a C port of the fork's answer_block() (stateless, any offset, BLOCK_MAX 64 or 128,
@@ -119,6 +126,10 @@ typedef struct {
     int32_t  size_skew;              /* the ZTU's block header tells a size this much off the image's */
     uint32_t offset_skew;            /* the ZTU's block answers tell this offset more than asked */
     uint64_t reset_at_ns;            /* a reset that keeps RAM (watchdog, NRST glitch) at this time */
+    /* the IWDG at the next reset (kept over a warm reset, stopped by a power-up) */
+    int      wd_run;
+    uint32_t wd_pr, wd_rlr;
+    uint64_t wd_left_ns;             /* until it runs out, from the reset */
     int      ignore_max_len;         /* the ZTU sends BLOCK_MAX bytes whatever was asked (contract break) */
     int      switch_on_bad;          /* the ZTU switches to img2 at the first BAD_IMAGE result */
     unsigned seed;
@@ -143,6 +154,8 @@ typedef struct {
     uint32_t rx_lost, pages, max_write_end, flash_calls;
     uint64_t iwdg_max_gap;
     int      iwdg_running;
+    int      wd_fired;               /* the boot ended because the IWDG ran out */
+    uint64_t wd_reload_ns;           /* the first reload with PR 3 / RLR 1000 in effect */
     int      jump_valid;
     uint32_t led_n;
     struct { uint64_t t; uint8_t on; } led[LED_MAX];
@@ -167,6 +180,8 @@ static int       g_fail;
 static uint64_t t_ns;               /* since this boot's reset */
 static uint64_t crc_ps;             /* CRC time not yet charged, ps */
 static void     finish(int o) __attribute__((noreturn));
+static int      wd_counting;        /* the IWDG counts (wd_check(), with the model below) */
+static void     wd_check(void);
 
 static void advance(uint64_t ns) {
     t_ns += ns;
@@ -175,6 +190,9 @@ static void advance(uint64_t ns) {
     }
     if (S->reset_at_ns && t_ns >= S->reset_at_ns) {
         finish(OUT_WDT);
+    }
+    if (wd_counting) {
+        wd_check();
     }
 }
 
@@ -655,6 +673,9 @@ static uint64_t ms_seen;
 static uint64_t iwdg_last_refresh, iwdg_update_until;
 static int      iwdg_started, iwdg_unlocked, iwdg_seq;
 static uint32_t iwdg_pr_last, iwdg_rlr_last;
+static int      wd_pending;                        /* a PR / RLR write not in effect yet */
+static uint32_t wd_pr, wd_rlr, wd_pr_new, wd_rlr_new;
+static uint64_t wd_fire_ns;                        /* when the count runs out */
 static int      irq_on = 1;
 
 /* The LED (PA5, active low) is lit only while PA5 is an output driven low: at reset it is an
@@ -740,18 +761,51 @@ static void sync_systick(void) {
     }
 }
 
+/* One count of the IWDG: LSI / (4 << PR); PR 6 and 7 both divide by 256. */
+static uint64_t wd_tick_ns(uint32_t pr) {
+    return (4ull << (pr > 6 ? 6 : pr)) * S_ / 32768u;
+}
+
+/* A PR / RLR write takes effect once the update time has passed (never with a dead LSI): a new
+ * PR changes the pace of the count under way, a new RLR only the next reload. */
+static void wd_settle(void) {
+    if (!wd_pending || S->lsi_dead || t_ns < iwdg_update_until) {
+        return;
+    }
+    if (wd_counting && wd_pr_new != wd_pr) {
+        uint64_t at = iwdg_update_until, left = wd_fire_ns > at ? wd_fire_ns - at : 0;
+        wd_fire_ns = at + left / wd_tick_ns(wd_pr) * wd_tick_ns(wd_pr_new);
+    }
+    wd_pr      = wd_pr_new;
+    wd_rlr     = wd_rlr_new;
+    wd_pending = 0;
+}
+
 static void sync_iwdg(void) {
     if (iwdg.KR) {                    /* a key shows in KR, which reads 0 */
         uint32_t k = iwdg.KR;
         iwdg.KR = 0;
+        wd_settle();
         if (k == 0xCCCC) {
             iwdg_started = 1;
-            iwdg_refresh();
+            if (!wd_counting && !S->lsi_dead) {   /* started from 0xFFF; a running one goes on */
+                wd_counting = 1;
+                wd_fire_ns  = t_ns + 0xFFFu * wd_tick_ns(wd_pr);
+                iwdg_refresh();
+            }
             if (iwdg_seq == 0) {
                 iwdg_seq = 1;
             }
         } else if (k == 0xAAAA) {
+            if (wd_counting) {
+                wd_fire_ns = t_ns + wd_rlr * wd_tick_ns(wd_pr);
+            }
             iwdg_refresh();
+            /* the trace: reloaded with PR 3 / RLR 1000 in effect, after the start and the unlock */
+            if (iwdg_seq == 2 && iwdg.PR == 3u && iwdg.RLR == 1000u && (!wd_pending || S->lsi_dead)) {
+                iwdg_seq        = 3;
+                S->wd_reload_ns = t_ns;
+            }
         } else if (k == 0x5555) {
             iwdg_unlocked = 1;
             if (iwdg_seq == 1) {
@@ -765,9 +819,24 @@ static void sync_iwdg(void) {
         if (!iwdg_unlocked) {
             violation("IWDG PR/RLR written while locked");
         }
+        wd_settle();
         iwdg_pr_last      = iwdg.PR;
         iwdg_rlr_last     = iwdg.RLR;
         iwdg_update_until = t_ns + IWDG_UPDATE_NS;
+        wd_pr_new         = iwdg.PR;
+        wd_rlr_new        = iwdg.RLR;
+        wd_pending        = 1;
+    }
+}
+
+/* From advance(), while the IWDG counts: the keys written so far, then the reset when it runs
+ * out. */
+static void wd_check(void) {
+    sync_iwdg();
+    wd_settle();
+    if (wd_counting && t_ns >= wd_fire_ns) {
+        S->wd_fired = 1;
+        finish(OUT_WDT);
     }
 }
 
@@ -882,6 +951,15 @@ static void finish(int o) {
         S->iwdg_max_gap = t_ns - iwdg_last_refresh;
     }
     S->iwdg_running = iwdg_started && lsion && !S->lsi_dead;
+    /* the IWDG for the next reset: what was written is in effect by then; after it ran out it
+     * starts again from RLR (boot_once() and cold() set what an app or a power-up leaves) */
+    if (wd_pending && !S->lsi_dead) {
+        wd_pr = wd_pr_new, wd_rlr = wd_rlr_new;
+    }
+    S->wd_run     = wd_counting;
+    S->wd_pr      = wd_pr;
+    S->wd_rlr     = wd_rlr;
+    S->wd_left_ns = S->wd_fired ? wd_rlr * wd_tick_ns(wd_pr) : wd_fire_ns > t_ns ? wd_fire_ns - t_ns : 0;
     S->swd_frames   = swd_frames;
     S->wire_bytes   = w_get;
     S->outcome      = o;
@@ -912,7 +990,7 @@ void host_set_msp(uint32_t sp) {
     ok |= (host_usart.BRR == 208u && host_usart.CR1 == (USART_CR1_UE | USART_CR1_TE | USART_CR1_RE)) << 10;
     ok |= ((rcc.ICSCR >> 13 & 7u) == 4u && (rcc.ICSCR & 0x1FFFu) == (rd32le(TRIM_MEM + 0xF10) & 0x1FFFu)) << 11;
     ok |= (systick.LOAD == 23999u) << 12;
-    ok |= (iwdg_seq == 2 && iwdg.PR == 3u && iwdg.RLR == 1000u) << 13;
+    ok |= (iwdg_seq == 3 && iwdg.PR == 3u && iwdg.RLR == 1000u) << 13;   /* start, unlock, PR / RLR, reload */
     S->trace_ok = ok;
     finish(OUT_JUMP);
 }
@@ -1013,7 +1091,10 @@ static void child_init(void) {
     usart_reset_set = usart_reset_pulsed = 0, odr = 0, gpio_writes = 0;
     systick_ctrl = systick_shown = 0, ms_seen = 0;
     iwdg_last_refresh = 0, iwdg_update_until = 0, iwdg_started = iwdg_unlocked = iwdg_seq = 0;
-    iwdg_pr_last = iwdg_rlr_last = 0, irq_on = 1;
+    wd_counting = S->wd_run, wd_pending = 0, wd_fire_ns = S->wd_left_ns;
+    wd_pr = wd_pr_new = iwdg.PR = iwdg_pr_last = S->wd_pr;
+    wd_rlr = wd_rlr_new = iwdg.RLR = iwdg_rlr_last = S->wd_rlr;
+    irq_on = 1;
     swd_head = swd_tail = 0, swd_frames = 0;
 #ifdef REAL_FLASH_DRV
     drv_model_init(drv_advance, S->drv_sr, S->drv_bsy_stuck, S->drv_wrperr);
@@ -1030,7 +1111,7 @@ static void boot_results_clear(void) {
     memset(S->res, 0, sizeof S->res);
     S->rx_lost = S->pages = S->max_write_end = S->flash_calls = 0;
     S->iwdg_max_gap = 0, S->iwdg_running = 0, S->jump_valid = 0, S->led_n = 0;
-    S->trace_first_gpio = S->trace_ok = 0;
+    S->trace_first_gpio = S->trace_ok = 0, S->wd_fired = 0, S->wd_reload_ns = 0;
 }
 
 /* Both builds share the scenarios; each runs those its flash suits (table at the end). */
@@ -1059,6 +1140,17 @@ static const char *oname(int o) {
     }
 }
 
+/* A power-up: the IWDG stopped, its registers at their reset values. */
+static void wd_power_up(void) {
+    S->wd_run = 0, S->wd_pr = 0, S->wd_rlr = 0xFFFu, S->wd_left_ns = 0;
+}
+
+/* The app that ran set the IWDG to this period and has just reloaded it when it resets (the
+ * IWDG keeps running over the reset, the pessimistic reading of B8). */
+static void app_watchdog(uint32_t pr, uint32_t rlr) {
+    S->wd_run = 1, S->wd_pr = pr, S->wd_rlr = rlr, S->wd_left_ns = rlr * wd_tick_ns(pr);
+}
+
 /* One boot from reset. After it, the reset flags of the next boot are those the bootloader
  * leaves (its own reset adds SFTRSTF; nobody cleared the flags), the ZTU is up, and the checks
  * that hold for every boot are made. */
@@ -1080,6 +1172,10 @@ static int boot_once(void) {
     } else if (o == OUT_WDT) {
         S->csr |= RCC_CSR_IWDGRSTF;
         S->reset_at_ns = 0;
+    } else if (o == OUT_JUMP && S->wd_run) {
+        app_watchdog(3, 1000);        /* our apps' period, reloaded right before they reset */
+    } else if (o == OUT_CUT) {
+        wd_power_up();
     }
     S->ready_ns = 0;
     EXPECT(o == OUT_JUMP || o == OUT_RESET || o == OUT_CUT || o == OUT_TIMEOUT || o == OUT_WDT,
@@ -1179,6 +1275,7 @@ static void fresh(void) {
     S->switch_at_page = S->stop_at_page = S->cut_at_page = S->bad_page = S->flaky_page = S->corrupt_off = -1;
     S->seed           = 12345;
     S->limit_ns       = 600 * S_;
+    wd_power_up();
     memset(RAM_MEM, 0, 0x1000);
 }
 
@@ -1191,6 +1288,7 @@ static void cold(void) {
     S->csr      = RCC_CSR_PWRRSTF | RCC_CSR_PINRSTF;
     S->failures = 0;
     S->ready_ns = S->ready_cfg_ns;
+    wd_power_up();
 }
 
 /* The app ran and cleared the reset flags; a confirming run cleared the tries. */
@@ -1791,6 +1889,55 @@ SCENARIO sc_crashloop(void) {
     }
     printf("crash loop of 302 (ZTU carries 302, from boot 7 an older 299): [%s] installed at boot %d\n", line, got);
     EXPECT(!strcmp(line, "...WWWU") && got == 7, "3 runs, then windows, then the older image\n");
+}
+
+/* A crash loop under an IWDG that a warm reset keeps running (the pessimistic reading of B8) with
+ * a short period the crashing app chose: PR 0 / RLR 40, ~4.9 ms, far less than app_valid()
+ * (section 4, Watchdog). watchdog_start() reloads after its update wait, so the bootloader's own
+ * period is in effect before app_valid() and every run counts: the window opens at boot 4, as in
+ * "crashloop", whether the app's watchdog ran out or the app faulted 3.9 ms after a reload.
+ * Without that reload each warm boot ran out before it counted (the old code: ".R.R.RW"). */
+SCENARIO sc_wdg_carry(void) {
+    for (int fault = 0; fault <= 1; fault++) {
+        fresh();
+        flash_set("n302");
+        carry("n302");
+        cold();
+        char line[16] = "";
+        uint64_t worst_reload = 0;
+        for (int b = 1; b <= 10; b++) {
+            S->limit_ns = 120 * S_;
+            int o = boot_once();
+            int w = o == OUT_JUMP && secs() > 29;
+            line[b - 1] = o == OUT_WDT ? 'R' : o == OUT_RESET ? 'U' : w ? 'W' : '.';
+            if (b > 1 && S->wd_reload_ns > worst_reload) {
+                worst_reload = S->wd_reload_ns;
+            }
+            if (w) {
+                EXPECT((MB->boot & BOOT_INFO_RESCUE) && S->by_mode[OTA_MODE_RESCUE] == S->requests && S->flash_calls == 0,
+                       "a counter window, nothing written\n");
+                break;
+            }
+            if (o == OUT_WDT) {
+                continue;                          /* ran out in the bootloader: boots again */
+            }
+            if (o != OUT_JUMP) {
+                break;
+            }
+            app_watchdog(0, 40);
+            if (fault) {
+                S->csr        = RCC_CSR_SFTRSTF;   /* HardFault_Handler: a system reset at once */
+                S->wd_left_ns = 1 * MS;
+            } else {
+                crash();                           /* its watchdog ran out: from RLR again */
+            }
+        }
+        printf("crash loop, IWDG kept at PR 0 / RLR 40 (~4.9 ms) over each reset, the app %s: [%s], "
+               "own period reloaded %.2f ms after reset at the latest\n", fault ? "faults" : "watchdog runs out", line,
+               worst_reload / 1e6);
+        EXPECT(!strcmp(line, "...W"), "3 counted runs, then the window\n");
+        EXPECT(worst_reload > 0 && worst_reload < 2 * MS, "reloaded at the end of watchdog_start()\n");
+    }
 }
 
 SCENARIO sc_bigrescue(void) {
@@ -2818,6 +2965,15 @@ SCENARIO sc_regs(void) {
     printf("register trace: first GPIOA write %08x (BRR of PA0/PA1), state at the jump %04x of 3fff, SP %08x\n",
            S->trace_first_gpio, S->trace_ok, S->sp_at_jump);
     EXPECT(o == OUT_JUMP && S->trace_first_gpio == 3u, "gates low before anything else on GPIOA\n");
+    EXPECT(S->wd_reload_ns > 0 && S->wd_reload_ns < 2 * MS, "the IWDG reloaded with its new period at %.3f ms\n",
+           S->wd_reload_ns / 1e6);
+    app_ran(0);                       /* a warm boot with no mode: no loop, so no tick() before the jump */
+    crash();
+    o = boot_once();
+    printf("register trace, warm boot without a mode: state at the jump %04x of 3fff, IWDG reloaded at %.3f ms\n",
+           S->trace_ok, S->wd_reload_ns / 1e6);
+    EXPECT(o == OUT_JUMP && S->requests == 0 && S->wd_reload_ns > 0 && S->wd_reload_ns < 2 * MS,
+           "the reload with the new period comes from watchdog_start()\n");
     EXPECT(k_boot_id.magic == BOOT_ID_MAGIC && k_boot_id.version == 2 && k_boot_id.features == BOOT_FEATURES_V2 &&
            k_boot_id.reserved == 0xFFFFu && k_boot_id.app_max == 0x3800u && k_boot_id.mailbox == 0x20000BE0u,
            "boot_id\n");
@@ -2979,6 +3135,7 @@ static const scen_t k_scen[] = {
     { "probedelay", sc_probedelay, 0 },
     { "probe-b3", sc_probe_b3, 0 },
     { "crashloop", sc_crashloop, 0 },
+    { "wdg-carry", sc_wdg_carry, 0 },
     { "bigrescue", sc_bigrescue, 0 },
     { "benchrescue", sc_benchrescue, 0 },
     { "rescuecut", sc_rescuecut, 0 },

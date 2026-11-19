@@ -374,7 +374,8 @@ main:
                              register, which also holds RMVF; the bootloader never writes RMVF */
     clock_and_uart();     /* HSI 24 MHz with the factory trim, SysTick 1 ms polled, USART1 115200 8N1 */
     watchdog_start();     /* LSION, LSIRDY wait bounded; KR 0xCCCC; KR 0x5555, PR 3, RLR 1000 (~1 s),
-                             IWDG_SR wait bounded: the period never depends on reset values or an app */
+                             IWDG_SR wait bounded; KR 0xAAAA: the reload puts the new RLR in the
+                             counter, so the period never depends on reset values or an app */
     cold  = !(csr & (SFTRSTF | IWDGRSTF));
     if (cold && held(BUTTON_MS)) {                 /* pressed before the power came */
         LED on;  stuck = held(BUTTON_RELEASE_MS);  button = !stuck;  LED off;
@@ -426,12 +427,18 @@ already relies on the first one. Both are checked on the spare (bench test B8), 
 ### Watchdog
 
 The bootloader starts the IWDG and sets its period at every boot: PR 3, RLR 1000, ~1 s at the
-nominal LSI, the value the app uses (`main.c:160-175`). So it no longer matters whether a
+nominal LSI, the value the app uses (`main.c:160-175`), and reloads it right after the update
+wait (KR 0xAAAA, as the app's `watchdog_start()` does). A new RLR reaches the counter only at a
+reload, and 0xCCCC does not reload an IWDG that is already running: without the reload, a warm
+boot that only jumps (no mode, so no `tick()`) would keep the countdown a previous app left,
+across `app_valid()` and before the boot counts. With it, it no longer matters whether a
 software reset stops a running IWDG (the old comments say it keeps running, `boot.c:293`; never
 verified, B8 records it), and an app that chose a short period cannot reset-loop the bootloader
-before it counts. The waits for LSIRDY and the IWDG register update are bounded (~100 000
-passes, ~25-40 ms; normally they end within a few LSI cycles); with an LSI that never starts
-the watchdog simply does not run.
+before it counts (`make test-boot` scenario `wdg-carry`: a crash loop under an IWDG kept at
+~4.9 ms over every reset opens its window at boot 4; *measured* without the reload in the same
+model: every other boot ran out in `app_valid()`, `.R.R.RW`). The waits for LSIRDY and the IWDG
+register update are bounded (~100 000 passes, ~25-40 ms; normally they end within a few LSI
+cycles); with an LSI that never starts the watchdog simply does not run.
 
 `tick()` refreshes the watchdog on every pass of every loop (probe, update, rescue, button). The
 longest gaps between refreshes (*measured* in the byte-timed model, all scenarios and the fuzz):
@@ -1272,10 +1279,16 @@ without an NV lock record (9600 / 115200 × 2 configurations, a step every 1 s, 
 
 **Reset model.** `RCC_CSR` per boot: cold PWR|PIN with random RAM; warm SFT/IWDG; stale PWR
 after the bootloader's own reset. App model: confirms or not, crashes or not, clears the flags.
-The module button: held from power-up, released at a given time or never.
+The module button: held from power-up, released at a given time or never. The IWDG counts at
+the LSI's pace and resets the chip when it runs out; 0xCCCC starts it from 0xFFF and does not
+reload a running one, only 0xAAAA reloads, a PR / RLR write takes effect after the update time.
+A warm reset keeps it running with its counter, PR and RLR (the pessimistic reading of B8), and
+after it ran out it counts again from RLR; a power-up stops it. The app model runs it at PR 3 /
+RLR 1000 unless a scenario gives the app another period.
 
-**Register trace.** The first GPIOA write is BRR of PA0/PA1; HSI_FS 4; USART BRR 208; IWDG PR 3
-and RLR 1000.
+**Register trace.** The first GPIOA write is BRR of PA0/PA1; HSI_FS 4; USART BRR 208; IWDG
+started, unlocked, PR 3 and RLR 1000, then reloaded once the update is in effect, within 2 ms
+of the reset, on a warm boot without a mode too.
 
 **Images.** Synthetic, from `tests/boot/mkimages.py`: a valid vector table, header and CRC,
 chosen builds and flags, and controlled identical pages (for example page 0). No SDK needed.
@@ -1287,7 +1300,7 @@ model):
 |---|---|
 | Update | Asked normal (done; next boot tries 1, no probe); asked + ZTU silent (back to the app after 10 s); power cut after erase and after program at every page (all recover); image change mid-transfer (new image within ~15 s); ZTU answers only an identical page 0 (old app after 10 s); noisy link, 50 seeds (all succeed); 128-byte blocks; unsolicited ZTU frames every 1000/300/100/50 ms; FLASH result path (a page that never verifies: the ZTU sees 3 FLASH results and pauses; 362 requests in 60 s, no tight loop); carried image with a bad SP: refused at page 0, nothing written |
 | Probe | Newer build taken, no second probe after its reset; same image, older build, old image without build, both without build: not taken; installed 2.1.x without build: taken; ZTU silent: app at the window; ZTU ready at 1.4 s and 2.9 s: taken; after the window: not; 13 KB over a 12 KB-ring app refused; over a RING_HIGH app taken; DIAG / MEASURE / SIM installed: no request at all; carried SIM and DIAG refused; wrong magic refused; answer latency sweep 20-201 ms: always found; the B3 case (the probe does not depend on the app's offer path): newer build taken after a power cut |
-| Rescue | 3 unconfirmed boots then windows; same CRC skipped, 0 offset-0 requests; older image taken; window length 30 s; `restored` marked; 13 KB on a 12 KB-ring app refused; bench images refused (counter, button, no app); power cut during a rescue transfer; duty cycle of an app that hangs in init |
+| Rescue | 3 unconfirmed boots then windows; same CRC skipped, 0 offset-0 requests; older image taken; window length 30 s; `restored` marked; 13 KB on a 12 KB-ring app refused; bench images refused (counter, button, no app); power cut during a rescue transfer; duty cycle of an app that hangs in init; `wdg-carry`: the crash loop under an IWDG kept over every reset at the crashing app's ~4.9 ms (its watchdog runs out, or it faults 3.9 ms after a reload): window at boot 4, the bootloader's period reloaded < 2 ms after each reset |
 | Button | Held and released at a cold boot: rescue, older taken; same image: app after ~30 s; released after 4.5 s: rescue; never released: app after 5.1 s, STUCK, nothing written; held at a warm boot: ignored; not held: no delay |
 | Counter | 2.1.x app (no CONFIRMS) with 8+ watchdog resets: never a window; bench build with CONFIRMS: never counted; confirming app with resets between confirmations: never a window; never confirmed: every warm reset after the third opens a window; asked update resets tries; written image resets tries; stale PWRRSTF + IWDG counts as warm |
 | Link | (section 5, "Probe asked by the app") Request on a warm boot: the carried cases of the power-on probe, each with mode 6 only, bit 7 cleared in the stored word, LINK set, the probe time replaced, restore words untouched; newer build taken, no second probe after its reset, tries 1; ZTU not answering 0xA1: app at ~3.1 s, nothing written; DIAG / MEASURE / SIM installed: no request, bit 7 cleared; request + asked update: asked; request + tries 3: counter rescue; cold boot with a stale request: mode 3, LINK clear; request in an invalid word: no probe; LINK set + crash loop: first window at the 4th unconfirmed boot; 10 link restarts (the app's tries = 0 policy) under a ZTU that never answers 0xA1, with foreign frames: 0 windows, each ≤ 3.2 s |
@@ -1349,7 +1362,8 @@ take a compressed image, so this limit does not move from the MCU side.
 
 The implemented release-R app (section 9) is 12 120 bytes. *Measured* with it carried, the
 phase-3 ZTU's ZDMS16-2 OTA file is 211 938 bytes: 1 054 bytes below 0x34000. The implemented
-bootloader is 3 356 bytes (740 free), 104 more than the prototype.
+bootloader is 3 364 bytes (732 free), 112 more than the prototype (the watchdog reload after
+the update wait, from the implementation review, is 8 of them).
 
 ---
 
@@ -1706,7 +1720,7 @@ several reviewers made are resolved once and cross-referenced.
 | R1-1 | major | A counter rescue after a crash before `dimmer.c:215` leaves `restored` at 0, so the image installed hours later restores a stale light state | Adopted in frozen code: the bootloader sets `restored` = RST1 when it opens a counter rescue window (+16 B). Sections 3, 4; harness scenario `restored`. |
 | R1-2 | major | The frozen probe window is an unwritten timing contract with a ZTU that changes over the air | Window frozen at 3000 ms instead of 1.5 × the spare; ZTU contract (0xA1 semantics, robustness, 1500 ms, identity after every start, results) in `ota_proto.h` and `tuya_mcu_ota.h`; fuzz and timing tests; B2 on every ZTU release incl. its first boot after an OTA; DP 137 watch after each rollout. Sections 5, 10, 14. |
 | R1-3 | minor | Rescue and no-app mode install SIM/DIAG images carried by mistake | Adopted: every mode asks for the header first and refuses bench flags, a wrong magic and a size beyond the layout, before anything is written (no-app mode too). Sections 6, 8; scenario `benchrescue`. |
-| R1-4 | minor | The bootloader leaves the IWDG period to reset values or the last app | Adopted: PR 3 / RLR 1000 with bounded waits (+44 B). Section 4. |
+| R1-4 | minor | The bootloader leaves the IWDG period to reset values or the last app | Adopted: PR 3 / RLR 1000 with bounded waits (+44 B), and (implementation review) the reload after the wait that puts the new RLR in the counter (+8 B). Section 4; scenario `wdg-carry`. |
 | R1-5 | minor | `tries` saturates: every warm reset after the third opens a window, not every third; a lost first query means no confirmation | Text corrected (sections 6, 7, 13 #18); *measured* 7 windows in 10 boots. App over the air: seq 0 until the ZTU answers (section 9, item 9). |
 | R1-6 | minor | Section 10 serves build 0 in one item and forbids it in another | One rule: the ZTU refuses to offer, never to serve, what the bootloader may install; build 0 is served. Same as R2-1. |
 | R1-7 | minor | Ring move: a post-M app without the lower-half scan loses settings after a downgrade; step 2 checks the version, not the copy; 16 pages halve endurance | Adopted: a generic scan rule for every app from M on; M reports "ring moved" and step 2 checks it; endurance and save rate are a precondition of M. Section 1. |
@@ -1820,6 +1834,9 @@ pinned by a host test (`make test`, `make test-boot`, or the fork's stub tests).
   stray, so a ZTU that ignores `max_len` never completes an update (contract item 1).
 - The HSIRDY wait is bounded too. A byte that cannot start a frame is dropped at once; a too
   long length rescans from the next byte.
+- `watchdog_start()` ends with a reload (KR 0xAAAA) after the bounded update wait: the section 4
+  sequence without it left a warm boot that only jumps on the previous app's countdown (an RLR
+  write reaches the counter only at a reload). The harness models an IWDG kept over warm resets.
 - `g_boot` (SWD state) keeps v1's first 28 bytes for `tools/ota_swd_emu.py` and adds the build
   (0x1C) and the mode (0x1E).
 
