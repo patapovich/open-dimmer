@@ -1,7 +1,7 @@
 #!/bin/bash
 # Deploy the newest module firmware built on the fork's home-dimmer_build branch to the named
 # ZDMS16-2 modules through Zigbee2MQTT, one module at a time. While the series runs, Z2M's
-# ota.image_block_response_delay is OTA_DELAY_MS (30 ms); 250 ms is put back on every exit path (and by the
+# ota.image_block_response_delay is OTA_DELAY_MS (50 ms); 250 ms is put back on every exit path (and by the
 # guard at the first BUFFER_FULL). On Ctrl-C the series is stopped first and 250 ms put back;
 # a further Ctrl-C, TERM, HUP or a closed output pipe cannot cut that cleanup short. The ZTU then
 # updates a PY32 MCU that runs an older version of Open Dimmer (never a stock MCU).
@@ -14,8 +14,8 @@
 # Local only. Environment (all optional):
 #   IMAGE       a local ZDMS16-2 OTA file (.zigbee) instead of the newest build of home-dimmer_build
 #               (a local build for the spare: tools/ztu_local_build.sh); the same checks apply
-#   OTA_DELAY_MS Z2M's block response delay while the series runs (default 30, 10..250; the guard
-#               puts 250 back at the first BUFFER_FULL)
+#   OTA_DELAY_MS Z2M's block response delay while the series runs (default 50 = Z2M's minimum,
+#               50..250; the guard puts 250 back at the first BUFFER_FULL)
 #   ZTU_DIR     checkout of the ZTU fork (default ~/projects/tzs-diag)
 #   ZTU_REMOTE  its remote for github.com/patapovich/tuya-zigbee-switch (default patapovich)
 #   HA_HELPERS  directory of the local helpers (default ~/ha):
@@ -219,9 +219,9 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 
 scp -q "${SSH_OPTS[@]}" "$TMP/$F" "$HA_SSH:/config/zigbee2mqtt/images/" || die "copying $F to $HA_SSH failed"
-OTA_DELAY_MS=${OTA_DELAY_MS:-30}
-[[ "$OTA_DELAY_MS" =~ ^[0-9]+$ ]] && [ "$OTA_DELAY_MS" -ge 10 ] && [ "$OTA_DELAY_MS" -le 250 ] ||
-    die "OTA_DELAY_MS=$OTA_DELAY_MS: 10..250"
+OTA_DELAY_MS=${OTA_DELAY_MS:-50}
+[[ "$OTA_DELAY_MS" =~ ^[0-9]+$ ]] && [ "$OTA_DELAY_MS" -ge 50 ] && [ "$OTA_DELAY_MS" -le 250 ] ||
+    die "OTA_DELAY_MS=$OTA_DELAY_MS: 50..250 (Z2M refuses less than 50)"
 DELAY_SET=1
 set_delay "$OTA_DELAY_MS" || die "setting image_block_response_delay $OTA_DELAY_MS failed: not deployed"
 : > "$TMP/guard.log"
