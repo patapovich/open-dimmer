@@ -19,6 +19,7 @@ void dim_profile_set(dim_profile_t *p, uint16_t fade_on_ms, uint16_t fade_off_ms
     p->hold_span     = (uint16_t)((hold_end_pct > 100 ? 100 : hold_end_pct) * 10u);
     p->hold_bottom_q = DIM_HOLD_BOTTOM_Q;
     p->off_hold_ms   = DIM_OFF_HOLD_MS;
+    p->boost_ms      = 0;
 }
 
 void dim_profile_default(dim_profile_t *p) {
@@ -40,6 +41,7 @@ void dim_fader_init(dim_fader_t *f) {
     f->half_period = DIM_HALF_PERIOD_50HZ;
     f->hold_fine  = 0;
     f->timed_left = 0;
+    f->boost_left = 0;
     dim_profile_default(&f->prof);
 }
 
@@ -70,6 +72,16 @@ void dim_fader_set(dim_fader_t *f, uint8_t on, uint16_t level) {
     uint16_t t = on ? level : 0;
     if (t != f->target) {
         f->timed_left = 0;                  /* a new target: the profile's rates again */
+        if (!t) {
+            if (f->boost_left) {
+                f->current = f->floor;      /* off during a boost: out the usual way */
+            }
+            f->boost_left = 0;
+        } else if (!f->boost_left && f->current == 0) {
+            /* Coming on from dark: a start boost first (an LED driver that needs a kick). A new
+             * level during it (the module sends on, then the level) keeps it going. */
+            f->boost_left = (uint32_t)f->prof.boost_ms * 50u;
+        }
     }
     f->target = t;
 }
@@ -109,6 +121,7 @@ void dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint16_t lo, uint16_t hi) 
     f->hold_dir  = dir < 0 ? -1 : 1;
     f->hold_fine  = dir < 0;        /* going down towards the min: fine there */
     f->timed_left = 0;
+    f->boost_left = 0;              /* a hold picks its level from where the light is */
 }
 
 void dim_fader_hold_start_from_dark(dim_fader_t *f, uint16_t lo, uint16_t hi) {
@@ -173,6 +186,15 @@ static uint16_t hold_tick(dim_fader_t *f) {
 uint16_t dim_fader_tick(dim_fader_t *f) {
     if (f->hold_dir) {
         return hold_tick(f);
+    }
+    if (f->boost_left) {
+        /* At full, then straight to the target (or where a timed move starts); switched off
+         * during it: from the floor, the usual way out. */
+        f->boost_left = f->target && f->boost_left > f->half_period ? f->boost_left - f->half_period
+                                                                     : 0;
+        f->current = f->boost_left ? DIM_VALUE_MAX
+                   : !f->target ? f->floor : f->timed_left ? f->timed_from : f->target;
+        return f->current;
     }
     if (f->timed_left) {
         /* A timed move: the even position for the time gone (exact on 50 and 60 Hz). d <= 1000

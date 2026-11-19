@@ -15,6 +15,10 @@
 #define DP_PROFILE_BASE  150   /* + 5 * channel: fade on ms, fade off ms, soft end %, */
 #define DP_PROFILE_COUNT 5     /* hold ms, hold end % (ours, saved)                  */
 #define DP_TRANSITION_BASE 160 /* + channel: ms the next network change takes (ours, not saved) */
+#define DP_EXTRA_BASE    162   /* + 2 * k + channel, k: 0 switch mode, 1 power-cut level, */
+#define DP_EXTRA_END     170   /* 2 identify s, 3 start boost ms (dimmer.h)             */
+enum { EX_INPUT, EX_POWER_LEVEL, EX_IDENTIFY, EX_BOOST };
+#define COUNTDOWN_MAX    86400u
 #define TRANSITION_VALID_MS 1000  /* ... if it comes this soon after (on, then level) */
 enum { PF_FADE_ON, PF_FADE_OFF, PF_SOFT_END, PF_HOLD, PF_HOLD_END };
 
@@ -71,6 +75,9 @@ static uint8_t  g_dirty_restart;  /* a new change: restart the delay */
 static uint32_t g_dirty_ms;
 static uint8_t  g_save_retries;
 static uint32_t g_now;                              /* dimmer_poll's time */
+static uint32_t g_cd_end[DIMMER_CHANNELS];          /* countdown: when it goes off */
+static uint32_t g_ident_end[DIMMER_CHANNELS];       /* identify: when it stops (0: none) */
+static uint8_t  g_ident_s[DIMMER_CHANNELS];         /* ... how long it was asked for */
 static uint16_t g_trans_ms[DIMMER_CHANNELS];        /* DP 160 / 161: a transition time ... */
 static uint32_t g_trans_at[DIMMER_CHANNELS];        /* ... written then */
 
@@ -104,6 +111,9 @@ static void snapshot(saved_t *s) {
         s->pf[i].hold_ms      = (uint16_t)(g_ch[i].hold_ms + 1u);
         s->pf[i].soft_end_pct = (uint8_t)(g_ch[i].soft_end_pct + 1u);
         s->pf[i].hold_end_pct = (uint8_t)(g_ch[i].hold_end_pct + 1u);
+        s->reserved[0] |= (uint8_t)(g_ch[i].input_mode << (2 * i));
+        s->reserved[1] |= (uint8_t)(g_ch[i].boost50 << (4 * i));
+        s->reserved[2 + i] = g_ch[i].power_level4;
         if (g_power_on[i] == POWER_ON_LAST && g_ch[i].on) {
             s->on_mask |= (uint8_t)(1u << i);
         }
@@ -125,7 +135,11 @@ static void apply(uint8_t ch) {
     dim_profile_t p;
     dim_profile_set(&p, g_ch[ch].fade_on_ms, g_ch[ch].fade_off_ms, g_ch[ch].soft_end_pct,
                     g_ch[ch].hold_ms, g_ch[ch].hold_end_pct);
+    p.boost_ms = (uint16_t)(g_ch[ch].boost50 * 50u);
     phase_set_profile(ch, &p);
+    if (!g_ch[ch].on) {
+        g_ch[ch].countdown = 0;       /* an off ends an auto-off countdown */
+    }
     phase_set_range(ch, g_ch[ch].min, g_ch[ch].max);
     phase_set_curve(ch, g_ch[ch].curve);
     /* A transition time from the module applies to the changes in the second after it (the
@@ -194,6 +208,11 @@ uint8_t dimmer_init(uint32_t reset_csr) {
                 if (s.pf[i].hold_end_pct && s.pf[i].hold_end_pct <= 101u) {
                     g_ch[i].hold_end_pct = (uint8_t)(s.pf[i].hold_end_pct - 1u);
                 }
+                /* The spare bytes (0 in older records: as before). */
+                uint8_t m = (uint8_t)((s.reserved[0] >> (2 * i)) & 3u);
+                g_ch[i].input_mode   = m <= DIMMER_INPUT_OFF ? m : DIMMER_INPUT_NORMAL;
+                g_ch[i].boost50      = (uint8_t)((s.reserved[1] >> (4 * i)) & 15u);
+                g_ch[i].power_level4 = s.reserved[2 + i] <= 250u ? s.reserved[2 + i] : 0;
             }
             if (g_ch[i].min > g_ch[i].max) {
                 g_ch[i].min = g_ch[i].max;
@@ -206,6 +225,11 @@ uint8_t dimmer_init(uint32_t reset_csr) {
     snapshot(&g_saved);               /* what flash holds */
     if (store_copy_due()) {
         mark_dirty();                 /* the ring move's copy failed: saved again by dimmer_poll */
+    }
+    for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
+        if (g_ch[i].power_level4) {   /* a level for after a power cut (a warm reset restores) */
+            g_ch[i].level = in_range(&g_ch[i], g_ch[i].power_level4 * 4u);
+        }
     }
 
     /* Back from a reset that kept the RAM and was not a power-up or brown-out:
@@ -255,6 +279,20 @@ void dimmer_prepare_restart(void) {
 
 void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok) {
     g_now = now;
+    for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
+        if (g_ch[ch].countdown && (int32_t)(now - g_cd_end[ch]) >= 0) {
+            dimmer_local_set(ch, 0);  /* auto-off: as a switch off (reported; the countdown 0) */
+        }
+        if (g_ident_end[ch]) {
+            if ((int32_t)(now - g_ident_end[ch]) >= 0) {
+                g_ident_end[ch] = 0;
+                g_ident_s[ch]   = 0;
+                apply(ch);            /* as it was */
+            } else {
+                phase_set_timed(ch, (uint8_t)((now >> 9) & 1u), DIMMER_LEVEL_MAX, 1);   /* 0.5 s */
+            }
+        }
+    }
     if (now >= RESTORE_CLEAR_MS) {
         OTA_MAILBOX->restored = 0;    /* this run lasted: a reset may restore again */
     }
@@ -373,6 +411,37 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         mark_dirty();
         return 1;
     }
+    if (dpid >= DP_EXTRA_BASE && dpid < DP_EXTRA_END) {
+        uint8_t           k  = (uint8_t)((unsigned)(dpid - DP_EXTRA_BASE) >> 1);
+        dimmer_channel_t *pc = &g_ch[(dpid - DP_EXTRA_BASE) & 1u];
+        ch                   = (uint8_t)((dpid - DP_EXTRA_BASE) & 1u);
+        if (type != TUYA_DP_TYPE_VALUE || len != 4) {
+            return 0;
+        }
+        uint32_t v = be32(value);
+        if (k == EX_INPUT) {
+            if (v > DIMMER_INPUT_OFF) {
+                return 0;
+            }
+            pc->input_mode = (uint8_t)v;
+            end_hold(ch);
+        } else if (k == EX_POWER_LEVEL) {
+            pc->power_level4 = v ? (uint8_t)((clamp_level(v) + 2u) >> 2) : 0;
+        } else if (k == EX_IDENTIFY) {
+            g_ident_s[ch]   = (uint8_t)(v > 255u ? 255u : v);
+            g_ident_end[ch] = v ? (g_now + g_ident_s[ch] * 1000u) | 1u : 0;
+            apply(ch);                /* stopped: as it was; started: the blink from the next poll */
+            return 1;
+        } else {
+            if (v > 750u) {
+                return 0;
+            }
+            pc->boost50 = (uint8_t)(v / 50u);
+            apply(ch);
+        }
+        mark_dirty();
+        return 1;
+    }
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
         if (type != TUYA_DP_TYPE_ENUM || len != 1 || value[0] >= CURVE_COUNT) {
             return 0;
@@ -451,7 +520,9 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         break;
 
     case DP_COUNTDOWN:
-        c->countdown = v;
+        /* Auto-off: counts only while on (written while off it stays 0, as the ack says). */
+        c->countdown = c->on ? (v > COUNTDOWN_MAX ? COUNTDOWN_MAX : v) : 0;
+        g_cd_end[ch] = g_now + c->countdown * 1000u;
         return 1;
 
     default:
@@ -486,6 +557,16 @@ void dimmer_report_dp(uint8_t dpid) {
     }
     if (dpid >= DP_TRANSITION_BASE && dpid < DP_TRANSITION_BASE + DIMMER_CHANNELS) {
         tuya_report_value(dpid, g_trans_ms[dpid - DP_TRANSITION_BASE]);   /* the ack */
+        return;
+    }
+    if (dpid >= DP_EXTRA_BASE && dpid < DP_EXTRA_END) {
+        uint8_t                 k  = (uint8_t)((unsigned)(dpid - DP_EXTRA_BASE) >> 1);
+        uint8_t                 i  = (uint8_t)((dpid - DP_EXTRA_BASE) & 1u);
+        const dimmer_channel_t *pc = &g_ch[i];
+        tuya_report_value(dpid, k == EX_INPUT        ? pc->input_mode
+                                : k == EX_POWER_LEVEL ? pc->power_level4 * 4u
+                                : k == EX_IDENTIFY    ? g_ident_s[i]
+                                                      : pc->boost50 * 50u);
         return;
     }
     if (dpid >= DP_PROFILE_BASE && dpid < DP_PROFILE_BASE + DP_PROFILE_COUNT * DIMMER_CHANNELS) {
@@ -649,6 +730,9 @@ void dimmer_report_all(void) {
         for (uint8_t k = 0; k < DP_PROFILE_COUNT; k++) {
             dimmer_report_dp((uint8_t)(DP_PROFILE_BASE + DP_PROFILE_COUNT * ch + k));
         }
+        dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_INPUT + ch));
+        dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_POWER_LEVEL + ch));
+        dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_BOOST + ch));
         tuya_report_send();
     }
 }

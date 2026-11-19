@@ -16,6 +16,21 @@
  *     the next second each take that long, at one even rate (0: the fade
  *     settings). The module writes it right before them for a Zigbee transition
  *     time; a wall switch or the button always takes the fade settings
+ *   DP 162 / 163 wall switch mode of channel 1 / 2 (value, ours, saved): 0 the
+ *     switch drives the light, 1 detached (the light is the network's; the
+ *     gestures are still reported, a toggle or state switch's change as a
+ *     single), 2 off (ignored)
+ *   DP 164 / 165 level after a power cut (value, 0 = the last level; kept in
+ *     steps of 4; ours, saved): the light takes it at every cold start, on or
+ *     off by the power-on behaviour
+ *   DP 166 / 167 identify (value, s, at most 255; ours, not saved): the
+ *     channel blinks (dark / full, 0.5 s) that long, then is as it was; 0 stops
+ *   DP 168 / 169 start boost (value, ms in steps of 50 up to 750, 0 = none;
+ *     ours, saved): coming on from dark the output is at full that long, then
+ *     goes to the level (an LED driver that needs a kick)
+ *   DP 6 / 12 countdown (s, up to 86400): auto-off, written while on: the
+ *     channel goes off after that long (reported then with 0); an off cancels
+ *     it, written while off it stays 0. Not saved
  *   DP 105 / 106 wall switch gesture of channel 1 / 2, reported only, never
  *     in the DP dump (ours, gesture_core.h): 1 single, 2 double, 3 triple,
  *     4 hold, 5 release
@@ -46,7 +61,16 @@ typedef struct {
     uint8_t  soft_end_pct;
     uint16_t hold_ms;
     uint8_t  hold_end_pct;
+    /* Ours, saved in the record's spare bytes (0 = as before). */
+    uint8_t  input_mode;     /* DP 162 / 163: 0 the wall switch drives the light, 1 detached (only
+                                its gestures are reported), 2 off (ignored) */
+    uint8_t  power_level4;   /* DP 164 / 165: the level after a power cut, / 4 (0: the last one) */
+    uint8_t  boost50;        /* DP 168 / 169: start boost, 50 ms units (0..15, 0: none) */
 } dimmer_channel_t;
+
+#define DIMMER_INPUT_NORMAL    0
+#define DIMMER_INPUT_DETACHED  1
+#define DIMMER_INPUT_OFF       2
 
 /* Reset flags of RCC_CSR (main.c checks them against the device header). */
 #define DIMMER_RESET_POWER  (1u << 27)   /* PWRRSTF: power-up or brown-out */

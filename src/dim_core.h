@@ -74,6 +74,8 @@ typedef struct {
     uint16_t hold_span;     /* hold: values above the min that slow down (0 = none) */
     uint8_t  hold_bottom_q; /* hold rate at the min */
     uint8_t  off_hold_ms;   /* at the floor before dark */
+    uint16_t boost_ms;      /* start boost: at full this long when it comes on from dark (0: none;
+                               dim_profile_set leaves it 0) */
 } dim_profile_t;
 
 /** Profile from the user settings: times in ms for the whole range (0 = at
@@ -102,6 +104,7 @@ typedef struct {
     uint16_t      timed_to;
     uint32_t      timed_left;
     uint32_t      timed_total;
+    uint32_t      boost_left;  /* 20 us ticks of a start boost still to go (at full, then the target) */
     dim_profile_t prof;
 } dim_fader_t;
 
