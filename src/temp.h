@@ -23,6 +23,9 @@ static inline int16_t temp_from_raw(uint32_t raw, uint32_t cal30, uint32_t cal85
     return (int16_t)(30 - (int32_t)(((cal30 - raw) * 55u + span / 2u) / span));
 }
 
+/** The chip's factory calibration as reported (health DP 139): the raw value at 85 degC in
+ * bits 31..16, at 30 degC in bits 15..0, so the spread between chips can be seen. */
+uint32_t temp_calibration(void);
 /** ADC on, calibrated, the sensor's channel selected (once, at start). */
 void    temp_init(void);
 /** The result of the conversion started at the last call (TEMP_NONE if none), and the next one

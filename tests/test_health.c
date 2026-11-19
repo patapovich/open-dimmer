@@ -36,6 +36,9 @@ int16_t temp_take(void) {
     g_temp_takes++;
     return g_temp;
 }
+uint32_t temp_calibration(void) {
+    return 1138u << 16 | 949u;
+}
 static uint8_t g_own_ring;
 uint8_t store_in_own_ring(void) {
     return g_own_ring;
@@ -99,11 +102,12 @@ int main(void) {
     CHECK(g_dp_seen[136] && g_dp[136] == 0xEAC45031u);
     CHECK(g_dp_seen[137] && g_dp[137] == (0x009041u | (uint32_t)RING_HIGH << 24));   /* not moved yet */
     for (unsigned dp = 0; dp < 256; dp++) {
-        CHECK(g_dp_seen[dp] == (dp >= 130 && dp <= 138));
+        CHECK(g_dp_seen[dp] == (dp >= 130 && dp <= 139));
     }
     /* 8 value DPs of 8 bytes: one frame of the report builder's 64 bytes; DP 138 in a second. */
     CHECK(g_units_health == 8 && g_frames == 2 && g_temp_takes == 1);
     CHECK(g_dp[138] == (uint32_t)(int32_t)TEMP_NONE);       /* none yet: -32768 */
+    CHECK(g_dp[139] == (1138u << 16 | 949u));               /* the factory points */
     health_poll(now + 119999u);
     CHECK(g_reports == 1);
     g_own_ring = 1;

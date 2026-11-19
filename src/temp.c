@@ -30,3 +30,7 @@ int16_t temp_take(void) {
     g_started = 1;
     return t;
 }
+
+uint32_t temp_calibration(void) {
+    return (uint32_t)TS_CAL85 << 16 | TS_CAL30;
+}

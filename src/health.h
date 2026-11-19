@@ -16,6 +16,8 @@
  *       bit 25 the newest settings record is in this app's own ring
  *   138 the MCU die temperature in degC (signed; -32768 none yet), from 2.2.0,
  *       in a frame of its own after the eight above (src/temp.h)
+ *   139 with it: the chip's factory calibration of that sensor, the raw value at
+ *       85 degC in bits 31..16 and at 30 degC in bits 15..0 (how far chips differ)
  * All since start; none wraps in a trial (uptime counts minutes, not the
  * millisecond clock that wraps after 49.7 days). */
 #ifndef HEALTH_H

@@ -53,5 +53,6 @@ void health_poll(uint32_t now) {
     tuya_report_send();
     tuya_report_begin(1);                             /* the report builder holds 8: a second frame */
     tuya_report_value(138, (uint32_t)(int32_t)temp_take());   /* degC, signed; -32768: none */
+    tuya_report_value(139, temp_calibration());                /* the chip's factory points */
     tuya_report_send();
 }

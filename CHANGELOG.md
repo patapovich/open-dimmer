@@ -14,7 +14,8 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
 - Identify (DP 166 / 167, s): the channel blinks, then is as it was.
 - Start boost per channel (DP 168 / 169, ms up to 750): coming on from dark at full that long,
   then the level (for LED drivers that need a kick).
-- Health: the MCU die temperature (DP 138, degC).
+- Health: the MCU die temperature (DP 138, degC) and the chip's factory calibration of its
+  sensor (DP 139), so the spread between chips can be seen. No protection is built on it yet.
 
 ## 2.1.14 (2026-11-19)
 
