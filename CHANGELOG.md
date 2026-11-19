@@ -3,10 +3,15 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
+## 2.2.2 (2026-11-19)
+
+- Health: the die temperature (DP 138) at every report: the ADC converts continuously (as the
+  PY32 SDK's own example); 2.2.0 and 2.2.1 started single conversions, and only the first one
+  ran (one temperature, then "none").
+
 ## 2.2.1 (2026-11-19)
 
-- Health: the die temperature (DP 138) is measured at every report again; 2.2.0 gave it once,
-  then "none" (its ADC start disabled the ADC).
+- Health: meant to give the die temperature at every report; it did not (2.2.2).
 
 ## 2.2.0 (2026-11-19)
 

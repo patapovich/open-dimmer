@@ -17,6 +17,11 @@ void temp_init(void) {
     ADC1->CFGR2  = ADC_CFGR2_CKMODE_1 | ADC_CFGR2_CKMODE_2;   /* PCLK / 64: 375 kHz */
     ADC1->SMPR   = ADC_SMPR_SMP;                      /* 239.5 cycles: the sensor wants long */
     ADC1->CHSELR = 1u << TS_CHANNEL;
+    /* Continuous, each conversion over the last (as the PY32 SDK's own temperature example):
+     * started once, DR always holds the newest. 2.2.0 / 2.2.1 started single conversions, and
+     * on the PY32 only the first one ever ran (one temperature, then none). No interrupt, no
+     * pin: ~0.7 ms conversions of the internal channel only. */
+    ADC1->CFGR1  = ADC_CFGR1_CONT | ADC_CFGR1_OVRMOD;
     ADC->CCR    |= ADC_CCR_TSEN;
     ADC1->CR     = ADC_CR_ADEN;
 }
@@ -24,11 +29,12 @@ void temp_init(void) {
 int16_t temp_take(void) {
     int16_t t = TEMP_NONE;
     if (g_started && (ADC1->ISR & ADC_ISR_EOC)) {
-        t = temp_from_raw(ADC1->DR & 0xFFFu, TS_CAL30, TS_CAL85);   /* reading DR clears EOC */
+        t = temp_from_raw(ADC1->DR & 0xFFFu, TS_CAL30, TS_CAL85);   /* the newest conversion */
     }
-    /* ADEN written along: on the PY32 a 0 there disables the ADC (2.2.0 wrote ADSTART alone:
-     * the start written with it still ran, every later one did not: one temperature only). */
-    ADC1->CR  = ADC_CR_ADEN | ADC_CR_ADSTART;
+    ADC1->ISR = ADC_ISR_EOC | ADC_ISR_EOSEQ | ADC_ISR_OVR;         /* written 1: cleared */
+    if (!(ADC1->CR & ADC_CR_ADSTART)) {
+        ADC1->CR = ADC_CR_ADSTART;    /* once (CR bits are set-only: the 0s do nothing) */
+    }
     g_started = 1;
     return t;
 }
