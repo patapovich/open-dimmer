@@ -24,8 +24,33 @@ env:
   SDK_COMMIT: 009bdec7ed77c9b782a258c064c227e15ec19498
 
 jobs:
+  # A push to main that a release tag points at (release.sh pushes both at once) is built and
+  # tested by the tag's run: the branch run skips its jobs.
+  gate:
+    name: Release tag on this commit?
+    runs-on: ubuntu-24.04
+    outputs:
+      skip: ${{ steps.tag.outputs.skip }}
+    steps:
+      - id: tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          skip=false
+          if [ "$EVENT" = push ] && [ "$REF_TYPE" = branch ] &&
+             git ls-remote --tags "$REPO" 'refs/tags/v*' | grep -q "^$SHA[[:space:]]"; then
+            skip=true
+            echo "::notice::a release tag points at $SHA: its own run builds and tests it"
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
   test:
     name: Host unit tests
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -36,6 +61,8 @@ jobs:
 
   build:
     name: Firmware builds
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7

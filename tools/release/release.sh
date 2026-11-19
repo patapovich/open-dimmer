@@ -267,9 +267,10 @@ else
     fi
     echo "== $TAG: push and tag"
     prev_ci=$(max_run_id "$PY32" --workflow ci.yml --branch "$TAG")
-    git push -q origin HEAD:main
     [ -n "$local_tag" ] || git tag -a "$TAG" -m "PY32 firmware $TAG"
-    git push -q origin "refs/tags/$TAG"
+    # One atomic push of main and the tag: the CI run of the main push then finds the tag on the
+    # same commit and skips (ci.yml job "gate"); the tag's run does the work.
+    git push -q --atomic origin HEAD:main "refs/tags/$TAG"
     await_id "$PY32" "CI ($TAG)" "$prev_ci" '.event == "push"' \
         --workflow ci.yml --event push --branch "$TAG" --commit "$SHA"
     watch_ci "$RUN_ID"
