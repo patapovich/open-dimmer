@@ -154,15 +154,16 @@ def legacy_problem(h, size):
     return None
 
 
-def app_problem(img, h):
+def app_problem(img, h, stocklike=False):
     """The rules every app image follows wherever it goes (mkimage, a full image, the ZTU): no
     reserved flag, the settings layout, the exact vectors (SP 0x20000BE0, so that the stack stays
     below the mailbox; an odd reset vector inside the image), the version byte; then the build
-    rules, or the 2.1.x rules for build 0."""
+    rules, or the 2.1.x rules for build 0. stocklike: mkimage's bench build of test T5 (a 1.x
+    version byte, flashed with a probe only; every other caller keeps the default)."""
     if h.flags & FLAGS_RESERVED:
         return f"flags 0x{h.flags:02X}: 0x20..0x80 are reserved (the bootloader ignores them)"
     p = (layout_problem(len(img), h.flags) or vector_problem(img, len(img), exact_sp=True)
-         or version_problem(h.version, h.flags))
+         or (None if stocklike and h.version < VERSION_OURS_MIN else version_problem(h.version, h.flags)))
     if p:
         return p
     if h.build == BUILD_NONE:

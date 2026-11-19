@@ -43,8 +43,15 @@ def refuse(msg):
     raise fw.Refused(msg)
 
 
-def check_version(version: int, flags: int) -> None:
-    """Refuse the reserved version bytes; warn when the free codes run out."""
+STOCKLIKE = False   # --stocklike: the bench test T5 build (check_version)
+
+
+def check_version(version: int, flags: int, stocklike: bool = False) -> None:
+    """Refuse the reserved version bytes; warn when the free codes run out. stocklike: the bench
+    build of test T5 (make STOCKLIKE_TEST=1 FW_TEST=n) may report a 1.x version: it is flashed with
+    a probe only (embed_ztu.py, which the module's image goes through, keeps refusing 1.x)."""
+    if stocklike and version < fw.VERSION_OURS_MIN:
+        return
     p = fw.version_problem(version, flags)
     if p:
         refuse(p)
@@ -70,7 +77,7 @@ def check_app(img: bytes, h, legacy: bool = False, test=0) -> None:
     elif h.build == fw.BUILD_NONE:
         refuse("app header without a build number (build 0): FW_BUILD in src/tuya.h; an existing "
                "2.1.x image goes into a full image only with --legacy-app")
-    p = fw.app_problem(img, h)
+    p = fw.app_problem(img, h, STOCKLIKE)
     if p:
         refuse(p)
     if (not legacy and test is not None and h.build != fw.BUILD_SIM
@@ -79,7 +86,7 @@ def check_app(img: bytes, h, legacy: bool = False, test=0) -> None:
             f"--test {test} wants the release build + {test} (FW_PREV=1: the previous one's + {test})"
             if test else "a build without FW_TEST must be a release build (a multiple of 100); "
                          "test builds: make FW_TEST=1..99"))
-    check_version(h.version, h.flags)
+    check_version(h.version, h.flags, STOCKLIKE)
 
 
 def summary(h, size: int) -> str:
@@ -147,7 +154,7 @@ def parse(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--old-boot", "--legacy-app"):
+        if a in ("--old-boot", "--legacy-app", "--stocklike"):
             opts[a] = True
         elif a.startswith("--"):
             sys.exit(f"unknown option {a}\n{__doc__}")
@@ -158,7 +165,11 @@ def parse(argv):
 
 
 def main(argv):
+    global STOCKLIKE
     args, opts = parse(argv)
+    STOCKLIKE = "--stocklike" in opts
+    if STOCKLIKE and "--test" not in opts and "--full" not in opts:
+        sys.exit("--stocklike is a test build's (make STOCKLIKE_TEST=1 FW_TEST=n)")
     try:
         if len(args) == 2 and "--full" not in opts and not {"--old-boot", "--legacy-app"} & set(opts):
             test = 0

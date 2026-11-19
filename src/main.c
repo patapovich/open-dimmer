@@ -236,6 +236,15 @@ int main(void) {
             __asm volatile("udf #0");   /* bench test B4: a fault 1 s after every start */
         }
 #endif
+#if defined(STOCKLIKE_TEST) && STOCKLIKE_TEST
+        /* bench test T5: like the factory firmware, take the SWD pins some time after the start
+         * (outputs, low). Breaks rule R1 on purpose: never in a release (Makefile guard). */
+        if (STOCKLIKE_PINS_MS != 0u && now >= STOCKLIKE_PINS_MS &&
+            (GPIOA->MODER & (3u << 26)) != (1u << 26)) {
+            GPIOA->BRR   = (1u << 13) | (1u << 14);
+            GPIOA->MODER = (GPIOA->MODER & ~((3u << 26) | (3u << 28))) | (1u << 26) | (1u << 28);
+        }
+#endif
         tuya_poll(now);
         phase_poll();
         controls_poll(now);

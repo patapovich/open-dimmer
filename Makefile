@@ -41,6 +41,14 @@ OFFER_DECLINE_TEST ?=
 # crash loop); above the carried release, so the module never offers it that release, and after 3
 # unconfirmed runs the bootloader's rescue window must install it (older images allowed there).
 CRASH_TEST ?=
+# make STOCKLIKE_TEST=1 FW_TEST=n [STOCKLIKE_PINS_MS=ms]: bench test T5 (spare, SWD, then the stock
+# option bytes): an app the module takes for the factory firmware (it reports version 1.0.7, so the
+# module never asks who it is and treats it as stock) that, like the factory firmware, makes the SWD
+# pins PA13 / PA14 outputs (low) STOCKLIKE_PINS_MS after its start (default 1500; 0 = never). For
+# the module's SWD install rehearsal (zdms16-py32 has no copy of the factory firmware). Above the
+# carried release (FW_TEST, no FW_PREV), so the bootloader's power-on probe never replaces it.
+STOCKLIKE_TEST ?=
+STOCKLIKE_PINS_MS ?= 1500
 ifneq ($(FW_BUILD),)
   $(error FW_BUILD is the release build in src/tuya.h; test builds: make FW_TEST=n [FW_PREV=1])
 endif
@@ -72,6 +80,21 @@ ifeq ($(CRASH_TEST),1)
     $(error CRASH_TEST builds lie above the release: make CRASH_TEST=1 FW_TEST=n (no FW_PREV))
   endif
 endif
+ifneq ($(filter-out 0 1,$(STOCKLIKE_TEST)),)
+  $(error STOCKLIKE_TEST takes 1 (bench test T5) or 0)
+endif
+ifeq ($(STOCKLIKE_TEST),1)
+  ifeq ($(FW_TEST),)
+    $(error STOCKLIKE_TEST builds lie above the release: make STOCKLIKE_TEST=1 FW_TEST=n)
+  endif
+  ifneq ($(FW_PREV),)
+    $(error STOCKLIKE_TEST builds lie above the release: make STOCKLIKE_TEST=1 FW_TEST=n (no FW_PREV))
+  endif
+  ifneq ($(filter 1,$(SIM) $(MEASURE) $(DIAG) $(LINK_WDG_TEST) $(OFFER_DECLINE_TEST) $(CRASH_TEST)),)
+    $(error STOCKLIKE_TEST is a normal build's bench switch (alone, not with SIM, MEASURE, DIAG or another bench test))
+  endif
+  VERSION_BYTE ?= 0x47
+endif
 ifneq ($(filter 1,$(OFFER_DECLINE_TEST) $(CRASH_TEST)),)
   ifneq ($(filter 1,$(SIM) $(MEASURE) $(DIAG) $(LINK_WDG_TEST)),)
     $(error OFFER_DECLINE_TEST / CRASH_TEST are normal builds' bench switches (one at a time, not with SIM, MEASURE, DIAG or LINK_WDG_TEST))
@@ -96,7 +119,7 @@ ifneq ($(FW_PREV),)
     $(error FW_PREV=1 alone would be the previous release: make FW_PREV=1 FW_TEST=n (1..99), the build FW_BUILD - 100 + n)
   endif
 endif
-BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)$(if $(FW_PREV),-prev)$(if $(FW_TEST),-t$(FW_TEST))$(if $(filter 1,$(LINK_WDG_TEST)),-linktest)$(if $(filter 1,$(OFFER_DECLINE_TEST)),-decline)$(if $(filter 1,$(CRASH_TEST)),-crash)
+BUILD    ?= build$(if $(filter 1,$(SIM)),-sim)$(if $(filter 1,$(MEASURE)),-measure)$(if $(filter 1,$(DIAG)),-diag)$(if $(FW_PREV),-prev)$(if $(FW_TEST),-t$(FW_TEST))$(if $(filter 1,$(LINK_WDG_TEST)),-linktest)$(if $(filter 1,$(OFFER_DECLINE_TEST)),-decline)$(if $(filter 1,$(CRASH_TEST)),-crash)$(if $(filter 1,$(STOCKLIKE_TEST)),-stocklike)
 
 CC       := arm-none-eabi-gcc
 OBJCOPY  := arm-none-eabi-objcopy
@@ -126,7 +149,8 @@ INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Inc
 DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) -DMEASURE=$(MEASURE) -DDIAG_REPORT=$(DIAG) $(if $(VERSION_BYTE),-DFW_VERSION=$(VERSION_BYTE),$(if $(filter 1,$(MEASURE)),-DFW_VERSION=0x8F,$(if $(filter 1,$(DIAG)),-DFW_VERSION=0x8E))) \
             $(if $(FW_TEST),-DFW_TEST=$(FW_TEST)) $(if $(FW_PREV),-DFW_PREV=$(FW_PREV)) \
             $(if $(filter 1,$(LINK_WDG_TEST)),-DLINK_WDG_TEST=1) -DRING_HIGH=$(RING_HIGH) \
-            $(if $(filter 1,$(OFFER_DECLINE_TEST)),-DOFFER_DECLINE_TEST=1) $(if $(filter 1,$(CRASH_TEST)),-DCRASH_TEST=1)
+            $(if $(filter 1,$(OFFER_DECLINE_TEST)),-DOFFER_DECLINE_TEST=1) $(if $(filter 1,$(CRASH_TEST)),-DCRASH_TEST=1) \
+            $(if $(filter 1,$(STOCKLIKE_TEST)),-DSTOCKLIKE_TEST=1 -DSTOCKLIKE_PINS_MS=$(STOCKLIKE_PINS_MS)u)
 ARCH     := -mcpu=cortex-m0plus -mthumb
 # Data stays in common sections (no -fdata-sections): GCC then reaches a file's statics from one
 # anchor instead of a literal per variable (-188 bytes in the normal build); unused data is
@@ -197,7 +221,7 @@ $(BUILD)/$(PROJECT).bin: $(BUILD)/$(PROJECT).elf
 	$(OBJCOPY) -O binary $< $@
 
 $(BUILD)/$(PROJECT).img: $(BUILD)/$(PROJECT).bin tools/mkimage.py tools/fwimage.py
-	python3 tools/mkimage.py $< $@ $(if $(FW_TEST),--test $(FW_TEST))
+	python3 tools/mkimage.py $< $@ $(if $(FW_TEST),--test $(FW_TEST)) $(if $(filter 1,$(STOCKLIKE_TEST)),--stocklike)
 
 # The bootloader's flash bytes (text + data) from the ELF: a warning above 3584 (512 bytes left
 # of its 4 KB sector; CI warns the same, tools/check_elf.py).
@@ -222,7 +246,7 @@ check-boot: $(BOOT_BUILD)/boot.bin
 	sh tools/check_boot.sh $(BOOT_BUILD)/boot.elf $(BOOT_BUILD)/boot.bin
 
 $(BUILD)/$(PROJECT)_full.bin: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin tools/mkimage.py tools/fwimage.py
-	python3 tools/mkimage.py $< --full $(BOOT_BUILD)/boot.bin $@
+	python3 tools/mkimage.py $< --full $(BOOT_BUILD)/boot.bin $@ $(if $(filter 1,$(STOCKLIKE_TEST)),--stocklike)
 
 # The module must be powered from the probe, never from mains, while wired.
 # Always the whole image (bootloader + app), so the two always match. pyocd
