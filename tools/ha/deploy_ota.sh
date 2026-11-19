@@ -1,7 +1,7 @@
 #!/bin/bash
 # Deploy the newest module firmware built on the fork's home-dimmer_build branch to the named
 # ZDMS16-2 modules through Zigbee2MQTT, one module at a time. While the series runs, Z2M's
-# ota.image_block_response_delay is 50 ms; 250 ms is put back on every exit path (and by the
+# ota.image_block_response_delay is OTA_DELAY_MS (30 ms); 250 ms is put back on every exit path (and by the
 # guard at the first BUFFER_FULL). On Ctrl-C the series is stopped first and 250 ms put back;
 # a further Ctrl-C, TERM, HUP or a closed output pipe cannot cut that cleanup short. The ZTU then
 # updates a PY32 MCU that runs an older version of Open Dimmer (never a stock MCU).
@@ -12,6 +12,10 @@
 #   the friendly name (not name_by_user). The Z2M configuration is never read.
 #
 # Local only. Environment (all optional):
+#   IMAGE       a local ZDMS16-2 OTA file (.zigbee) instead of the newest build of home-dimmer_build
+#               (a local build for the spare: tools/ztu_local_build.sh); the same checks apply
+#   OTA_DELAY_MS Z2M's block response delay while the series runs (default 30, 10..250; the guard
+#               puts 250 back at the first BUFFER_FULL)
 #   ZTU_DIR     checkout of the ZTU fork (default ~/projects/tzs-diag)
 #   ZTU_REMOTE  its remote for github.com/patapovich/tuya-zigbee-switch (default patapovich)
 #   HA_HELPERS  directory of the local helpers (default ~/ha):
@@ -55,13 +59,19 @@ RUNNING=$(pgrep -af zdms16_ota_series.sh || true)
 TMP=$(mktemp -d)
 
 # --- the image: newest build of the fork, a valid OTA file that carries a valid PY32 image
-git -C "$ZTU_DIR" fetch -q "$ZTU_REMOTE" home-dimmer_build
-C=$(git -C "$ZTU_DIR" log --format=%h -1 --grep="Update firmware files" "$ZTU_REMOTE/home-dimmer_build")
-[ -n "$C" ] || die "no 'Update firmware files' commit on $ZTU_REMOTE/home-dimmer_build"
-P=$(git -C "$ZTU_DIR" show --name-only --format= "$C" | grep "MODULE_AVATTO_ZDMS16_2/.*\.zigbee$" | grep -v "forced\|from_tuya" || true)
-[ -n "$P" ] && [ "$(printf '%s\n' "$P" | wc -l)" -eq 1 ] || die "expected one ZDMS16-2 .zigbee image in $C, found: ${P:-none}"
-F=$(basename "$P")
-git -C "$ZTU_DIR" show "$C:$P" > "$TMP/$F"
+if [ -n "${IMAGE:-}" ]; then
+    [ -f "$IMAGE" ] || die "IMAGE not found: $IMAGE"
+    C="local file"; F=$(basename "$IMAGE")
+    cp "$IMAGE" "$TMP/$F"
+else
+    git -C "$ZTU_DIR" fetch -q "$ZTU_REMOTE" home-dimmer_build
+    C=$(git -C "$ZTU_DIR" log --format=%h -1 --grep="Update firmware files" "$ZTU_REMOTE/home-dimmer_build")
+    [ -n "$C" ] || die "no 'Update firmware files' commit on $ZTU_REMOTE/home-dimmer_build"
+    P=$(git -C "$ZTU_DIR" show --name-only --format= "$C" | grep "MODULE_AVATTO_ZDMS16_2/.*\.zigbee$" | grep -v "forced\|from_tuya" || true)
+    [ -n "$P" ] && [ "$(printf '%s\n' "$P" | wc -l)" -eq 1 ] || die "expected one ZDMS16-2 .zigbee image in $C, found: ${P:-none}"
+    F=$(basename "$P")
+    git -C "$ZTU_DIR" show "$C:$P" > "$TMP/$F"
+fi
 IMGVER=$(python3 - "$TMP/$F" <<'PY'
 import struct, sys, zlib
 path = sys.argv[1]
@@ -209,8 +219,11 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 
 scp -q "${SSH_OPTS[@]}" "$TMP/$F" "$HA_SSH:/config/zigbee2mqtt/images/" || die "copying $F to $HA_SSH failed"
+OTA_DELAY_MS=${OTA_DELAY_MS:-30}
+[[ "$OTA_DELAY_MS" =~ ^[0-9]+$ ]] && [ "$OTA_DELAY_MS" -ge 10 ] && [ "$OTA_DELAY_MS" -le 250 ] ||
+    die "OTA_DELAY_MS=$OTA_DELAY_MS: 10..250"
 DELAY_SET=1
-set_delay 50 || die "setting image_block_response_delay 50 failed: not deployed"
+set_delay "$OTA_DELAY_MS" || die "setting image_block_response_delay $OTA_DELAY_MS failed: not deployed"
 : > "$TMP/guard.log"
 "$SERIES" "$F" "${pairs[@]}" > "$TMP/series.log" 2>&1 &
 SP=$!
