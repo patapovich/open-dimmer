@@ -14,6 +14,9 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
 - Identify (DP 166 / 167, s): the channel blinks, then is as it was.
 - Start boost per channel (DP 168 / 169, ms up to 750): coming on from dark at full that long,
   then the level (for LED drivers that need a kick).
+- Fast press per channel (DP 170 / 171): in the detached mode a momentary switch's press is
+  reported at once (for direct control of other devices), hold and release as before, no
+  double / triple on that channel.
 - Health: the MCU die temperature (DP 138, degC) and the chip's factory calibration of its
   sensor (DP 139), so the spread between chips can be seen. No protection is built on it yet.
 

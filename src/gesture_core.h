@@ -22,6 +22,7 @@ enum {
     GESTURE_TRIPLE  = 3,
     GESTURE_HOLD    = 4,
     GESTURE_RELEASE = 5,
+    GESTURE_PRESS   = 6,   /* fast press (DP 170 / 171, detached momentary): at once, no multi-taps */
 };
 
 typedef struct {

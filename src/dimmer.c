@@ -16,8 +16,8 @@
 #define DP_PROFILE_COUNT 5     /* hold ms, hold end % (ours, saved)                  */
 #define DP_TRANSITION_BASE 160 /* + channel: ms the next network change takes (ours, not saved) */
 #define DP_EXTRA_BASE    162   /* + 2 * k + channel, k: 0 switch mode, 1 power-cut level, */
-#define DP_EXTRA_END     170   /* 2 identify s, 3 start boost ms (dimmer.h)             */
-enum { EX_INPUT, EX_POWER_LEVEL, EX_IDENTIFY, EX_BOOST };
+#define DP_EXTRA_END     172   /* 2 identify s, 3 start boost ms, 4 fast press (dimmer.h) */
+enum { EX_INPUT, EX_POWER_LEVEL, EX_IDENTIFY, EX_BOOST, EX_FAST_PRESS };
 #define COUNTDOWN_MAX    86400u
 #define TRANSITION_VALID_MS 1000  /* ... if it comes this soon after (on, then level) */
 enum { PF_FADE_ON, PF_FADE_OFF, PF_SOFT_END, PF_HOLD, PF_HOLD_END };
@@ -111,7 +111,7 @@ static void snapshot(saved_t *s) {
         s->pf[i].hold_ms      = (uint16_t)(g_ch[i].hold_ms + 1u);
         s->pf[i].soft_end_pct = (uint8_t)(g_ch[i].soft_end_pct + 1u);
         s->pf[i].hold_end_pct = (uint8_t)(g_ch[i].hold_end_pct + 1u);
-        s->reserved[0] |= (uint8_t)(g_ch[i].input_mode << (2 * i));
+        s->reserved[0] |= (uint8_t)(g_ch[i].input_mode << (2 * i) | g_ch[i].fast_press << (4 + i));
         s->reserved[1] |= (uint8_t)(g_ch[i].boost50 << (4 * i));
         s->reserved[2 + i] = g_ch[i].power_level4;
         if (g_power_on[i] == POWER_ON_LAST && g_ch[i].on) {
@@ -211,6 +211,7 @@ uint8_t dimmer_init(uint32_t reset_csr) {
                 /* The spare bytes (0 in older records: as before). */
                 uint8_t m = (uint8_t)((s.reserved[0] >> (2 * i)) & 3u);
                 g_ch[i].input_mode   = m <= DIMMER_INPUT_OFF ? m : DIMMER_INPUT_NORMAL;
+                g_ch[i].fast_press   = (uint8_t)((s.reserved[0] >> (4 + i)) & 1u);
                 g_ch[i].boost50      = (uint8_t)((s.reserved[1] >> (4 * i)) & 15u);
                 g_ch[i].power_level4 = s.reserved[2 + i] <= 250u ? s.reserved[2 + i] : 0;
             }
@@ -432,6 +433,11 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
             g_ident_end[ch] = v ? (g_now + g_ident_s[ch] * 1000u) | 1u : 0;
             apply(ch);                /* stopped: as it was; started: the blink from the next poll */
             return 1;
+        } else if (k == EX_FAST_PRESS) {
+            if (v > 1u) {
+                return 0;
+            }
+            pc->fast_press = (uint8_t)v;
         } else {
             if (v > 750u) {
                 return 0;
@@ -566,6 +572,7 @@ void dimmer_report_dp(uint8_t dpid) {
         tuya_report_value(dpid, k == EX_INPUT        ? pc->input_mode
                                 : k == EX_POWER_LEVEL ? pc->power_level4 * 4u
                                 : k == EX_IDENTIFY    ? g_ident_s[i]
+                                : k == EX_FAST_PRESS  ? pc->fast_press
                                                       : pc->boost50 * 50u);
         return;
     }
@@ -725,6 +732,7 @@ void dimmer_report_all(void) {
         }
         dimmer_report_dp((uint8_t)(DP_CURVE_BASE + ch));
         dimmer_report_dp((uint8_t)(DP_POWER_ON_BASE + ch));
+        dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_FAST_PRESS + ch));   /* 60 of 64 bytes */
         tuya_report_send();
         tuya_report_begin(1);
         for (uint8_t k = 0; k < DP_PROFILE_COUNT; k++) {

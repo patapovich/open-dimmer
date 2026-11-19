@@ -627,6 +627,46 @@ static void test_input_off_ignores_the_switch_and_the_mode_is_saved(void) {
     CHECK(c1()->on == 1);
 }
 
+
+#define CH1_FAST_PRESS 170
+
+static void test_fast_press_reports_the_press_at_once_and_no_multi_taps(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, MOMENTARY);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, DETACHED);
+    host_write(CH1_FAST_PRESS, TUYA_DP_TYPE_VALUE, 1);
+    run_ms(3000);
+    host_log_clear();
+    s1(1);
+    run_ms(40);                                    /* debounce + a pass: reported already */
+    CHECK(host_log_find("105=6]") >= 0);
+    s1(0);
+    run_ms(1000);
+    CHECK(host_log_find("105=1]") < 0 && host_log_find("105=2]") < 0);   /* no single after it */
+    host_log_clear();
+    s1(1);                                         /* a hold: press, hold, release */
+    run_ms(1500);
+    s1(0);
+    run_ms(200);
+    CHECK(host_log_find("105=6]") >= 0 && host_log_find("105=4]") >= 0 && host_log_find("105=5]") >= 0);
+    CHECK(c1()->on == 0);                          /* detached: the light is the network's */
+    host_write(CH1_FAST_PRESS, TUYA_DP_TYPE_VALUE, 0);     /* off: the gestures as before */
+    host_log_clear();
+    s1(1);
+    run_ms(120);
+    s1(0);
+    run_ms(1000);
+    CHECK(host_log_find("105=1]") >= 0 && host_log_find("105=6]") < 0);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, 0);     /* normal mode: never 6 */
+    host_write(CH1_FAST_PRESS, TUYA_DP_TYPE_VALUE, 1);
+    host_log_clear();
+    s1(1);
+    run_ms(120);
+    s1(0);
+    run_ms(1000);
+    CHECK(host_log_find("105=6]") < 0 && c1()->on == 1);
+}
+
 int main(void) {
     RUN(test_type_change_to_state_syncs);
     RUN(test_type_change_mid_press);
@@ -651,6 +691,7 @@ int main(void) {
     RUN(test_detached_momentary_reports_gestures_and_leaves_the_light);
     RUN(test_detached_toggle_reports_each_change_as_a_single);
     RUN(test_input_off_ignores_the_switch_and_the_mode_is_saved);
+    RUN(test_fast_press_reports_the_press_at_once_and_no_multi_taps);
     if (g_fail) {
         printf("test_controls: FAILED\n");
         return 1;

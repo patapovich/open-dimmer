@@ -792,6 +792,16 @@ static void test_boost_dp_drives_the_fader_and_the_dump_has_the_new_dps(void) {
     CHECK(host_log_find("162=0") >= 0 && host_log_find("164=0") >= 0 && host_log_find("168=150") >= 0);
     CHECK(host_log_find("163=") >= 0 && host_log_find("169=") >= 0);
     CHECK(host_log_find("166=") < 0);                      /* identify: not in the dump */
+    CHECK(host_log_find("170=0") >= 0 && host_log_find("171=0") >= 0);   /* fast press */
+    host_write(170, TUYA_DP_TYPE_VALUE, 1);
+    host_write(171, TUYA_DP_TYPE_VALUE, 1);
+    CHECK(!dimmer_write_dp(170, TUYA_DP_TYPE_VALUE, (const uint8_t *)"\0\0\0\x02", 4));
+    run_ms(3000);
+    host_saved_t s;
+    memcpy(&s, g_host_flash, sizeof(s));
+    CHECK((s.reserved[0] & 0x30) == 0x30);                 /* bits 4 / 5 of the spare byte */
+    power_up(0);
+    CHECK(c1()->fast_press == 1 && dimmer_channel(1)->fast_press == 1);
 }
 
 int main(void) {

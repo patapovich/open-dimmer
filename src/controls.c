@@ -111,9 +111,17 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
         /* Detached: the light is the network's; the switch only reports (a momentary its
          * gestures, a toggle or state switch each change as a single). Off: ignored. */
         if (c->input_mode == DIMMER_INPUT_DETACHED) {
-            uint8_t g = c->switch_type == SWITCH_MOMENTARY ? gesture_event(&g_gesture[ch], ev, g_now)
-                      : ev == INPUT_EV_PRESS || ev == INPUT_EV_RELEASE ||
-                        ev == INPUT_EV_RELEASE_AFTER_HOLD ? GESTURE_SINGLE : 0;
+            uint8_t g;
+            if (c->switch_type != SWITCH_MOMENTARY) {
+                g = ev == INPUT_EV_PRESS || ev == INPUT_EV_RELEASE ||
+                    ev == INPUT_EV_RELEASE_AFTER_HOLD ? GESTURE_SINGLE : 0;
+            } else if (c->fast_press) {
+                /* Direct control: the press at once, a hold and its release; no multi-taps. */
+                g = ev == INPUT_EV_PRESS ? GESTURE_PRESS : ev == INPUT_EV_HOLD ? GESTURE_HOLD
+                  : ev == INPUT_EV_RELEASE_AFTER_HOLD ? GESTURE_RELEASE : 0;
+            } else {
+                g = gesture_event(&g_gesture[ch], ev, g_now);
+            }
             dimmer_report_action(ch, g);
         }
         return;

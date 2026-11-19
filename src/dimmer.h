@@ -28,6 +28,10 @@
  *   DP 168 / 169 start boost (value, ms in steps of 50 up to 750, 0 = none;
  *     ours, saved): coming on from dark the output is at full that long, then
  *     goes to the level (an LED driver that needs a kick)
+ *   DP 170 / 171 fast press (value 0 / 1, ours, saved): in the detached mode a
+ *     momentary switch's press is reported at once as gesture 6, for direct
+ *     control without the multi-tap wait; hold and release as before, no
+ *     single / double / triple on that channel
  *   DP 6 / 12 countdown (s, up to 86400): auto-off, written while on: the
  *     channel goes off after that long (reported then with 0); an off cancels
  *     it, written while off it stays 0. Not saved
@@ -66,6 +70,7 @@ typedef struct {
                                 its gestures are reported), 2 off (ignored) */
     uint8_t  power_level4;   /* DP 164 / 165: the level after a power cut, / 4 (0: the last one) */
     uint8_t  boost50;        /* DP 168 / 169: start boost, 50 ms units (0..15, 0: none) */
+    uint8_t  fast_press;     /* DP 170 / 171: detached momentary: a press reported at once (6) */
 } dimmer_channel_t;
 
 #define DIMMER_INPUT_NORMAL    0
