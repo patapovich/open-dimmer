@@ -6,11 +6,10 @@ against the rules of docs/BOOTLOADER.md (sections 1, 2 and 11).
         app image, as written at 0x08001000. --test N (1..99, make FW_TEST=N): a spare test
         build, whose build number must be the release build + N (with make FW_PREV=1: the
         previous release build + N)
-    mkimage.py app.img --full boot.bin out.bin [--old-boot] [--legacy-app]
+    mkimage.py app.img --full boot.bin out.bin [--old-boot]
         boot padded to 4 KB + app: the whole flash image for an SWD install. The bootloader
         must have its boot_id at 0x10 (--old-boot: a v1 bootloader, bench only). The app must
-        follow the rules below; --legacy-app takes an existing 2.1.x image (build 0, no
-        CONFIRMS) instead (bench test B6)
+        follow the rules below (a 2.1.x image, build 0, is refused)
 The CRC is CRC-32 (zlib) of the whole image with the crc field read as 0, and never 0.
 
 Header: version byte (Tuya packing, 2 bits major, 2 minor, 4 patch), flags (0x01 SIM, 0x02
@@ -24,8 +23,7 @@ reserved flags; version byte 0xFF, 0xBF unless SIM, below 0x80 (major < 2 is the
 firmware's); vectors other than the ZTU's image_info takes (initial SP exactly 0x20000BE0,
 so that the stack stays below the mailbox; an odd reset vector inside the image). --full
 applies the same rules to the app it takes (the build rules too, but not the release/test
-offset), or with --legacy-app the 2.1.x rules (build 0, version byte up to 0x9C, neither
-CONFIRMS nor RING_HIGH, 12 KB). The version byte, which the app and old ZTUs compare as
+offset). The version byte, which the app and old ZTUs compare as
 'strictly newer', gets a warning when its free codes run out.
 """
 import os
@@ -65,22 +63,18 @@ def check_version(version: int, flags: int, stocklike: bool = False) -> None:
                  else ": the 8-bit version byte is nearly used up"), file=sys.stderr)
 
 
-def check_app(img: bytes, h, legacy: bool = False, test=0) -> None:
+def check_app(img: bytes, h, test=0) -> None:
     """The rules for an app image (header filled in), the same for an image it creates and for
     one --full takes (fwimage.app_problem: reserved flags, layout, SP exactly 0x20000BE0 and an
     odd reset vector inside the image, version byte, build). test: the FW_TEST offset its build
     must have (0: a release build), None for an existing image (--full)."""
-    if legacy:
-        p = fw.legacy_problem(h, len(img))
-        if p:
-            refuse(f"--legacy-app takes a 2.1.x image: {p}")
-    elif h.build == fw.BUILD_NONE:
-        refuse("app header without a build number (build 0): FW_BUILD in src/tuya.h; an existing "
-               "2.1.x image goes into a full image only with --legacy-app")
+    if h.build == fw.BUILD_NONE:
+        refuse("app header without a build number (build 0): FW_BUILD in src/tuya.h; a 2.1.x "
+               "image does not go into a full image")
     p = fw.app_problem(img, h, STOCKLIKE)
     if p:
         refuse(p)
-    if (not legacy and test is not None and h.build != fw.BUILD_SIM
+    if (test is not None and h.build != fw.BUILD_SIM
             and h.build % fw.BUILD_STEP != test):
         refuse(f"build {h.build}: " + (
             f"--test {test} wants the release build + {test} (FW_PREV=1: the previous one's + {test})"
@@ -118,7 +112,7 @@ def make_app(data: bytes, test: int = 0) -> bytes:
     return bytes(data)
 
 
-def make_full(app: bytes, boot: bytes, old_boot: bool = False, legacy_app: bool = False) -> bytes:
+def make_full(app: bytes, boot: bytes, old_boot: bool = False) -> bytes:
     if len(boot) > fw.BOOT_SIZE:
         refuse(f"bootloader is {len(boot)} bytes, max {fw.BOOT_SIZE}")
     bid, crc, kind = fw.describe_boot(boot)
@@ -135,7 +129,7 @@ def make_full(app: bytes, boot: bytes, old_boot: bool = False, legacy_app: bool 
             refuse(f"bootloader identity: {p}")
     h = fw.finished(app)
     print(summary(h, len(app)), file=sys.stderr)
-    check_app(app, h, legacy=legacy_app, test=None)
+    check_app(app, h, test=None)
     ceiling = fw.APP_LIMIT_LEGACY if bid is None else bid["app_max"]
     if len(app) > ceiling:
         refuse(f"app of {len(app)} bytes, the bootloader takes {ceiling}")
@@ -154,7 +148,7 @@ def parse(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a in ("--old-boot", "--legacy-app", "--stocklike"):
+        if a in ("--old-boot", "--stocklike"):
             opts[a] = True
         elif a.startswith("--"):
             sys.exit(f"unknown option {a}\n{__doc__}")
@@ -171,7 +165,7 @@ def main(argv):
     if STOCKLIKE and "--test" not in opts and "--full" not in opts:
         sys.exit("--stocklike is a test build's (make STOCKLIKE_TEST=1 FW_TEST=n)")
     try:
-        if len(args) == 2 and "--full" not in opts and not {"--old-boot", "--legacy-app"} & set(opts):
+        if len(args) == 2 and "--full" not in opts and "--old-boot" not in opts:
             test = 0
             if "--test" in opts:
                 if not opts["--test"].isdigit() or not 1 <= int(opts["--test"]) <= 99:
@@ -186,7 +180,7 @@ def main(argv):
                 app = f.read()
             with open(opts["--full"], "rb") as f:
                 boot = f.read()
-            full = make_full(app, boot, "--old-boot" in opts, "--legacy-app" in opts)
+            full = make_full(app, boot, "--old-boot" in opts)
             with open(args[1], "wb") as f:
                 f.write(full)
         else:

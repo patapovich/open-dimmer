@@ -391,20 +391,15 @@ class MkImageFull(ToolRun):
         self.assert_refused(self.full(finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=13 * KB), boot_v1(),
                                       "--old-boot"), "the bootloader takes 12288")
 
-    def test_legacy_app_only_with_legacy_app(self):
-        """Bench test B6: the 2.1.12 app under the v2 bootloader."""
-        old = legacy_img()
-        self.assert_refused(self.full(old, boot_v2()), "--legacy-app")
-        rc, out, made = self.full(old, boot_v2(), "--legacy-app")
-        self.assertEqual(rc, 0, out)
-        self.assertEqual(self.read("full.bin"), full_img(boot_v2(), old))
-        self.assert_refused(self.full(finished_img(), boot_v2(), "--legacy-app"), "--legacy-app takes a 2.1.x image")
-        self.assert_refused(self.full(legacy_img(0x9C, CONFIRMS), boot_v2(), "--legacy-app"),
-                            "--legacy-app takes a 2.1.x image")
+    def test_no_legacy_app(self):
+        """A 2.1.x app (build 0) never goes into a full image: no unit runs one under v2."""
+        self.assert_refused(self.full(legacy_img(), boot_v2()), "a 2.1.x image does not go into a full image")
+        self.assert_refused(self.full(legacy_img(0x9B), boot_v1(), "--old-boot"), "build 0")
+        self.assert_refused(self.full(finished_img(), boot_v2(), "--legacy-app"), "unknown option --legacy-app")
 
     def test_app_rules_apply_to_an_existing_image(self):
         """An image --full takes passes the rules of an image mkimage makes (exact vectors, layout,
-        reserved flags, version byte, build), or the 2.1.x rules with --legacy-app."""
+        reserved flags, version byte, build)."""
         for img, msg in ((finished_img(sp=0x20000C00), "not 0x20000BE0"),
                          (finished_img(reset=0x08001100), "is even"),
                          (finished_img(size=12 * KB + 4), "only with RING_HIGH"),
@@ -414,11 +409,6 @@ class MkImageFull(ToolRun):
                          (finished_img(0xFF, CONFIRMS, 300), "version byte 0xFF"),
                          (finished_img(0x47, CONFIRMS, 300), "major below 2")):
             self.assert_refused(self.full(img, boot_v2()), msg)
-        for img, msg in ((legacy_img(sp=0x20000C00), "not 0x20000BE0"),
-                         (legacy_img(reset=0x08001100), "is even"),
-                         (legacy_img(0x9D), "version byte up to 0x9C"),
-                         (legacy_img(0x9C, RING_HIGH), "neither CONFIRMS nor RING_HIGH")):
-            self.assert_refused(self.full(img, boot_v2(), "--legacy-app"), msg)
 
     def test_refusals(self):
         self.assert_refused(self.full(finished_img(), b"\0" * 4097), "bootloader is 4097 bytes")
