@@ -14,6 +14,8 @@
 #define DP_ACTION_BASE   105   /* + channel: wall switch gesture, event only (ours) */
 #define DP_PROFILE_BASE  150   /* + 5 * channel: fade on ms, fade off ms, soft end %, */
 #define DP_PROFILE_COUNT 5     /* hold ms, hold end % (ours, saved)                  */
+#define DP_TRANSITION_BASE 160 /* + channel: ms the next network change takes (ours, not saved) */
+#define TRANSITION_VALID_MS 1000  /* ... if it comes this soon after (on, then level) */
 enum { PF_FADE_ON, PF_FADE_OFF, PF_SOFT_END, PF_HOLD, PF_HOLD_END };
 
 enum { DP_ON, DP_LEVEL, DP_MIN, DP_SWITCH_TYPE, DP_MAX, DP_COUNTDOWN };
@@ -68,6 +70,9 @@ static uint8_t  g_dirty;          /* something changed that may need saving */
 static uint8_t  g_dirty_restart;  /* a new change: restart the delay */
 static uint32_t g_dirty_ms;
 static uint8_t  g_save_retries;
+static uint32_t g_now;                              /* dimmer_poll's time */
+static uint16_t g_trans_ms[DIMMER_CHANNELS];        /* DP 160 / 161: a transition time ... */
+static uint32_t g_trans_at[DIMMER_CHANNELS];        /* ... written then */
 
 static uint16_t clamp_level(uint32_t v);
 
@@ -123,7 +128,10 @@ static void apply(uint8_t ch) {
     phase_set_profile(ch, &p);
     phase_set_range(ch, g_ch[ch].min, g_ch[ch].max);
     phase_set_curve(ch, g_ch[ch].curve);
-    phase_set(ch, g_ch[ch].on, g_ch[ch].level);
+    /* A transition time from the module applies to the changes in the second after it (the
+     * network's on and its level; a wall switch in that second would take it too, harmless). */
+    uint16_t ms = g_now - g_trans_at[ch] < TRANSITION_VALID_MS ? g_trans_ms[ch] : 0;
+    phase_set_timed(ch, g_ch[ch].on, g_ch[ch].level, ms);
     mailbox_keep();
 }
 
@@ -243,6 +251,7 @@ void dimmer_prepare_restart(void) {
 }
 
 void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok) {
+    g_now = now;
     if (now >= RESTORE_CLEAR_MS) {
         OTA_MAILBOX->restored = 0;    /* this run lasted: a reset may restore again */
     }
@@ -321,11 +330,19 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         mark_dirty();
         return 1;
     }
-    if (dpid >= DP_PROFILE_BASE && dpid < DP_PROFILE_BASE + DP_PROFILE_COUNT * DIMMER_CHANNELS) {
+    _Static_assert(DP_TRANSITION_BASE == DP_PROFILE_BASE + DP_PROFILE_COUNT * DIMMER_CHANNELS,
+                   "the transition DPs follow the profile DPs");
+    if (dpid >= DP_PROFILE_BASE && dpid < DP_TRANSITION_BASE + DIMMER_CHANNELS) {
         if (type != TUYA_DP_TYPE_VALUE || len != 4) {
             return 0;
         }
-        uint32_t          v  = be32(value);
+        uint32_t v = be32(value);
+        if (dpid >= DP_TRANSITION_BASE) {
+            ch             = (uint8_t)(dpid - DP_TRANSITION_BASE);
+            g_trans_ms[ch] = (uint16_t)(v > 0xFFFFu ? 0xFFFFu : v);
+            g_trans_at[ch] = g_now;
+            return 1;
+        }
         uint8_t           k  = (uint8_t)((unsigned)(dpid - DP_PROFILE_BASE) % DP_PROFILE_COUNT);
         dimmer_channel_t *pc = &g_ch[(unsigned)(dpid - DP_PROFILE_BASE) / DP_PROFILE_COUNT];
         if (k == PF_SOFT_END || k == PF_HOLD_END) {
@@ -462,6 +479,10 @@ void dimmer_report_dp(uint8_t dpid) {
 
     if (dpid == DP_POWER_ON) {
         tuya_report_enum(dpid, g_power_on[0]);
+        return;
+    }
+    if (dpid >= DP_TRANSITION_BASE && dpid < DP_TRANSITION_BASE + DIMMER_CHANNELS) {
+        tuya_report_value(dpid, g_trans_ms[dpid - DP_TRANSITION_BASE]);   /* the ack */
         return;
     }
     if (dpid >= DP_PROFILE_BASE && dpid < DP_PROFILE_BASE + DP_PROFILE_COUNT * DIMMER_CHANNELS) {

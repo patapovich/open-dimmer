@@ -49,6 +49,8 @@ extern volatile zc_measure_t g_zc_measure;
 void phase_init(void);
 /** New target for a channel (0 = channel 1). Fades there at the channel's fade rates. */
 void phase_set(uint8_t ch, uint8_t on, uint16_t level);
+/** The same, the move taking ms (a Zigbee transition time; 0: the fade rates, dim_fader_set_timed). */
+void phase_set_timed(uint8_t ch, uint8_t on, uint16_t level, uint16_t ms);
 /** Physical output limits of a channel (levels 10..1000, see dim_output). */
 void     phase_set_range(uint8_t ch, uint16_t min, uint16_t max);
 /** Dimming curve of a channel (curves.h, 0 = linear like the stock firmware). */

@@ -11,6 +11,11 @@
  *     fade on ms (dark -> full), fade off ms (full -> dark), soft end % (going
  *     dark, the lowest % above the min slow down), hold ms (whole range), hold
  *     end % (the hold slows down there, to pick a very dim level)
+ *   DP 160 / 161 transition time of channel 1 / 2 (value, ms, ours, not saved,
+ *     never in the DP dump): the network on / off / level changes written in
+ *     the next second each take that long, at one even rate (0: the fade
+ *     settings). The module writes it right before them for a Zigbee transition
+ *     time; a wall switch or the button always takes the fade settings
  *   DP 105 / 106 wall switch gesture of channel 1 / 2, reported only, never
  *     in the DP dump (ours, gesture_core.h): 1 single, 2 double, 3 triple,
  *     4 hold, 5 release

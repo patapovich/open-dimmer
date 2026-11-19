@@ -195,7 +195,7 @@ clean:
 
 # phase.c on the PC (tests/test_phase.c) against fake registers (tests/fake), once per
 # build variant. Its fader setters are renamed to hooks that check the interrupts are off.
-FADER_HOOKS := $(foreach f,set set_floor set_profile hold_start hold_start_from_dark hold_stop hold_cancel,\
+FADER_HOOKS := $(foreach f,set set_timed set_floor set_profile hold_start hold_start_from_dark hold_stop hold_cancel,\
                  -Ddim_fader_$(f)=checked_dim_fader_$(f))
 HOST_CC     := cc -std=c11 -Wall -Wextra -Werror
 define phase_test

@@ -91,6 +91,10 @@ void checked_dim_fader_set(dim_fader_t *f, uint8_t on, uint16_t level) {
     fader_change();
     dim_fader_set(f, on, level);
 }
+void checked_dim_fader_set_timed(dim_fader_t *f, uint8_t on, uint16_t level, uint16_t ms) {
+    fader_change();
+    dim_fader_set_timed(f, on, level, ms);
+}
 void checked_dim_fader_set_floor(dim_fader_t *f, uint16_t floor) {
     fader_change();
     dim_fader_set_floor(f, floor);
@@ -755,11 +759,12 @@ static void test_main_loop_changes_faders_with_irqs_off(void) {
         phase_set_profile(ch, &p);
         phase_hold_start(ch, -1, 100, 900, 0);
         phase_set(ch, 0, 700);                               /* off during a hold: two stores */
+        phase_set_timed(ch, 1, 300, 2000);                   /* a transition time */
         phase_hold_start(ch, +1, 100, 900, 1);
         (void)phase_hold_stop(ch);
         phase_hold_cancel(ch);
     }
-    CHECK(g_fader_changes == 16);
+    CHECK(g_fader_changes == 18);
     CHECK(g_fader_changes_irq_on == 0);
     CHECK(!fake_irq_off);                                    /* and back on afterwards */
 }

@@ -72,6 +72,8 @@ void phase_init(void) {
 }
 void phase_set(uint8_t ch, uint8_t on, uint16_t level) {
 }
+void phase_set_timed(uint8_t ch, uint8_t on, uint16_t level, uint16_t ms) {
+}
 void phase_set_range(uint8_t ch, uint16_t min, uint16_t max) {
 }
 void phase_set_curve(uint8_t ch, uint8_t curve) {

@@ -115,6 +115,9 @@ void host_halfcycle(void) {
     (void)dim_fader_tick(&g_host_fader[1]);
 }
 
+void phase_set_timed(uint8_t ch, uint8_t on, uint16_t level, uint16_t ms) {
+    dim_fader_set_timed(&g_host_fader[ch], on, level, ms);
+}
 void phase_set(uint8_t ch, uint8_t on, uint16_t level) {
     dim_fader_set(&g_host_fader[ch], on, level);
 }

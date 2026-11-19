@@ -1096,6 +1096,114 @@ static void test_zc_locks_on_60_hz_and_follows_a_change(void) {
     CHECK(acted > 30);
 }
 
+
+/* ---- transition time (dim_fader_set_timed) ---------------------------------- */
+
+/* Half cycles until the fader reaches v (0 if not within max). */
+static int timed_ticks(dim_fader_t *f, uint16_t v, int max) {
+    for (int n = 1; n <= max; n++) {
+        if (dim_fader_tick(f) == v) {
+            return n;
+        }
+    }
+    return 0;
+}
+
+static void test_timed_lit_to_lit_takes_the_time_at_one_rate(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set(&f, 1, 200);
+    timed_ticks(&f, 200, 1000);
+    dim_fader_set_timed(&f, 1, 800, 3000);      /* 600 steps in 3 s: 300 half cycles at 50 Hz */
+    for (int i = 0; i < 150; i++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(f.current >= 498 && f.current <= 502);   /* half way at half the time: even */
+    int n = timed_ticks(&f, 800, 1000);
+    CHECK(n >= 149 && n <= 151);
+    dim_fader_set_timed(&f, 1, 300, 500);       /* down: 500 steps in 0.5 s */
+    n = timed_ticks(&f, 300, 1000);
+    CHECK(n >= 49 && n <= 51);
+}
+
+static void test_timed_from_dark_starts_at_the_floor(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set_floor(&f, 100);
+    dim_fader_set_timed(&f, 1, 600, 2000);      /* floor 100 -> 600 in 2 s */
+    CHECK(dim_fader_tick(&f) >= 100);
+    int n = timed_ticks(&f, 600, 1000);
+    CHECK(n >= 197 && n <= 200);
+}
+
+static void test_timed_off_reaches_the_floor_in_the_time_then_goes_dark(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set_floor(&f, 100);
+    dim_fader_set(&f, 1, 600);
+    timed_ticks(&f, 600, 1000);
+    dim_fader_set_timed(&f, 0, 600, 1000);      /* 600 -> floor in 1 s, a moment there, dark */
+    int n = timed_ticks(&f, 100, 1000);
+    CHECK(n >= 99 && n <= 101);
+    n = timed_ticks(&f, 0, 100);
+    CHECK(n >= 1 && n <= DIM_OFF_HOLD_MS / 10 + 1);
+}
+
+static void test_timed_zero_is_the_profile(void) {
+    dim_fader_t a, b;
+    dim_fader_init(&a);
+    dim_fader_init(&b);
+    dim_fader_set(&a, 1, 1000);
+    dim_fader_set_timed(&b, 1, 1000, 0);
+    CHECK(b.timed_q == 0);
+    CHECK(timed_ticks(&a, 1000, 10000) == timed_ticks(&b, 1000, 10000));
+}
+
+static void test_timed_ends_with_a_new_target_or_a_hold_and_stays_for_the_same_target(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set(&f, 1, 100);
+    timed_ticks(&f, 100, 1000);
+    dim_fader_set_timed(&f, 1, 900, 8000);      /* slow: 1 step per 10 ms */
+    for (int i = 0; i < 10; i++) {
+        dim_fader_tick(&f);
+    }
+    dim_fader_set(&f, 1, 900);                  /* the same target (a setting written): kept */
+    CHECK(f.timed_q != 0);
+    uint16_t before = f.current;
+    dim_fader_tick(&f);
+    CHECK(f.current - before == 1);
+    dim_fader_set(&f, 1, 950);                  /* a new target without a time: the profile */
+    CHECK(f.timed_q == 0);
+    dim_fader_set_timed(&f, 1, 200, 5000);
+    dim_fader_hold_start(&f, +1, 10, 1000);     /* the finger wins */
+    CHECK(f.timed_q == 0);
+}
+
+static void test_timed_holds_on_60_hz(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set_half_period(&f, 417);         /* 60 Hz: 8.33 ms half cycles */
+    dim_fader_set(&f, 1, 100);
+    timed_ticks(&f, 100, 1000);
+    dim_fader_set_timed(&f, 1, 700, 3000);      /* 3 s = 360 half cycles at 60 Hz */
+    int n = timed_ticks(&f, 700, 2000);
+    CHECK(n >= 358 && n <= 362);
+}
+
+static void test_timed_extremes(void) {
+    dim_fader_t f;
+    dim_fader_init(&f);
+    dim_fader_set(&f, 1, 500);
+    timed_ticks(&f, 500, 1000);
+    dim_fader_set_timed(&f, 1, 501, 0xFFFF);    /* 1 step in 65 s: still moves */
+    CHECK(f.timed_q >= 1);
+    dim_fader_set_timed(&f, 1, 1000, 1);        /* under 10 ms: at once */
+    CHECK(dim_fader_tick(&f) == 1000);
+    dim_fader_set_timed(&f, 1, 1000, 3000);     /* nowhere to go: the profile */
+    CHECK(f.timed_q == 0);
+}
+
 int main(void) {
     test_fade_up_takes_two_seconds();
     test_fade_lands_exactly_on_target();
@@ -1145,6 +1253,13 @@ int main(void) {
     test_hold_up_from_a_lit_level_is_not_slowed();
     test_remote_write_during_hold();
     test_off_during_hold_then_release_stays_off();
+    test_timed_lit_to_lit_takes_the_time_at_one_rate();
+    test_timed_from_dark_starts_at_the_floor();
+    test_timed_off_reaches_the_floor_in_the_time_then_goes_dark();
+    test_timed_zero_is_the_profile();
+    test_timed_ends_with_a_new_target_or_a_hold_and_stays_for_the_same_target();
+    test_timed_holds_on_60_hz();
+    test_timed_extremes();
     if (g_failed) {
         printf("%d check(s) failed\n", g_failed);
         return EXIT_FAILURE;

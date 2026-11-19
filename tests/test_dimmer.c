@@ -608,6 +608,87 @@ static void run(void (*test)(void), const char *name) {
 
 #define RUN(t) run(t, #t)
 
+
+/* ---- transition time: DP 160 / 161 (a Zigbee transition time from the module) ------ */
+
+#define CH1_TRANSITION 160
+
+/* ms until channel 1's light is at v (10 ms half cycles), 0 if not within max ms. */
+static uint32_t ms_to(uint16_t v, uint32_t max) {
+    for (uint32_t ms = 10; ms <= max; ms += 10) {
+        run_ms(10);
+        if (g_host_fader[0].current == v) {
+            return ms;
+        }
+    }
+    return 0;
+}
+
+static void lit_at(uint16_t level) {
+    power_up(1);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, level);
+    run_ms(3000);
+    CHECK(g_host_fader[0].current == level);
+}
+
+static void test_transition_level_takes_the_time(void) {
+    lit_at(200);
+    host_log_clear();
+    host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 2000);
+    CHECK(host_log_find("P[160=2000] ") == 0);           /* the ack: the value back */
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);            /* as the module sends it: on, level */
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 800);
+    uint32_t t = ms_to(800, 5000);
+    CHECK(t >= 1980 && t <= 2020);
+    CHECK(c1()->level == 800);
+}
+
+static void test_transition_on_from_dark_and_off(void) {
+    lit_at(700);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);
+    run_ms(3000);
+    CHECK(g_host_fader[0].current == 0);
+    host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 3000);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);            /* back to 700 in 3 s */
+    uint32_t t = ms_to(700, 6000);
+    CHECK(t >= 2950 && t <= 3030);
+    run_ms(1000);
+    host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 1500);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);            /* dark in 1.5 s, plus the moment at the min */
+    t = ms_to(0, 4000);
+    CHECK(t >= 1480 && t <= 1620);
+}
+
+static void test_transition_is_for_the_next_second_only(void) {
+    lit_at(200);
+    host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 4000);
+    run_ms(1100);                                        /* too late for it */
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 800);
+    CHECK(g_host_fader[0].timed_q == 0);
+    uint32_t t = ms_to(800, 5000);
+    CHECK(t > 0 && t <= 1300);                           /* the fade settings: 600 steps at 5 per 10 ms */
+    host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 0);   /* 0: the fade settings */
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 300);
+    CHECK(g_host_fader[0].timed_q == 0);
+}
+
+static void test_transition_is_neither_saved_nor_in_the_dump(void) {
+    lit_at(500);
+    run_ms(3000);
+    host_saved_t before;
+    memcpy(&before, g_host_flash, sizeof(before));
+    host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 2500);
+    host_write(CH1_TRANSITION + 1, TUYA_DP_TYPE_VALUE, 70000);   /* channel 2, capped */
+    CHECK(host_log_find("P[161=65535] ") >= 0);
+    run_ms(5000);
+    CHECK(memcmp(&before, g_host_flash, sizeof(before)) == 0);
+    host_log_clear();
+    dimmer_report_all();
+    CHECK(host_log_find("160=") < 0 && host_log_find("161=") < 0);
+    CHECK(!dimmer_write_dp(CH1_TRANSITION, TUYA_DP_TYPE_BOOL, (const uint8_t *)"\1", 1));   /* a value DP */
+}
+
 int main(void) {
     RUN(test_power_up_takes_power_on_rule);
     RUN(test_watchdog_reset_restores_live_state);
@@ -628,6 +709,10 @@ int main(void) {
     RUN(test_first_hold_direction_low);
     RUN(test_max_below_level);
     RUN(test_load_clamps);
+    RUN(test_transition_level_takes_the_time);
+    RUN(test_transition_on_from_dark_and_off);
+    RUN(test_transition_is_for_the_next_second_only);
+    RUN(test_transition_is_neither_saved_nor_in_the_dump);
     RUN(test_dimmer_dark);
     RUN(test_link_restart_restores_off);
     RUN(test_link_restart_waits);

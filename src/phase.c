@@ -240,9 +240,13 @@ void phase_init(void) {
  * zero-cross ISR ticks the same fader, and a change can be several stores
  * (an off during a hold clears hold_dir and target). */
 void phase_set(uint8_t ch, uint8_t on, uint16_t level) {
+    phase_set_timed(ch, on, level, 0);
+}
+
+void phase_set_timed(uint8_t ch, uint8_t on, uint16_t level, uint16_t ms) {
     if (ch < 2) {
         __disable_irq();
-        dim_fader_set(&g_fader[ch], on, level);
+        dim_fader_set_timed(&g_fader[ch], on, level, ms);
         __enable_irq();
     }
 }

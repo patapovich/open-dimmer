@@ -95,12 +95,20 @@ typedef struct {
     uint8_t       hold_fine; /* the hold slows down near the min: going down, or up from dark */
     uint16_t      half_period; /* measured, 20 us ticks (the mains: 500 at 50 Hz, 417 at 60 Hz) */
     uint32_t      acc;       /* 1/64 steps x half period not yet moved (64 x 500 = one step) */
+    uint16_t      timed_q;   /* this move's own rate (a transition time), 0: the profile's; it
+                                stays until the target changes or a hold starts */
     dim_profile_t prof;
 } dim_fader_t;
 
 void     dim_fader_init(dim_fader_t *f);
-/** Target for this channel: 0 when off, else the level (10..1000). */
+/** Target for this channel: 0 when off, else the level (10..1000). A new target ends a timed
+ * move (dim_fader_set_timed); the same target keeps it. */
 void     dim_fader_set(dim_fader_t *f, uint8_t on, uint16_t level);
+/** As dim_fader_set, but the move to this target takes ms (a Zigbee transition time), at one
+ * even rate: from where the light is (the floor when dark) to the target (the floor when going
+ * dark, then out after the usual moment there). ms 0: the profile's rates, as dim_fader_set;
+ * 1..9: at once. During a hold it does what dim_fader_set does. */
+void     dim_fader_set_timed(dim_fader_t *f, uint8_t on, uint16_t level, uint16_t ms);
 /** Lowest lit value of the channel (its min). Turning on starts there and
  * turning off leaves from there: below it the lamp is dark anyway, so a fade
  * through 0..floor would only show as a delay. */
