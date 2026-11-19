@@ -1,4 +1,4 @@
-# Open Dimmer: status (2026-11-19, 2.2.0 in work)
+# Open Dimmer: status (2026-11-19, release 2.2.2)
 
 Open Dimmer is open-source firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2,
 updated over Zigbee by the fork's Zigbee (ZTU) firmware (`patapovich/tuya-zigbee-switch`,
@@ -8,10 +8,10 @@ branch `home-dimmer`).
 
 | What | Version / place |
 |---|---|
-| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-5bb263e7 (carries PY32 v2.1.14), MCU **Open Dimmer 2.1.14** (release M) on the **v2 bootloader** (SWD, boot sector CRC 0x7D215316) since 2026-11-19, settings ring moved (DP 137 bits 24 + 25); bench tests B1, B2 (20 power cycles, probe answer 172..179 ms) done. Next: 2.2.0 |
+| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-6598b921 (carries PY32 v2.2.2), MCU **Open Dimmer 2.2.2** on the **v2 bootloader** (SWD, boot sector CRC 0x7D215316), settings ring moved. Bench tests done: B1; B2 (probe answer 172..183 ms, also with a carried image over 12 KB thanks to the gate's refusal answer); **B7** (mains cut in the middle of the 2.2.0 -> 2.2.1 update: the next power-up had no app, the bootloader asked in mode 2, the ZTU served it past the ring gate, 2.2.1 ran 4 s after power-up, settings kept); DP 138 at every report from 2.2.2 (19..20 degC at room temperature). Transitions checked from Home Assistant (none = the module fade, 0 = instant, brightness_fade_time proportional) |
 | Other modules | none runs Open Dimmer yet: see "Before further modules" |
 | PY32 source | this repo (github.com/patapovich/zdms16-py32) |
-| ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (carries PY32 v2.1.14; dimmer-only build since 2026-11-19, -14 KB; transition time; the ring gate for images over 12 KB comes with 2.2.0's ZTU work, branch `ztu-220`; build changelog in `docs/changelog_home_dimmer.md`); `home-dimmer_build` has the generated converter and the OTA images |
+| ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (carries PY32 v2.2.2; dimmer-only build; ring gate with a refusal answer to gated probes; transitions: no time = the module fade, 0 = instant, per-channel brightness_fade_time; build changelog in `docs/changelog_home_dimmer.md`); `home-dimmer_build` has the generated converter and the OTA images |
 | SWD tools | `tools/swd/install.sh` (one-contact install, docs/INSTALL.md; untested on a stock module yet), the single steps beside it (`.venv` and `pack/` next to the clone, see docs/INSTALL.md) |
 | HA / Z2M helpers | `tools/ha/` (see its README): expose dump and configure check with the real zhc, websocket client, OTA deploy |
 | Docs | `docs/INSTALL.md`, `docs/REVIEW-2026-11-17.md`, `docs/ZC-DELAY-MEASUREMENT.md`, `docs/stock-firmware-analysis.md` |
@@ -23,7 +23,7 @@ settings 2 KB @0x08004800 (16-page ring, the sector's upper half; header flag RI
 2.1.14 moves the newest record up once (docs/BOOTLOADER.md section 1); apps over 12 KB need the
 v2 bootloader and a moved ring (the ZTU's ring gate: DP 137 bit 25 seen). The app is built with
 LTO (the bootloader is not, it stays byte-identical). App 2.1.14: 11 652 bytes. App 2.2.0:
-13 268 bytes (1 068 free of 14 KB).
+13 268 bytes; 2.2.2: 13 288 bytes (1 048 free of 14 KB).
 
 History:
 
