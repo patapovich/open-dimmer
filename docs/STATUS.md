@@ -35,9 +35,13 @@ RING_HIGH:
   `NVIC_SystemReset` (RCC_CSR 0x10000000 with LSI off; no watchdog reset in 3 s halted with the
   freeze off).
 - B11 (`make LINK_WDG_TEST=1 FW_PREV=1 FW_TEST=2`): a channel on for 9+ min → no restart; both
-  off → a restart ~1 min later, LINK + WRITTEN, link probe 8 ms, the release installed. Not run
-  yet: "nothing newer" and the 10 cycles (they need the test build carried).
-- B6 not run (see the table). B9 and 2 more B7 cuts at the next release; B10 trial running.
+  off → a restart ~1 min later, LINK + WRITTEN, link probe 8 ms, the release installed. With the
+  test build carried itself (a local Zigbee build, `tools/ztu_local_build.sh`): 10 link restarts in
+  a row, LINK, probe answer 7–10 ms (nothing newer: the app at once), never a rescue window.
+- B9: an offered update (2.2.2 → 2.2.3) with both channels lit: both came back at their levels.
+  The dark time was not caught (the Zigbee module's 30-entry MCU log had moved on).
+- `install.sh` with an image over 12 KB kept the settings on the hardware (sector 4 merged).
+- B6 not run (see the table). 2 more B7 cuts when a switchable plug is at hand; B10 trial running.
 
 ## Flash layout and budget
 
