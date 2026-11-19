@@ -24,7 +24,7 @@ jobs:
     name: Host unit tests
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # make test includes make test-boot, the bootloader harness (docs/BOOTLOADER.md section 11):
       # plain cc, no ARM toolchain and no zlib; Linux >= 4.17 for MAP_FIXED_NOREPLACE (24.04 has it).
       - name: Bootloader harness, dimming, input and gesture logic, settings store, flash driver, protocol, UART, health, image tools (PC build)
@@ -34,7 +34,7 @@ jobs:
     name: Firmware builds
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Toolchain
         # A stalled package mirror once hung this step for 15 min (normally ~40 s): fail fast,
@@ -163,7 +163,7 @@ jobs:
           mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
           sha256sum -c SHA256SUMS
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: zdms16-py32-${{ github.sha }}
           path: |
@@ -174,7 +174,7 @@ jobs:
             build-diag/zdms16_py32_full.bin
             build-measure/zdms16_py32_full.bin
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: zdms16-py32-release-files-${{ github.sha }}
           path: dist/
@@ -190,7 +190,7 @@ jobs:
       group: py32-release
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             CHANGELOG.md
@@ -198,7 +198,7 @@ jobs:
             tools/fwimage.py
           sparse-checkout-cone-mode: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: zdms16-py32-release-files-${{ github.sha }}
           path: dist
