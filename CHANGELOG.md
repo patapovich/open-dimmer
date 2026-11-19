@@ -3,6 +3,19 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
+## 2.2.0 (2026-11-19)
+
+- Up to 14 KB (after 2.1.14's ring move; needs the v2 bootloader on the module).
+- Auto-off: a countdown (DP 6 / 12, s) written while on turns the channel off after that long;
+  an off cancels it.
+- Wall switch mode per channel (DP 162 / 163): normal, detached (the light is the network's, the
+  switch only reports its gestures; a toggle or state switch's change as a single) or off.
+- Level after a power cut per channel (DP 164 / 165, 0 = the last level).
+- Identify (DP 166 / 167, s): the channel blinks, then is as it was.
+- Start boost per channel (DP 168 / 169, ms up to 750): coming on from dark at full that long,
+  then the level (for LED drivers that need a kick).
+- Health: the MCU die temperature (DP 138, degC).
+
 ## 2.1.14 (2026-11-19)
 
 - Transition time: a Zigbee transition (Home Assistant's `transition`) makes the change take

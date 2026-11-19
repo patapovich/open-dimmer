@@ -3,6 +3,7 @@
 #include "phase.h"
 #include "py32f0xx.h"
 #include "store.h"
+#include "temp.h"
 #include "tuya.h"
 #include "uart.h"
 
@@ -21,6 +22,7 @@ static uint32_t g_uptime_min;
 
 void health_init(uint32_t reset_cause) {
     g_reset_cause = reset_cause;
+    temp_init();
 }
 
 void health_poll(uint32_t now) {
@@ -48,5 +50,8 @@ void health_poll(uint32_t now) {
      * newest record is in it ("ring moved", the check before apps over 12 KB). */
     tuya_report_value(137, g_boot_info.word | (uint32_t)RING_HIGH << 24 |
                            (uint32_t)store_in_own_ring() << 25);
+    tuya_report_send();
+    tuya_report_begin(1);                             /* the report builder holds 8: a second frame */
+    tuya_report_value(138, (uint32_t)(int32_t)temp_take());   /* degC, signed; -32768: none */
     tuya_report_send();
 }

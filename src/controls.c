@@ -68,8 +68,8 @@ void controls_init(uint8_t cold_start) {
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
         gesture_init(&g_gesture[ch]);
         g_type[ch] = dimmer_channel(ch)->switch_type;
-        /* A state type switch says what the light is. */
-        if (g_type[ch] == SWITCH_STATE) {
+        /* A state type switch says what the light is (unless detached or off). */
+        if (g_type[ch] == SWITCH_STATE && dimmer_channel(ch)->input_mode == DIMMER_INPUT_NORMAL) {
             dimmer_boot_set(ch, g_in[ch].pressed);
         }
     }
@@ -107,6 +107,17 @@ void controls_tick_1ms(void) {
 static void wall_switch(uint8_t ch, uint8_t ev) {
     const dimmer_channel_t *c = dimmer_channel(ch);
 
+    if (c->input_mode != DIMMER_INPUT_NORMAL) {
+        /* Detached: the light is the network's; the switch only reports (a momentary its
+         * gestures, a toggle or state switch each change as a single). Off: ignored. */
+        if (c->input_mode == DIMMER_INPUT_DETACHED) {
+            uint8_t g = c->switch_type == SWITCH_MOMENTARY ? gesture_event(&g_gesture[ch], ev, g_now)
+                      : ev == INPUT_EV_PRESS || ev == INPUT_EV_RELEASE ||
+                        ev == INPUT_EV_RELEASE_AFTER_HOLD ? GESTURE_SINGLE : 0;
+            dimmer_report_action(ch, g);
+        }
+        return;
+    }
     switch (c->switch_type) {
     case SWITCH_STATE:
         if (ev == INPUT_EV_PRESS) {
@@ -195,7 +206,7 @@ void controls_poll(uint32_t now) {
             g_type[ch] = c->switch_type;
             gesture_init(&g_gesture[ch]);
             g_turned_on_by_press[ch] = 0;
-            if (g_type[ch] == SWITCH_STATE) {
+            if (g_type[ch] == SWITCH_STATE && c->input_mode == DIMMER_INPUT_NORMAL) {
                 dimmer_local_set(ch, g_in[ch].pressed);
             }
         }

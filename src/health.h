@@ -14,6 +14,8 @@
  *       time, rescue info, LINK, tries; 0 when it was not valid, v1); bit 24 the
  *       settings ring is the sector's upper half (RING_HIGH, from release M),
  *       bit 25 the newest settings record is in this app's own ring
+ *   138 the MCU die temperature in degC (signed; -32768 none yet), from 2.2.0,
+ *       in a frame of its own after the eight above (src/temp.h)
  * All since start; none wraps in a trial (uptime counts minutes, not the
  * millisecond clock that wraps after 49.7 days). */
 #ifndef HEALTH_H
