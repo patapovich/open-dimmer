@@ -656,6 +656,18 @@ def tuya_h(build=None, sim=True):
     return t
 
 
+def ota_file(image, total):
+    """A stand-in ZTU OTA file of total bytes: a stray magic word (as the ZTU code holds one),
+    then the carried image (if any) in the middle."""
+    d = bytearray(b"\x00" * total)
+    struct.pack_into("<I", d, 0, 0x0BEEF11E)
+    struct.pack_into("<I", d, 0x1000, MAGIC)
+    if image is not None:
+        off = total // 2 & ~3
+        d[off:off + len(image)] = image
+    return bytes(d)
+
+
 class ReleaseRules(unittest.TestCase):
     def check(self, image, tag, head, tags, prev_h, images=None):
         return rc_mod.check(image, tag, head, tags, lambda t: prev_h.get(t), lambda t: (images or {}).get(t))
@@ -759,18 +771,107 @@ class ReleaseRules(unittest.TestCase):
             with open(img, "wb") as f:
                 f.write(finished_img(0x9E, CONFIRMS, 400))
             tool = os.path.join(TOOLS, "release", "release_check.py")
-            p = subprocess.run([sys.executable, tool, "--image", img, "--tag", "v2.1.14", "--repo", d,
-                                "--earlier-images", d], capture_output=True, text=True)
+            run = lambda *extra: subprocess.run([sys.executable, tool, "--image", img, "--tag", "v2.1.14", "--repo", d,
+                                                 "--earlier-images", d, *extra], capture_output=True, text=True)
+            p = run("--ztu-ota", "skip")
             self.assertEqual(p.returncode, 0, p.stderr)
             self.assertIn("previous release v2.1.13: build 300", p.stdout)
+            self.assertIn("app headroom: 512 of 12288 bytes, 11776 free", p.stdout)
+            self.assertIn("ZTU OTA margin: not checked", p.stdout)
+            self.assertIn("warning: the ZTU OTA margin was not checked", p.stderr)
+            self.assertNotEqual(run().returncode, 0)                       # --ztu-ota is required
+            ota = os.path.join(d, "ztu.zigbee")
+            with open(ota, "wb") as f:
+                f.write(ota_file(finished_img(0x9D, CONFIRMS, 300, size=11 * KB), 200000))
+            p = run("--ztu-ota", ota)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn("ZTU OTA margin: ztu.zigbee is 200000 bytes carrying 2.1.13 (11264 bytes); with this app "
+                          f"~{200000 - 11264 + 512} bytes", p.stdout)
+            with open(img, "wb") as f:                                     # 12 KB - 300: below the minimum
+                f.write(finished_img(0x9E, CONFIRMS, 400, size=12 * KB - 300))
+            p = run("--ztu-ota", "skip")
+            self.assertNotEqual(p.returncode, 0)
+            self.assertIn("ACCEPT_HEADROOM=300 tools/release/release.sh", p.stderr)
+            p = run("--ztu-ota", "skip", "--accept-headroom", "300")
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn("below 512: accepted for this release", p.stderr)
             with open(img, "wb") as f:
                 f.write(finished_img(0x9E, CONFIRMS, 500))
             with open(hp, "w") as f:
                 f.write(tuya_h(500))
-            p = subprocess.run([sys.executable, tool, "--image", img, "--tag", "v2.1.14", "--repo", d,
-                                "--earlier-images", d], capture_output=True, text=True)
+            p = run("--ztu-ota", "skip")
             self.assertNotEqual(p.returncode, 0)
             self.assertIn("must be 400", p.stderr)
+
+    def test_headroom(self):
+        """Below 512 free bytes only with the user's decision for exactly these bytes; RING_HIGH
+        images count against 14 KB."""
+        lines, warns = rc_mod.budget(finished_img(size=12 * KB - 512))
+        self.assertIn("app headroom: 11776 of 12288 bytes, 512 free (at least 512)", lines[0])
+        self.assertEqual([w for w in warns if "headroom" in w.lower()], [])
+        small = finished_img(size=12 * KB - 168)
+        with self.assertRaisesRegex(rc_mod.Refused, r"168 bytes free of 12288, below 512.*ACCEPT_HEADROOM=168"):
+            rc_mod.budget(small)
+        with self.assertRaisesRegex(rc_mod.Refused, "ACCEPT_HEADROOM=168"):
+            rc_mod.budget(small, accept=200)                               # another number: not this decision
+        lines, warns = rc_mod.budget(small, accept=168)
+        self.assertIn("168 free", lines[0])
+        self.assertTrue(any("accepted for this release (ACCEPT_HEADROOM=168)" in w for w in warns))
+        _, warns = rc_mod.budget(finished_img(size=8 * KB), accept=168)
+        self.assertTrue(any("is not needed" in w for w in warns))
+        lines, _ = rc_mod.budget(finished_img(flags=CONFIRMS | RING_HIGH, size=13 * KB))
+        self.assertIn("13312 of 14336 bytes, 1024 free", lines[0])
+
+    def test_headroom_minimum_is_ci_warning_line(self):
+        with open(os.path.join(REPO, ".github", "workflows", "ci.yml")) as f:
+            ci = int(re.search(r"HEADROOM_WARN_BYTES: (\d+)", f.read()).group(1))
+        self.assertEqual(rc_mod.HEADROOM_MIN, ci)
+
+    def test_carried_image_in_an_ota_file(self):
+        """Found by its header (magic, size, CRC), not by a stray magic word in the ZTU code."""
+        carried = finished_img(0x9C, 0, 0, size=11 * KB)
+        ota = ota_file(carried, 150000)
+        off, h = rc_mod.carried(ota)
+        self.assertEqual((ota[off:off + h.size], h.version, h.size), (carried, 0x9C, 11 * KB))
+        self.assertIsNone(rc_mod.carried(ota_file(None, 150000)))
+        bad = bytearray(ota)
+        bad[off + 0x200] ^= 1                                              # CRC no longer matches
+        self.assertIsNone(rc_mod.carried(bytes(bad)))
+        with self.assertRaisesRegex(rc_mod.Refused, "2 app images"):
+            rc_mod.carried(ota + carried)
+
+    def test_ztu_ota_margin(self):
+        """The OTA file with this app instead of the carried one, against 0x34000; a 14 KB app's
+        need is a warning."""
+        app = finished_img(size=11632)
+        ota = ota_file(finished_img(0x9C, 0, 0, size=11472), 211290)
+        lines, warns = rc_mod.budget(app, ota, "z.zigbee")
+        self.assertIn("ZTU OTA margin: z.zigbee is 211290 bytes carrying 2.1.12 (11472 bytes); with this app "
+                      "~211450 bytes, 1542 below the 212992 (0x34000) limit", lines[1])
+        self.assertTrue(any("a 14 KB app" in w and "needs 2704 more, 1162 short" in w for w in warns))
+        roomy = ota_file(finished_img(0x9C, 0, 0, size=11472), 150000)
+        _, warns = rc_mod.budget(app, roomy, "z.zigbee")
+        self.assertFalse(any("14 KB" in w for w in warns))
+        grown = 11632 - 11472                                              # this app is 160 bytes larger
+        for margin, word in ((-1, "over"), (10, "within 16 bytes of")):
+            tight = ota_file(finished_img(0x9C, 0, 0, size=11472), 0x34000 - grown - margin)
+            with self.assertRaisesRegex(rc_mod.Refused, f"~{0x34000 - margin} bytes, {word} the 0x34000 limit"):
+                rc_mod.budget(app, tight, "z.zigbee")
+        lines, _ = rc_mod.budget(app, ota_file(finished_img(0x9C, 0, 0, size=11472), 0x34000 - grown - 16), "z")
+        self.assertIn("16 below", lines[1])
+        with self.assertRaisesRegex(rc_mod.Refused, "no app image in it"):
+            rc_mod.budget(app, ota_file(None, 150000), "z.zigbee")
+        lines, warns = rc_mod.budget(app, None)
+        self.assertIn("not checked", lines[1])
+        self.assertTrue(any("not checked" in w for w in warns))
+
+    def test_release_sh_passes_the_budget(self):
+        with open(os.path.join(TOOLS, "release", "release.sh")) as f:
+            text = f.read()
+        call = re.search(r"^python3 tools/release/release_check\.py (.*)$", text, re.M).group(1)
+        self.assertIn('--ztu-ota "$ota"', call)
+        self.assertIn('${ACCEPT_HEADROOM:+--accept-headroom "$ACCEPT_HEADROOM"}', call)
+        self.assertIn('MODULE_AVATTO_ZDMS16_2/', text)
 
     def test_release_sh_runs_the_rules_before_it_pushes(self):
         with open(os.path.join(TOOLS, "release", "release.sh")) as f:

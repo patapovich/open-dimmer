@@ -939,11 +939,16 @@ already be in release R's app.
 "new" came with the review; estimated ~60 bytes together, plus ~20 for the stock-ZTU
 confirmation and ~80 for the link watchdog (item 11; estimates).
 
-*Implemented* (items 1-11): 12 120 bytes in release R, +648 on 2.1.12 and ~200 above the
+*Implemented* (items 1-11): 12 120 bytes at first, +648 on 2.1.12 and ~200 above the
 estimates (168 bytes free of 12 KB; DIAG / MEASURE / SIM 11 732 / 11 744 / 11 772). Before the
 shared flash driver's range guard (item 7) it was 12 088. The largest parts: the confirmation
 and link watchdog pass 176, the boot_id / sector CRC / word read 108, the input condition 76,
-the shared planned restart 48, the dark check 44.
+the shared planned restart 48, the dark check 44. R is the last app a unit under a stock ZTU
+gets and the base of every later fix, so its headroom was recovered before the tag, with the
+same behaviour: the clock and UART set up from constants (no `SystemCoreClockUpdate()` and its
+tables, no run-time baud division: -300) and the app's data in common sections like the
+bootloader's (-188). Release R: 11 632 bytes, 656 free; DIAG / MEASURE / SIM 11 264 / 11 268 /
+11 320.
 
 1. **Header.** `{ APP_MAGIC, 0, 0, FW_VERSION, APP_FLAG_CONFIRMS | (RING_HIGH ? APP_FLAG_RING_HIGH
    : 0) | bench flags, FW_BUILD }` (`src/main.c:27-30`). `FW_BUILD` sits in `src/tuya.h`; `make
@@ -1226,7 +1231,7 @@ way:
 |---|---|
 | `tools/mkimage.py` | Read and print the build. Refuse: build 0 or 1..255, 0xFFFF for an image it creates; 0xFFFE unless SIM; SIM without 0xFFFE; an image CRC of 0; size > 12 KB without RING_HIGH; size > 14 KB; flags 0x20..0x80; a build ≥ 256 without CONFIRMS. Keep today's version-byte checks. `--full`: refuse a boot.bin without `boot_id` at 0x10 unless `--old-boot`; accept an existing 2.1.x app image (build 0, no CONFIRMS) only with `--legacy-app` (bench test B6). (That RING_HIGH is set exactly when `_settings_start` is 0x08004800 is a CI check on the ELF with `arm-none-eabi-nm`.) |
 | `tools/embed_ztu.py` | All `assert`s become `sys.exit` checks (item 42), so `python3 -O` cannot skip them. Mirror the phase-3 `image_info` (section 10): flags & 0x07; SP == 0x20000BE0; reset vector odd and inside the image; size ≤ 14 KB and > 12 KB only with RING_HIGH. Build 256..0xFFFD with CONFIRMS; build 0 only with `--legacy` (version byte ≤ 0x9C, no CONFIRMS, no RING_HIGH: a 2.1.x rollback). |
-| `tools/release/release.sh` | `FW_BUILD` == the previous tag's + 100 (`git show <tag>:src/tuya.h`), so every release is above every test build before it. Version byte > the previous tag's (tags are unique per byte). The first release over 12 KB is refused unless an earlier tag has RING_HIGH (the ring mover). The bootloader size and the boot sector CRC (DP 136 value) go in the release notes. |
+| `tools/release/release.sh` | `FW_BUILD` == the previous tag's + 100 (`git show <tag>:src/tuya.h`), so every release is above every test build before it. Version byte > the previous tag's (tags are unique per byte). The first release over 12 KB is refused unless an earlier tag has RING_HIGH (the ring mover). The bootloader size and the boot sector CRC (DP 136 value) go in the release notes. (Implementation review) The app headroom and the ZTU OTA margin are printed together before the tag: below 512 free bytes (CI's warning line) only with `ACCEPT_HEADROOM=<those bytes>`, the user's decision for that release; the margin from `ZTU_OTA` (the ZDMS16-2 OTA file that will carry the release, by default the newest on `home-dimmer_build`), refused over 0x34000, a warning when a 14 KB app would not fit, `ZTU_OTA=skip` said so. |
 | `tools/swd/install.sh` | Show the image's bootloader version (boot_id) and boot sector CRC. Refuse a full image without boot_id unless `OLD_BOOT=1`, and one over 12 KB unless `ERASE_SETTINGS=1`. `IMAGE=release` checks `SHA256SUMS` (item 53). Optional `WRP=1` (section 1). Write 0 to the boot word pair (0x20000BF8, 0x20000BFC) before every reset it issues. Tools that halt the core must set DBGMCU `DBG_IWDG_STOP` first: v2 starts the watchdog at every boot (install.sh:124 and `make flash` already do). |
 | `tools/ota_swd_emu.py` | Answer the header request (0xC0, 16) before the blocks, accept 16-byte requests, send the 11-byte 0xA0 (build) so that build-only test images are accepted, and clear the boot word pair before its resets. |
 | `Makefile` | `FW_TEST=` (a new BUILD dir like `VERSION_BYTE`). `make flash` clears the boot word pair before its reset. `make test-boot`, part of `make test`. Report the bootloader size from the ELF; warn above 3584 bytes. |
@@ -1360,8 +1365,13 @@ of them, a 14 KB app ~2 700, before any phase-3 ZTU code. So within this design 
 1), and CI prints the ZTU OTA size with each new carried image. The frozen bootloader can never
 take a compressed image, so this limit does not move from the MCU side.
 
-The implemented release-R app (section 9) is 12 120 bytes. *Measured* with it carried, the
-phase-3 ZTU's ZDMS16-2 OTA file is 211 938 bytes: 1 054 bytes below 0x34000. The implemented
+The implemented release-R app (section 9) is 11 632 bytes (656 free of 12 KB; 12 120 before the
+headroom was recovered). *Measured* with it carried, the phase-3 ZTU's ZDMS16-2 OTA file is
+211 426 bytes: 1 566 bytes below 0x34000 (211 938 and 1 054 with the 12 120-byte build). So
+release M itself (at most 12 KB) fits, but a 14 KB app after it needs 2 704 bytes more, 1 138
+more than the ZTU build has: freeing room in the ZTU build stays the precondition of the ring
+move. `tools/release/release.sh` prints the app headroom and this margin together before every
+tag (`release_check.py`, section 11). The implemented
 bootloader is 3 364 bytes (732 free), 112 more than the prototype (the watchdog reload after
 the update wait, from the implementation review, is 8 of them).
 
@@ -1879,4 +1889,7 @@ A request shorter than 16 bytes is recorded as a v1 bootloader. `send_frame` ref
 over 29 bytes.
 
 **Release R.** Version byte 0x9D (2.1.13): the smallest step above 2.1.12, which keeps the
-version space (item 31); build 300.
+version space (item 31); build 300. Its headroom was recovered before the tag (section 9:
+11 632 bytes, 656 free), with the register values unchanged: `clock_init()` writes what
+`LL_RCC_HSI_SetCalibFreq()` and `LL_Init1msTick()` wrote, and the UART's BRR is 208 from
+constants (a compile-time check). The release gate then needs no acceptance.

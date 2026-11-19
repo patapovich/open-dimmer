@@ -29,6 +29,5 @@ void     host_usart_tx(uint8_t b);
 #define LL_USART_EnableIT_RXNE(...)          ((void)0)
 #define NVIC_SetPriority(...)                ((void)0)
 #define NVIC_EnableIRQ(...)                  ((void)0)
-#define SystemCoreClock                      24000000u
 
 #endif

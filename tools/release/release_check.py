@@ -7,14 +7,22 @@ before it tags anything:
   - the version byte is above every other release tag's (tags are vX.Y.Z of the byte: unique);
   - the first release over 12 KB needs an earlier release with RING_HIGH of at most 12 KB (the
     ring mover, section 1); the earlier releases' images are read from GitHub (gh), or from
-    --earlier-images DIR (<tag>.img files).
+    --earlier-images DIR (<tag>.img files);
+  - the room for later fixes, printed together (section 12): the app's free bytes in its layout
+    (12 KB, 14 KB with RING_HIGH), refused below HEADROOM_MIN (CI's warning line) unless
+    --accept-headroom names exactly the free bytes (the user's decision for this release), and
+    the ZTU OTA margin: --ztu-ota FILE, an OTA file of the fork's ZDMS16-2 build, is measured
+    with this app carried instead of the image it carries, refused over the 0x34000 limit (or
+    within ZTU_OTA_SLACK of it), with a warning when a 14 KB app (after the ring move) would not
+    fit; --ztu-ota skip leaves it out, said so.
 
-    release_check.py --image build/zdms16_py32.img --tag vX.Y.Z [--repo DIR] [--gh-repo OWNER/NAME]
-                     [--earlier-images DIR]
+    release_check.py --image build/zdms16_py32.img --tag vX.Y.Z --ztu-ota FILE|skip [--repo DIR]
+                     [--gh-repo OWNER/NAME] [--earlier-images DIR] [--accept-headroom N]
 """
 import argparse
 import os
 import re
+import struct
 import subprocess
 import sys
 import tempfile
@@ -25,6 +33,11 @@ import fwimage as fw                                   # noqa: E402
 
 TAG_RE = re.compile(r"v(\d+)\.(\d+)\.(\d+)$")
 DEFINE_RE = re.compile(r"^\s*#\s*define\s+FW_BUILD\s+(0[xX][0-9A-Fa-f]+|\d+)[uU]?\b", re.M)
+
+
+HEADROOM_MIN = 512              # free app bytes; CI warns below as many (ci.yml HEADROOM_WARN_BYTES)
+ZTU_OTA_MAX = 0x34000           # the fork's FLASH_OTA_IMAGE_MAX_SIZE: the largest OTA file it takes
+ZTU_OTA_SLACK = 16              # the carried array's alignment and the OTA file's padding
 
 
 class Refused(Exception):
@@ -130,6 +143,70 @@ def check(image, tag, head_tuya_h, tags, tuya_h_of, image_of):
     return lines
 
 
+def carried(ota):
+    """(offset, header) of the app image a ZTU OTA file carries, found by its header (the magic
+    at image offset 0xC0, then size and CRC); None when it carries none."""
+    magic = struct.pack("<I", fw.APP_MAGIC)
+    found = []
+    pos = ota.find(magic)
+    while pos >= 0:
+        start = pos - fw.APP_HEADER_OFFSET
+        if start >= 0 and start + fw.APP_SIZE_MIN <= len(ota):
+            size = fw.header(ota[start:start + fw.APP_SIZE_MIN]).size
+            if fw.APP_SIZE_MIN <= size <= fw.BOOT_APP_MAX and start + size <= len(ota):
+                try:
+                    found.append((start, fw.finished(ota[start:start + size])))
+                except fw.Refused:
+                    pass
+        pos = ota.find(magic, pos + 1)
+    if len(found) > 1:
+        raise Refused(f"the ZTU OTA file holds {len(found)} app images: one expected")
+    return found[0] if found else None
+
+
+def budget(image, ota=None, ota_name="", accept=None):
+    """The room left for later fixes (docs/BOOTLOADER.md section 12), as (lines, warnings);
+    raises Refused. ota: the bytes of a ZTU OTA file of the ZDMS16-2 build, or None (not
+    checked); accept: the free bytes the user accepted below HEADROOM_MIN, or None."""
+    h = fw.finished(image)
+    room = fw.BOOT_APP_MAX if h.flags & fw.FLAG_RING_HIGH else fw.APP_LIMIT_LEGACY
+    free = room - h.size
+    lines = [f"app headroom: {h.size} of {room} bytes, {free} free (at least {HEADROOM_MIN})"]
+    warnings = []
+    if free < HEADROOM_MIN:
+        if accept != free:
+            raise Refused(f"the app leaves {free} bytes free of {room}, below {HEADROOM_MIN}: the next fix may "
+                          "not fit. Recover room first, or record the user's decision for this release: "
+                          f"ACCEPT_HEADROOM={free} tools/release/release.sh")
+        warnings.append(f"app headroom {free} bytes, below {HEADROOM_MIN}: accepted for this release "
+                        f"(ACCEPT_HEADROOM={free})")
+    elif accept is not None:
+        warnings.append(f"ACCEPT_HEADROOM={accept} is not needed: {free} bytes are free")
+    if ota is None:
+        lines.append("ZTU OTA margin: not checked (ZTU_OTA=skip)")
+        warnings.append("the ZTU OTA margin was not checked: the py32-bump build checks the 0x34000 limit only "
+                        "after the tag")
+        return lines, warnings
+    c = carried(ota)
+    if c is None:
+        raise Refused(f"{ota_name}: no app image in it (not an OTA file of the ZDMS16-2 build?)")
+    ch = c[1]
+    with_this = len(ota) - ch.size + h.size
+    margin = ZTU_OTA_MAX - with_this
+    lines.append(f"ZTU OTA margin: {ota_name} is {len(ota)} bytes carrying {fw.version_str(ch.version)} "
+                 f"({ch.size} bytes); with this app ~{with_this} bytes, {margin} below the {ZTU_OTA_MAX} "
+                 f"(0x{ZTU_OTA_MAX:X}) limit")
+    if margin < ZTU_OTA_SLACK:
+        where = "over" if margin < 0 else f"within {ZTU_OTA_SLACK} bytes of"
+        raise Refused(f"the ZTU OTA file would be ~{with_this} bytes, {where} the 0x{ZTU_OTA_MAX:X} limit: the "
+                      "Zigbee firmware could not carry this app (free room in the ZTU build first)")
+    grow = fw.BOOT_APP_MAX - h.size
+    if margin < grow:
+        warnings.append(f"ZTU OTA margin {margin} bytes: a 14 KB app (after the ring move, section 1) needs "
+                        f"{grow} more, {grow - margin} short; the ZTU build must free room before such an app")
+    return lines, warnings
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--image", required=True)
@@ -137,7 +214,13 @@ def main(argv):
     ap.add_argument("--repo", default=".")
     ap.add_argument("--gh-repo", default="patapovich/zdms16-py32")
     ap.add_argument("--earlier-images")
+    ap.add_argument("--ztu-ota", required=True, help="OTA file of the fork's ZDMS16-2 build, or 'skip'")
+    ap.add_argument("--accept-headroom", type=int, help="the free bytes accepted below the minimum")
     a = ap.parse_args(argv[1:])
+    ota = None
+    if a.ztu_ota != "skip":
+        with open(a.ztu_ota, "rb") as f:
+            ota = f.read()
     with open(a.image, "rb") as f:
         image = f.read()
     with open(os.path.join(a.repo, "src", "tuya.h")) as f:
@@ -154,9 +237,12 @@ def main(argv):
         try:
             lines = check(image, a.tag, head, release_tags(a.repo),
                           lambda t: git(a.repo, "show", f"{t}:src/tuya.h"), image_of)
+            more, warnings = budget(image, ota, os.path.basename(a.ztu_ota), a.accept_headroom)
         except (Refused, fw.Refused) as e:
             sys.exit(str(e))
-    print("\n".join(lines))
+    print("\n".join(lines + more))
+    for w in warnings:
+        print(f"warning: {w}", file=sys.stderr)
 
 
 if __name__ == "__main__":

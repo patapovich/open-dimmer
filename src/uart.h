@@ -5,7 +5,8 @@
 
 #include <stdint.h>
 
-void uart_init(uint32_t baud);
+/** USART1 at UART_BAUD 8N1 from SYSCLK_HZ (board.h), receive interrupt on. */
+void uart_init(void);
 /** Next received byte, or -1 if none. */
 int  uart_getc(void);
 void uart_putc(uint8_t b);

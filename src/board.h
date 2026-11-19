@@ -34,7 +34,10 @@
 #define UART_TX_PIN     LL_GPIO_PIN_2
 #define UART_RX_PORT    GPIOA
 #define UART_RX_PIN     LL_GPIO_PIN_3
-#define UART_BAUD       115200
+#define UART_BAUD       115200u
+
+/* System clock: HSI 24 MHz with the factory trim (main.c clock_init), HCLK = PCLK = SYSCLK. */
+#define SYSCLK_HZ       24000000u
 
 /* Interrupt priorities, 0 = most urgent. The UART has one receive register and
  * no FIFO: a byte must be read within one byte time (86.8 us at 115200), while

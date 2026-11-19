@@ -59,7 +59,7 @@ static void isr(void) {
 }
 
 int main(void) {
-    uart_init(115200);
+    uart_init();
     CHECK(uart_getc() == -1);
 
     /* Normal bytes: one SR and one DR read each, nothing lost. */

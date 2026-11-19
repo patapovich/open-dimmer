@@ -32,7 +32,13 @@ void USART1_IRQHandler(void) {
     }
 }
 
-void uart_init(uint32_t baud) {
+/* The baud rate divider from the constants: BRR 208 (13 + 0/16) at 24 MHz, as the bootloader
+ * sets it, with no division at run time. */
+#ifndef HOST_TEST
+_Static_assert(__LL_USART_DIV_SAMPLING16(SYSCLK_HZ, UART_BAUD) == 208u, "USART1 BRR for 115200 at 24 MHz");
+#endif
+
+void uart_init(void) {
     LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
     LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_USART1);
 
@@ -46,7 +52,7 @@ void uart_init(uint32_t baud) {
     LL_GPIO_SetPinPull(UART_RX_PORT, UART_RX_PIN, LL_GPIO_PULL_UP);
     LL_GPIO_SetAFPin_0_7(UART_RX_PORT, UART_RX_PIN, LL_GPIO_AF_1);
 
-    LL_USART_SetBaudRate(USART1, SystemCoreClock, LL_USART_OVERSAMPLING_16, baud);
+    LL_USART_SetBaudRate(USART1, SYSCLK_HZ, LL_USART_OVERSAMPLING_16, UART_BAUD);
     LL_USART_SetDataWidth(USART1, LL_USART_DATAWIDTH_8B);
     LL_USART_SetStopBitsLength(USART1, LL_USART_STOPBITS_1);
     LL_USART_SetParity(USART1, LL_USART_PARITY_NONE);

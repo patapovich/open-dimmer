@@ -84,8 +84,11 @@ DEFS     := -DPY32F002Ax5 -DUSE_FULL_LL_DRIVER -DSIM_ZC=$(SIM) -DMEASURE=$(MEASU
             $(if $(FW_TEST),-DFW_TEST=$(FW_TEST)) $(if $(FW_PREV),-DFW_PREV=$(FW_PREV)) \
             $(if $(filter 1,$(LINK_WDG_TEST)),-DLINK_WDG_TEST=1)
 ARCH     := -mcpu=cortex-m0plus -mthumb
+# Data stays in common sections (no -fdata-sections): GCC then reaches a file's statics from one
+# anchor instead of a literal per variable (-188 bytes in the normal build); unused data is
+# negligible here. Functions keep their own sections for --gc-sections.
 CFLAGS   := $(ARCH) $(DEFS) $(INCLUDES) -Os -g -Wall -Wextra -Wno-unused-parameter \
-            -ffunction-sections -fdata-sections -std=c11 -MMD -MP
+            -ffunction-sections -std=c11 -MMD -MP
 LDFLAGS  := $(ARCH) -T$(LDSCRIPT) -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(PROJECT).map \
             --specs=nano.specs --specs=nosys.specs
 
@@ -94,8 +97,8 @@ OBJS     := $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o))) $(addprefix $(BUILD)/
 # Bootloader v2 (4 KB at 0x08000000, docs/BOOTLOADER.md): the same for every app build, and
 # frozen once installed, so it builds without a single warning. It shares src/flash_drv.c with
 # the app (one driver; the linker script sets what each may write). Its data stays in common
-# sections (-fno-data-sections): all of it is used, and GCC then reaches the statics from one
-# anchor instead of a literal per variable (-132 bytes).
+# sections (-fno-data-sections, as the app's): all of it is used, and GCC then reaches the
+# statics from one anchor instead of a literal per variable (-132 bytes).
 BOOT_BUILD := build-boot
 BOOT_SRCS  := boot/boot.c src/flash_drv.c
 BOOT_OBJS  := $(addprefix $(BOOT_BUILD)/,$(notdir $(BOOT_SRCS:.c=.o)))

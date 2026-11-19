@@ -31,14 +31,17 @@ signed division code). CI warns when a build has under 512 bytes free. The bootl
 unchanged (2 136 bytes, byte-identical to the released one).
 
 Phase 3 (bootloader v2, release R = 2.1.13, build 300; integrated, not released yet): app
-12 120 bytes (168 bytes free of 12 KB, so CI warns; +648 on 2.1.12, the range guard of the
-shared flash driver included); DIAG / MEASURE / SIM 11 732 / 11 744 / 11 772 (the link
-watchdog and the confirmation are compiled out of the bench builds). Bootloader v2 3 364 of
-4 096 bytes (732 free; the design's prototype 3 252; +8 for the watchdog reload after its
-update wait), boot sector CRC-32 0x7D215316 for this build (the release notes give the
-released value). The Zigbee firmware's OTA file with this app
-carried (phase-3 ZTU, ZDMS16-2 build): 211 938 bytes, 1 054 below the 0x34000 limit; the next
-app growth must be measured against it (docs/BOOTLOADER.md section 12).
+11 632 bytes (656 bytes free of 12 KB; first 12 120 with 168 free, then -488 with the same
+behaviour: clock and UART from constants, item 59 below, and the app's data in common
+sections); DIAG / MEASURE / SIM 11 264 / 11 268 / 11 320 (the link watchdog and the
+confirmation are compiled out of the bench builds). Bootloader v2 3 364 of 4 096 bytes (732
+free; the design's prototype 3 252; +8 for the watchdog reload after its update wait), boot
+sector CRC-32 0x7D215316 for this build (the release notes give the released value). The Zigbee
+firmware's OTA file with this app carried (phase-3 ZTU, ZDMS16-2 build): 211 426 bytes, 1 566
+below the 0x34000 limit; a 14 KB app (after the ring move) would need 1 138 more, so the ZTU
+build must free room first (docs/BOOTLOADER.md section 12). `release.sh` prints the app
+headroom and this margin together and refuses below 512 free app bytes unless
+`ACCEPT_HEADROOM=<the free bytes>` records the user's decision.
 
 Review 2026-11-18 items done in phase 2: 7 (the MCU's start burst check), 12 and 25 (zero-cross
 windows, phase.c on the PC), 13 (watchdog and fault restore), 14, 17, 29, 30, 32 (UART above
@@ -49,8 +52,9 @@ declines 0xBF / 0xFF offers), 40 (flash SR flags in the app, the bootloader take
 3; switch_type clamped on load) and 59 (the savings above, the CI warning). Still open of
 those: 18 `make flash` refusing SIM images unless ALLOW_SIM=1, the note that a unit stuck on SIM
 needs a 3.x image or SWD; 40 the 60 Hz comment, the INSTALL line that Open Dimmer needs the
-fork's ZTU; 59 register-level UART and clock init. ZTU side: also refuse the DIAG header flag
-0x04 (tools/embed_ztu.py already does).
+fork's ZTU. 59's register-level UART and clock init came in phase 3 (clock and baud rate from
+constants, see above). ZTU side: also refuse the DIAG header flag 0x04 (tools/embed_ztu.py
+already does).
 
 ## DPs (Open Dimmer; stock ones 1..14 unchanged)
 
@@ -143,7 +147,8 @@ no `mcu_firmware`; the user docs (INSTALL.md) say so where they check `mcu_firmw
   one), commit on `main`,
   `tools/release/release.sh`: checks (main, clean, contains origin/main, tests, all four
   builds; `tools/release/release_check.py`: the build number, the version byte above every other
-  release tag, the ring-mover gate for the first release over 12 KB; it prints the bootloader's
+  release tag, the ring-mover gate for the first release over 12 KB, the app headroom and the
+  ZTU OTA margin together (`ACCEPT_HEADROOM`, `ZTU_OTA`, see above); it prints the bootloader's
   boot sector CRC, which the release notes also carry), tags `vX.Y.Z` (must match the image);
   the tag's CI run publishes the release only
   after the tests and builds passed (image, full image, bootloader, `secondary_mcu_image.c`,
@@ -289,7 +294,9 @@ Implemented and integrated, tested on the PC only; nothing of it has run on hard
   bootloader rule broken.
 
 Still to do, in this order (docs/BOOTLOADER.md section 14):
-1. Release R; record its boot sector CRC (release notes).
+1. Release R with `ZTU_OTA=<the phase-3 ZTU's ZDMS16-2 OTA file> tools/release/release.sh`
+   (the margin is measured against the ZTU that will carry R, not the older one on
+   home-dimmer_build); record its boot sector CRC (release notes).
 2. The phase-3 ZTU release carrying R's app, spare first (the spare takes R under v1 by the
    version byte), then the other modules' ZTUs one at a time with their stock MCUs, each with
    the per-module check of migration step 2.

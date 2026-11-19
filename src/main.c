@@ -51,9 +51,13 @@ void SysTick_Handler(void) {
     controls_tick_1ms();
 }
 
+/* HSI at SYSCLK_HZ with the factory trim, the 1 ms SysTick. The register writes of
+ * LL_RCC_HSI_SetCalibFreq() and LL_Init1msTick(), with the clock as a constant: the first
+ * also runs SystemCoreClockUpdate() (with its tables), the second divides at run time, and
+ * the fixed clock makes both moot (-244 bytes, the same register values). */
 static void clock_init(void) {
     LL_RCC_HSI_Enable();
-    LL_RCC_HSI_SetCalibFreq(LL_RCC_HSICALIBRATION_24MHz);
+    MODIFY_REG(RCC->ICSCR, RCC_ICSCR_HSI_FS | RCC_ICSCR_HSI_TRIM, LL_RCC_HSICALIBRATION_24MHz);
     while (LL_RCC_HSI_IsReady() != 1) {
     }
     LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
@@ -62,8 +66,8 @@ static void clock_init(void) {
     }
     LL_FLASH_SetLatency(LL_FLASH_LATENCY_0);
     LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_1);
-    LL_SetSystemCoreClock(24000000);
-    LL_Init1msTick(24000000);
+    SystemCoreClock = SYSCLK_HZ;
+    LL_InitTick(SYSCLK_HZ, 1000u);
     NVIC_SetPriority(SysTick_IRQn, IRQ_PRIO_TICK);   /* below the UART and the zero cross (board.h) */
     /* The tick interrupt (input sampling) starts after controls_init. */
 }
@@ -217,7 +221,7 @@ int main(void) {
                    DIMMER_RESET_WDG == RCC_CSR_IWDGRSTF, "reset flags");
     controls_init(dimmer_init(csr));            /* watchdog, fault, update: back as it was */
     SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
-    uart_init(UART_BAUD);
+    uart_init();
     tuya_init();
 
     uint32_t next_query = NETWORK_QUERY_FIRST_MS;

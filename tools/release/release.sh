@@ -18,12 +18,20 @@
 # over 12 KB needs an earlier ring-mover release (RING_HIGH, at most 12 KB). The bootloader's size
 # and boot sector CRC (the DP 136 value after an SWD install) are printed here and go into the
 # release notes (CI release job).
+# The room for later fixes is printed in one place before anything is pushed (docs/BOOTLOADER.md
+# section 12): the app's free bytes, refused below 512 (CI's warning line) unless
+# ACCEPT_HEADROOM=<exactly those bytes> records the user's decision for this release, and the
+# ZTU OTA margin with this app carried, refused over the 0x34000 limit. ZTU_OTA names the
+# ZDMS16-2 OTA file of the Zigbee firmware that will carry the release (the phase-3 build for
+# release R); by default the newest one on the fork's home-dimmer_build, as tools/ha/deploy_ota.sh
+# takes it; ZTU_OTA=skip leaves the margin out (said so).
 # Usage: tools/release/release.sh            (bump FW_VERSION and FW_BUILD in src/tuya.h and add
 #                                             the version's section to CHANGELOG.md first)
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")/../.."
 PY32=patapovich/zdms16-py32
 ZTU=patapovich/tuya-zigbee-switch
+ZTU_DIR=~/projects/tzs-diag
 # Everything that ends up in the released files: a change here needs a new version.
 FW_PATHS=(src boot Makefile py32f002a_app.ld tools/mkimage.py tools/embed_ztu.py tools/fwimage.py)
 
@@ -67,8 +75,22 @@ case $VB in
 esac
 TAG=$(printf 'v%d.%d.%d' $((VB >> 6)) $(((VB >> 4) & 3)) $((VB & 15)))
 python3 tools/changelog.py "$TAG" > /dev/null || die "CHANGELOG.md: add a short section '## ${TAG#v} (date)' for this release first"
-# Build number, version byte against the earlier release tags, the ring-mover gate.
-python3 tools/release/release_check.py --image "$TMP/build/zdms16_py32.img" --tag "$TAG" --gh-repo "$PY32" ||
+# The ZTU OTA file the margin is measured with (ZTU_OTA, else the newest ZDMS16-2 build on
+# home-dimmer_build).
+ota=${ZTU_OTA:-}
+if [ -z "$ota" ]; then
+    git -C "$ZTU_DIR" fetch -q patapovich home-dimmer_build ||
+        die "cannot fetch home-dimmer_build in $ZTU_DIR: ZTU_OTA=<ZDMS16-2 OTA file> or ZTU_OTA=skip"
+    c=$(git -C "$ZTU_DIR" log --format=%h -1 --grep="Update firmware files" patapovich/home-dimmer_build)
+    p=$(git -C "$ZTU_DIR" show --name-only --format= "$c" | grep "MODULE_AVATTO_ZDMS16_2/.*\.zigbee$" | grep -v "forced\|from_tuya" || true)
+    [ -n "$c" ] && [ -n "$p" ] && [ "$(printf '%s\n' "$p" | wc -l)" -eq 1 ] ||
+        die "no ZDMS16-2 OTA file on home-dimmer_build: ZTU_OTA=<file> or ZTU_OTA=skip"
+    ota="$TMP/$(basename "$p")"
+    git -C "$ZTU_DIR" show "$c:$p" > "$ota"
+fi
+# Build number, version byte against the earlier release tags, the ring-mover gate; the app
+# headroom and the ZTU OTA margin.
+python3 tools/release/release_check.py --image "$TMP/build/zdms16_py32.img" --tag "$TAG" --gh-repo "$PY32" --ztu-ota "$ota" ${ACCEPT_HEADROOM:+--accept-headroom "$ACCEPT_HEADROOM"} ||
     die "release rules: see above"
 # The bootloader every module installed with this release keeps for good: record its boot sector CRC.
 python3 tools/fwimage.py notes build-boot/boot.bin "$TMP/build/zdms16_py32_full.bin" > "$TMP/bootline" ||
@@ -259,7 +281,6 @@ fi
 gh release view "$TAG" --repo "$PY32" --json assets --jq '.assets[].name' | sed 's/^/  asset /'
 
 # --- carry into the Zigbee firmware -----------------------------------------------------------
-ZTU_DIR=~/projects/tzs-diag
 VENV_PY=~/projects/tuya-zigbee-switch/.venv/bin/python
 # py32-bump runs are titled "Carry PY32 <tag>" (older ones: the workflow name)
 bump_cond=".event != \"schedule\" and ((.displayTitle | startswith(\"Carry PY32 \") | not) or .displayTitle == \"Carry PY32 $TAG\")"
