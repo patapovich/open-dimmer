@@ -27,8 +27,10 @@
 #                                  bootloader region included (boot.bin + app image)
 #   OLD_BOOT=1                     accept a full image whose bootloader has no boot_id (v1 or
 #                                  older): bench only, a module keeps that bootloader
-#   ERASE_SETTINGS=1               accept an image over 12 KB: pyOCD erases whole 4 KB sectors,
-#                                  so it erases the settings ring in sector 4
+#   ERASE_SETTINGS=1               an image over 12 KB erases the settings in sector 4 (pyOCD
+#                                  erases whole 4 KB sectors). Without it such an image keeps
+#                                  them: sector 4 is read first and written back with the
+#                                  image's start merged in (as an update over the UART would)
 #   WRP=1                          write-protect sector 0 (the bootloader) after the write
 #                                  (docs/BOOTLOADER.md section 1: not set in phase 3; try it
 #                                  on the spare first). A re-flash clears it first in any case
@@ -124,7 +126,8 @@ PY
     say "SHA256SUMS of $TAG: full image, bootloader and app image OK"
 fi
 [ -f "$IMAGE" ] || die "image not found: $IMAGE (make, or IMAGE=release)"
-python3 "$FW/tools/fwimage.py" full "$IMAGE" ${OLD_BOOT:+--old-boot} ${ERASE_SETTINGS:+--erase-settings} ||
+python3 "$FW/tools/fwimage.py" full "$IMAGE" ${OLD_BOOT:+--old-boot} \
+    $([ -n "${ERASE_SETTINGS:-}" ] && echo --erase-settings || echo --keep-settings) ||
     die "not a usable full image"
 BOOT_CRC=$(python3 -c "import sys, zlib; print('0x%08X' % zlib.crc32(open(sys.argv[1], 'rb').read()[:4096]))" "$IMAGE")
 WRPR_ON=0xFFFE   # sector 0 protected (WRPR bit 0 = 0)
@@ -203,11 +206,29 @@ else
 fi
 
 # --- 4. image --------------------------------------------------------------------------
+LOAD="$IMAGE"
+if [ "$(stat -c %s "$IMAGE")" -gt 16384 ] && [ -z "${ERASE_SETTINGS:-}" ]; then
+    # The image reaches into sector 4, which pyOCD erases whole: read it first, write it back with
+    # the image's bytes merged in at its start (they end below the ring at 0x08004800).
+    say "keeping the settings: sector 4 read first, written back with the image"
+    py commander -c "savemem 0x08004000 4096 $TMP/sector4.bin" > /dev/null 2>&1 || die "could not read sector 4 (the settings) before the write"
+    [ "$(stat -c %s "$TMP/sector4.bin" 2>/dev/null || echo 0)" -eq 4096 ] || die "sector 4 read short"
+    python3 - "$IMAGE" "$TMP/sector4.bin" "$TMP/merged.bin" <<'PY' || die "could not merge the image into sector 4"
+import sys
+img = open(sys.argv[1], "rb").read()
+s4 = open(sys.argv[2], "rb").read()
+cut = len(img) - 16384              # the image's bytes in sector 4: at most 2 KB (an app of 14 KB)
+if not 0 < cut <= 0x800 or len(s4) != 4096:
+    sys.exit(f"image end {cut} bytes into sector 4: past the ring at 0x08004800")
+open(sys.argv[3], "wb").write(img + s4[cut:])
+PY
+    LOAD="$TMP/merged.bin"
+fi
 say "writing the firmware"
 zero_boot_word                                     # pyOCD resets after the write
-py load --format bin --base-address 0x08000000 "$IMAGE" > "$TMP/load.log" 2>&1 || { cat "$TMP/load.log"; die "flash write failed"; }
-py commander -c "savemem 0x08000000 $(stat -c %s "$IMAGE") $TMP/readback.bin" > /dev/null 2>&1 || die "read-back failed"
-cmp -s "$IMAGE" "$TMP/readback.bin" || die "read-back differs from the image"
+py load --format bin --base-address 0x08000000 "$LOAD" > "$TMP/load.log" 2>&1 || { cat "$TMP/load.log"; die "flash write failed"; }
+py commander -c "savemem 0x08000000 $(stat -c %s "$LOAD") $TMP/readback.bin" > /dev/null 2>&1 || die "read-back failed"
+cmp -s "$LOAD" "$TMP/readback.bin" || die "read-back differs from the image"
 
 # --- 5. sector 0 write protection (WRP=1) -----------------------------------------------
 if [ -n "${WRP:-}" ]; then

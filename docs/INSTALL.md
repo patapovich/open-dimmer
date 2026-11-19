@@ -215,8 +215,9 @@ attaches, the script shows the image's bootloader version and its boot sector CR
 module later reports as DP 136; note it per module) and refuses:
 - a full image whose bootloader has no identity (`boot_id`, the v1 bootloader of 2.1.x):
   `OLD_BOOT=1` takes it anyway, for bench work only;
-- an image over 12 KB: pyOCD erases whole 4 KB sectors, so writing it **erases the settings**
-  in sector 4 (switch type, curves, levels). `ERASE_SETTINGS=1` accepts that.
+- an image over 12 KB reaches sector 4, which pyOCD erases whole: `install.sh` reads the sector
+  first and writes it back with the image merged in, so the settings (switch type, curves,
+  levels) stay; `ERASE_SETTINGS=1` erases them instead.
 
 `IMAGE=release` (the newest release) or `IMAGE=release:vX.Y.Z` downloads the full image with the
 release's `boot.bin`, app image and `SHA256SUMS`, checks all three against the list and checks
@@ -379,9 +380,9 @@ have v1.
   but none of the v2 escape paths below. To get v2, re-flash the module once over SWD with the
   release's full image, off the mains as in section 1: `FREQ=400000 IMAGE=release
   tools/swd/install.sh`. On a module that already runs Open Dimmer this only re-flashes; the
-  settings in the last 4 KB sector stay. An image over 12 KB would erase them (pyOCD erases
-  whole 4 KB sectors): `install.sh` refuses one unless `ERASE_SETTINGS=1` is given, and `make
-  flash-all` always refuses one.
+  settings in the last 4 KB sector stay, also with an image over 12 KB (`install.sh` reads the
+  sector first and writes it back with the image merged in; `ERASE_SETTINGS=1` erases them
+  instead); `make flash-all` refuses an image over 12 KB.
 - **Check.** DP 136 in the health report (logged by the Zigbee firmware's MCU link log) is the
   CRC-32 of the bootloader sector: the value the release notes give for the release's
   bootloader (the released v1: 0xEAC45031). The Zigbee firmware's link log also shows the

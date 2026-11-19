@@ -4,12 +4,14 @@ the app header, the bootloader identity (boot_id_t at 0x08000010) and the boot s
 tools/mkimage.py and tools/embed_ztu.py import it; tests/test_tools.py checks the numbers below
 against src/ota_proto.h.
 
-    fwimage.py full <full.bin> [--old-boot] [--erase-settings]
+    fwimage.py full <full.bin> [--old-boot] [--erase-settings | --keep-settings]
         check a whole-flash image before an SWD install (tools/swd/install.sh): app header and
         CRC, no SIM build, the app rules of every image (reserved flags, layout, SP exactly
         0x20000BE0 and an odd reset vector in the image, version byte, build; build 0 only as
         a 2.1.x app), the bootloader's identity and boot sector CRC; refuses a bootloader
-        without boot_id unless --old-boot, an app over 12 KB unless --erase-settings
+        without boot_id unless --old-boot, an app over 12 KB unless --erase-settings (the plain
+        write erases sector 4) or --keep-settings (install.sh reads sector 4 first and writes it
+        back with the image's start merged in)
     fwimage.py notes <boot.bin> [<full.bin>]
         the bootloader line of the release notes (version, size, boot sector CRC = DP 136);
         with full.bin also checks that its boot sector is boot.bin padded with 0xFF
@@ -221,7 +223,7 @@ def describe_boot(boot):
     return bid, crc, kind
 
 
-def check_full(full, old_boot=False, erase_settings=False, lines=None):
+def check_full(full, old_boot=False, erase_settings=False, lines=None, keep_settings=False):
     """The whole-flash image an SWD install writes (section 11, install.sh). Returns the lines
     to show (also collected in `lines` when given, so a refusal can show them); raises Refused."""
     lines = [] if lines is None else lines
@@ -270,11 +272,17 @@ def check_full(full, old_boot=False, erase_settings=False, lines=None):
         if h.size > bid["app_max"]:
             raise Refused(f"app of {h.size} bytes, the bootloader takes {bid['app_max']}")
     if len(full) > BOOT_SIZE + APP_LIMIT_LEGACY:          # what pyOCD writes is the whole file
-        if not erase_settings:
+        if erase_settings:
+            lines.append("ERASE_SETTINGS=1: the settings in sector 4 are erased with the write")
+        elif keep_settings:
+            # The app's layout keeps its ring in the sector's upper 2 KB (RING_HIGH, required for
+            # an app over 12 KB by app_problem above): the image ends below 0x08004800.
+            lines.append("settings kept: sector 4 is read first and written back with the image's "
+                         "start merged in (the settings ring from 0x08004800 unchanged)")
+        else:
             raise Refused(f"the image reaches past 0x08004000 (app {h.size} bytes): pyOCD erases whole "
                           "4 KB sectors, so writing it ERASES THE SETTINGS RING (sector 4). "
                           "ERASE_SETTINGS=1 to accept that")
-        lines.append("ERASE_SETTINGS=1: the settings in sector 4 are erased with the write")
     return lines
 
 
@@ -290,12 +298,14 @@ def main(argv):
     args = [a for a in argv[1:] if not a.startswith("--")]
     opts = {a for a in argv[1:] if a.startswith("--")}
     try:
-        if len(args) == 2 and args[0] == "full" and opts <= {"--old-boot", "--erase-settings"}:
+        if (len(args) == 2 and args[0] == "full" and opts <= {"--old-boot", "--erase-settings", "--keep-settings"}
+                and not {"--erase-settings", "--keep-settings"} <= opts):
             with open(args[1], "rb") as f:
                 data = f.read()
             lines = []
             try:
-                check_full(data, "--old-boot" in opts, "--erase-settings" in opts, lines)
+                check_full(data, "--old-boot" in opts, "--erase-settings" in opts, lines,
+                           keep_settings="--keep-settings" in opts)
             finally:
                 print("\n".join(lines), flush=True)
         elif len(args) in (2, 3) and args[0] == "notes" and not opts:

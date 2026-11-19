@@ -559,6 +559,11 @@ class FullImageCheck(ToolRun):
         self.assertIn("ERASES THE SETTINGS RING", out)
         rc, out = self.check(f, "--erase-settings")
         self.assertEqual(rc, 0, out)
+        rc, out = self.check(f, "--keep-settings")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("settings kept", out)
+        rc, out = self.check(f, "--keep-settings", "--erase-settings")
+        self.assertNotEqual(rc, 0)
         rc, out = self.check(full_img(boot_v2(), finished_img(size=12 * KB)))
         self.assertEqual(rc, 0, out)
         rc, out = self.check(full_img(boot_v1(), finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=13 * KB)),
@@ -1039,8 +1044,10 @@ if cmd == "commander":
         elif p[0] == "reset":
             reset("commander")
         elif p[0] == "savemem":
-            n = int(p[2], 0)
-            open(p[3], "wb").write(bytes.fromhex(st["flash"])[:n])
+            off, n = int(p[1], 0) - 0x08000000, int(p[2], 0)
+            fl = bytes.fromhex(st["flash"])
+            fl += b"\xff" * max(0, off + n - len(fl))          # erased flash beyond what was written
+            open(p[3], "wb").write(fl[off:off + n])
     log("commander", *cs)
     if not st["running"] and "resume_on_disconnect=false" not in opts:
         st["running"] = True
@@ -1329,16 +1336,28 @@ class FakeChip(unittest.TestCase):
             self.assertIn(msg, out)
             self.assertEqual(self.st()["log"], [], msg)
 
-    def test_erase_settings(self):
+    def test_an_image_over_12_kb_keeps_the_settings_unless_erase_settings(self):
         full = full_img(boot_v2(), finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=13 * KB))
+        ring = bytes(range(256)) * 8                                  # 2 KB of "settings" at 0x08004800
+        old = b"\xaa" * 0x4800 + ring
         self.chip()
+        st = self.st(); st["flash"] = old.hex()
+        with open(os.path.join(self.tmp.name, "state.json"), "w") as f:
+            json.dump(st, f)
         rc, out = self.install(full)
-        self.assertNotEqual(rc, 0)
-        self.assertIn("ERASE_SETTINGS=1", out)
-        self.assertEqual(self.st()["log"], [])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("settings kept", out)
+        fl = bytes.fromhex(self.st()["flash"])
+        self.assertEqual(fl[:len(full)], full)                         # the image, then ...
+        self.assertEqual(fl[len(full):0x4800], old[len(full):0x4800])  # ... the sector's old bytes
+        self.assertEqual(fl[0x4800:0x5000], ring)                      # and the ring, unchanged
         rc, out = self.install(full, ERASE_SETTINGS=1)
         self.assertEqual(rc, 0, out)
         self.assertIn("the settings in sector 4 are erased", out)
+        self.assertEqual(bytes.fromhex(self.st()["flash"]), full)      # nothing after the image
+        rc, out = self.install(full_img(boot_v2(), finished_img(size=12 * KB)))
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("settings kept", out)                         # up to 12 KB: sector 4 untouched
 
     def test_sim_refused(self):
         self.chip()
