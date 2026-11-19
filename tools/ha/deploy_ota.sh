@@ -75,7 +75,7 @@ pos = d.find(b"APDZ")
 while pos >= 0:                       # the header whose size and CRC check out (the ZTU code
     start = pos - 0xC0                # also contains the magic as a constant)
     size, crc = struct.unpack_from("<II", d, pos + 4) if pos + 12 <= len(d) else (0, 0)
-    if start >= 0 and 0 < size <= 12 * 1024 and start + size <= len(d):
+    if start >= 0 and 0 < size <= 14 * 1024 and start + size <= len(d):   # 14 KB from 2.2.0 (v2 boot)
         img = bytearray(d[start:start + size])
         img[0xC8:0xCC] = bytes(4)
         if zlib.crc32(img) == crc:
