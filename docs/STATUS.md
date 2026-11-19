@@ -1,4 +1,4 @@
-# Open Dimmer: status (2026-11-19)
+# Open Dimmer: status (2026-11-19, 2.2.0 in work)
 
 Open Dimmer is open-source firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2,
 updated over Zigbee by the fork's Zigbee (ZTU) firmware (`patapovich/tuya-zigbee-switch`,
@@ -8,15 +8,25 @@ branch `home-dimmer`).
 
 | What | Version / place |
 |---|---|
-| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-db24e888 (0x11033058, phase-3 ZTU, carries PY32 v2.1.13), MCU **Open Dimmer 2.1.13** (release R) since 2026-11-19, still on the v1 bootloader (taken by the version byte at once; DP 136 0xEAC45031, DP 137 0; on, level, On while on, off checked; health clean) |
+| Spare module (test lamp on L1, push button L–S1) | ZTU 1.1.3-5bb263e7 (carries PY32 v2.1.14), MCU **Open Dimmer 2.1.14** (release M) on the **v2 bootloader** (SWD, boot sector CRC 0x7D215316) since 2026-11-19, settings ring moved (DP 137 bits 24 + 25); bench tests B1, B2 (20 power cycles, probe answer 172..179 ms) done. Next: 2.2.0 |
 | Other modules | none runs Open Dimmer yet: see "Before further modules" |
 | PY32 source | this repo (github.com/patapovich/zdms16-py32) |
-| ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (phase-3 ZTU since 2026-11-19, carries PY32 v2.1.13; build changelog in `docs/changelog_home_dimmer.md`); `home-dimmer_build` has the generated converter and the OTA images |
+| ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (carries PY32 v2.1.14; dimmer-only build since 2026-11-19, -14 KB; transition time; the ring gate for images over 12 KB comes with 2.2.0's ZTU work, branch `ztu-220`; build changelog in `docs/changelog_home_dimmer.md`); `home-dimmer_build` has the generated converter and the OTA images |
 | SWD tools | `tools/swd/install.sh` (one-contact install, docs/INSTALL.md; untested on a stock module yet), the single steps beside it (`.venv` and `pack/` next to the clone, see docs/INSTALL.md) |
 | HA / Z2M helpers | `tools/ha/` (see its README): expose dump and configure check with the real zhc, websocket client, OTA deploy |
 | Docs | `docs/INSTALL.md`, `docs/REVIEW-2026-11-17.md`, `docs/ZC-DELAY-MEASUREMENT.md`, `docs/stock-firmware-analysis.md` |
 
 ## Flash layout and budget
+
+From 2.1.14 (release M, build 400) on: app up to 14 KB @0x08001000 under the v2 bootloader,
+settings 2 KB @0x08004800 (16-page ring, the sector's upper half; header flag RING_HIGH 0x10).
+2.1.14 moves the newest record up once (docs/BOOTLOADER.md section 1); apps over 12 KB need the
+v2 bootloader and a moved ring (the ZTU's ring gate: DP 137 bit 25 seen). The app is built with
+LTO (the bootloader is not, it stays byte-identical). App 2.1.14: 11 652 bytes. App 2.2.0:
+13 268 bytes (1 068 free of 14 KB).
+
+History:
+
 
 Bootloader 4 KB @0x08000000 (2 136 bytes used), app 12 KB @0x08001000 (header at +0xC0),
 settings 4 KB @0x08004000 (32-page ring, record v2 "ZDS2" 40 bytes; v1 "ZDS1" 20 bytes still
@@ -60,14 +70,20 @@ already does).
 
 | DP | Meaning |
 |---|---|
-| 1..6 / 7..12 | channel 1 / 2: on, level, min, switch type, max, countdown (stock layout) |
+| 1..6 / 7..12 | channel 1 / 2: on, level, min, switch type, max, countdown (stock layout; from 2.2.0 the countdown is an auto-off in s, up to a day, RAM only, reported 0 when an off ends it) |
 | 14 | power-on, both channels (written: both; reported: channel 1's) |
 | 101 / 102 | dimming curve: incandescent, led, led_deep, led_deeper, led_soft (default for new channels), linear |
 | 103 / 104 | power-on per channel |
-| 105 / 106 | wall switch gesture (momentary type), event: 1 single, 2 double, 3 triple, 4 hold, 5 release |
+| 105 / 106 | wall switch gesture (momentary type), event: 1 single, 2 double, 3 triple, 4 hold, 5 release, 6 press (fast press, 2.2.0) |
 | 130..135 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, saves, UART receive losses |
 | 136 / 137 | with the health report (from the first v2 app): CRC-32 of the 4 KB boot sector (the released v1 bootloader: 0xEAC45031), the boot word at start, bits 23..0 (probe answer time, rescue info, LINK, tries; 0 under v1). docs/BOOTLOADER.md section 9. From 2.1.14 bit 24: the settings ring is the sector's upper half (RING_HIGH), bit 25: the newest settings record is in it ("ring moved") |
 | 150..154 / 155..159 | per channel: fade on ms, fade off ms, soft dim end %, hold ms, hold dim end % (saved) |
+| 138 / 139 | (2.2.0) die temperature degC (signed; VDD dependent, about +-10 degC absolute, a diagnostic) / the chip's sensor calibration (raw 85 degC << 16 \| raw 30 degC) |
+| 162 / 163 | (2.2.0, saved) wall switch mode: 0 normal, 1 detached (only reports), 2 off |
+| 164 / 165 | (2.2.0, saved) level after a power cut (0: the last level; kept in steps of 4) |
+| 166 / 167 | (2.2.0, not saved) identify: blink for that many s (up to 255), 0 stops |
+| 168 / 169 | (2.2.0, saved) start boost ms (steps of 50, up to 750, 0 none) |
+| 170 / 171 | (2.2.0, saved) fast press: in detached mode a momentary press is reported at once (6) |
 | 160 / 161 | per channel (from build 400): transition time in ms for the network changes of the next second (a Zigbee transition time; one even rate, the min when dark; 0 = the fade settings). Not saved, not in the dump; the module writes it right before the on / off / level |
 | 110..123 | DIAG / MEASURE builds only (statistics every 10 s) |
 | 0xA0..0xA3 | Open Dimmer commands (not Tuya's): update notify / block / result, identity |
@@ -352,7 +368,9 @@ resets that are not explained.
    Mains off, probe only on a dead board.
 5. Optional: zero-cross delay measurement (`docs/ZC-DELAY-MEASUREMENT.md`; the DIAG build
    declines the ZTU's update offers, so it stays until `make flash-all` over SWD).
-6. Parked: per-channel gesture action modes / detached switch type; module button gestures.
+6. Parked: module button gestures. (Detached wall switch mode: in 2.2.0.) Next on the ZTU side:
+   Zigbee Scenes and direct binding of the wall switch (designed 2026-11-19; nothing needed in
+   the MCU beyond 2.2.0's fast press).
 7. Done 2026-11-18: `ZTU_DISPATCH_TOKEN` is set; a re-run of v2.1.12's hand-over job started
    py32-bump in the fork, which saw 2.1.12 already carried and changed nothing. Releases now use
    `NO_TRIGGER=1 tools/release/release.sh`. Renew the token before it expires (a failing
