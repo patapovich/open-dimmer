@@ -38,8 +38,8 @@ channels and reports only on, off and level. Open Dimmer adds, per channel:
   three wall switch modes: normal, detached and off;
 - power-on behaviour and level, start boost for LED drivers, auto-off timer, identify;
 - health reports;
-- safe updates over Zigbee: the light goes dark for a few seconds while the update installs and
-  comes back as it was, and a failed update reinstalls itself.
+- safe updates over Zigbee: they install while the light is off (a day later at the latest), and
+  a failed update reinstalls itself.
 
 ### The wall switch: stock vs Open Dimmer
 

@@ -194,4 +194,4 @@ Before deploying a changed Zigbee2MQTT converter:
 | 9 | Zigbee firmware: hold reports after the module's wall-switch OnLevel write were held back about 2 s | fixed in the Zigbee firmware (a hold gesture ends the holdoff), tested on hardware |
 | 10 | Zigbee firmware: right after a restart it reported the light off before it knew the dimmer chip's state | fixed in the Zigbee firmware (reports wait until every dimmer knows its state), tested on hardware |
 | 11 | Download counts: hubs fetched the OTA images as raw files, which GitHub does not count | done: each build's OTA images are release assets of the fork and the OTA index points to them (download counts per asset) |
-| 12 | Zigbee firmware: install an Open Dimmer update only while the light is off (it goes dark for the few seconds the bootloader writes), with a time limit and a way to update at once | planned |
+| 12 | Zigbee firmware: an Open Dimmer update made the light go off and on (the bootloader keeps it dark while it writes) | fixed in the Zigbee firmware: updates wait for the light to be off (a minute after the off, a day at most), tested on hardware |
