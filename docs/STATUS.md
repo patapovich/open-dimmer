@@ -6,12 +6,18 @@ State of 2026-11-20.
 
 ## Current state
 
-| | |
-|---|---|
-| Release | **2.2.4** (build 900): app 13 500 of 14 336 bytes; bootloader 3 364 of 4 096 bytes, boot sector CRC-32 `0x7D215316` (health DP 136) |
-| Zigbee firmware | fork `home-dimmer`; CI builds the OTA images on `home-dimmer_build` for every change. It carries the newest release and updates an Open Dimmer MCU that runs an older one (never a stock MCU); it installs Open Dimmer over two soldered wires |
-| Tested on hardware | two-wire install on a stock unit, also with power cuts in every install phase; updates over Zigbee (with both channels lit; a mains cut mid-update recovered); SWD bootloader rewrite over the two wires; probe re-flash keeping the settings; bootloader probe, rescue, button and link watchdog; Zigbee Scenes and wall switch bindings |
-| Not yet tested | see [Open items](#open-items) |
+- **Release 2.2.4** (build 900): app 13 500 of 14 336 bytes; bootloader 3 364 of 4 096 bytes,
+  boot sector CRC-32 `0x7D215316` (health DP 136).
+- **Zigbee firmware:** fork `home-dimmer`; CI builds the OTA images on `home-dimmer_build` for
+  every change. It carries the newest release, updates an Open Dimmer MCU that runs an older one
+  (never a stock MCU) and installs Open Dimmer over two soldered wires.
+- **Tested on hardware:**
+  - two-wire install on a stock unit, also with power cuts in every install phase;
+  - updates over Zigbee, with both channels lit; a mains cut in the middle recovered;
+  - SWD bootloader rewrite over the two wires; probe re-flash keeping the settings;
+  - bootloader probe, rescue, button and link watchdog;
+  - Zigbee Scenes and wall switch bindings.
+- **Not yet tested:** see [Open items](#open-items).
 
 ## Where things are
 
@@ -24,7 +30,8 @@ State of 2026-11-20.
 
 ## Datapoints
 
-The stock DPs 1..14 keep their meaning; the rest are Open Dimmer's. "a / b": channel 1 / 2.
+The stock DPs 1..14 keep their meaning; the rest are Open Dimmer's. A pair like 101 / 102 is
+channel 1 / channel 2.
 
 | DP | Meaning |
 |---|---|
@@ -33,6 +40,7 @@ The stock DPs 1..14 keep their meaning; the rest are Open Dimmer's. "a / b": cha
 | 101 / 102 | dimming curve: incandescent, led, led_deep, led_deeper, led_soft (default), linear |
 | 103 / 104 | power-on per channel |
 | 105 / 106 | wall switch gesture: 1 single, 2 double, 3 triple, 4 hold, 5 release, 6 press (fast press) |
+| 110..123 | DIAG / MEASURE builds only |
 | 130..135 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, settings saves, UART receive losses |
 | 136 / 137 | CRC-32 of the boot sector; the boot word at start (tries, probe answer time, rescue / button / link flags; bits 24 / 25 settings ring layout; BOOTLOADER.md section 9) |
 | 138 / 139 | die temperature °C (about ±10 °C absolute) / its calibration |
@@ -43,7 +51,6 @@ The stock DPs 1..14 keep their meaning; the rest are Open Dimmer's. "a / b": cha
 | 166 / 167 | identify: blink for that many s (0 stops; not saved) |
 | 168 / 169 | start boost ms (steps of 50, up to 750) |
 | 170 / 171 | fast press: in detached mode a momentary press is reported at once |
-| 110..123 | DIAG / MEASURE builds only |
 | 0xA0..0xA3 | Open Dimmer's own commands: update notify / block / result, identity |
 
 Min and max are physical conduction limits for every curve, as on the stock MCU.
