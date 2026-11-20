@@ -15,11 +15,8 @@
 #define CURVE_LED_DEEP      4
 #define CURVE_LED_DEEPER    5
 
-static const uint16_t k_curves[CURVE_COUNT][CURVE_POINTS] = {
-    /* linear */
-    {     0,   312,   625,   938,  1250,  1562,  1875,  2188,  2500,  2812,  3125,
-       3438,  3750,  4062,  4375,  4688,  5000,  5312,  5625,  5938,  6250,  6562,
-       6875,  7188,  7500,  7812,  8125,  8438,  8750,  9062,  9375,  9688, 10000 },
+/* Index curve - 1: linear has no table (dim_curve computes it). */
+static const uint16_t k_curves[CURVE_COUNT - 1][CURVE_POINTS] = {
     /* led */
     {     0,    35,    69,   105,   148,   203,   269,   348,   442,   550,   676,
         819,   981,  1163,  1367,  1592,  1842,  2116,  2416,  2744,  3099,  3484,

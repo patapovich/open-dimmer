@@ -164,6 +164,9 @@ LDFLAGS  := $(ARCH) -T$(LDSCRIPT) -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(PROJECT)
 # script and the handlers by their names; src/libc_min.c keeps its loops by a per-function
 # attribute that LTO carries, and CI checks that mem* call nothing.
 APP_LTO  := -flto
+# ... and with less inlining and no switch jump tables (compare chains): -192 bytes, no feature
+# touched. Every call these add is a few cycles, nothing near the zero-cross timing.
+APP_SIZE := -finline-limit=10 -fno-ipa-cp-clone -fno-ipa-sra -fno-jump-tables
 
 OBJS     := $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o))) $(addprefix $(BUILD)/,$(notdir $(ASRCS:.s=.o)))
 
@@ -189,7 +192,7 @@ $(BUILD) $(BOOT_BUILD):
 	mkdir -p $@
 
 $(BUILD)/%.o: %.c | $(BUILD)
-	$(CC) $(CFLAGS) $(APP_LTO) -c $< -o $@
+	$(CC) $(CFLAGS) $(APP_LTO) $(APP_SIZE) -c $< -o $@
 
 $(BUILD)/%.o: %.s | $(BUILD)
 	$(CC) $(ARCH) -c $< -o $@
@@ -214,7 +217,7 @@ $(RING_STAMP): | $(BUILD)
 $(OBJS): $(RING_STAMP)
 
 $(BUILD)/$(PROJECT).elf: $(OBJS) $(LDSCRIPT)
-	$(CC) $(LDFLAGS) -Os $(APP_LTO) $(OBJS) -o $@
+	$(CC) $(LDFLAGS) -Os $(APP_LTO) $(APP_SIZE) $(OBJS) -o $@
 	$(SIZE) $@
 
 $(BUILD)/$(PROJECT).bin: $(BUILD)/$(PROJECT).elf

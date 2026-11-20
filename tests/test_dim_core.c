@@ -105,7 +105,7 @@ static void test_curves(void) {
  * the image): that needs tables that never fall, which tools/gen_curves.py
  * enforces. */
 static void test_curve_tables_never_fall(void) {
-    for (uint8_t c = 0; c < CURVE_COUNT; c++) {
+    for (uint8_t c = 0; c < CURVE_COUNT - 1; c++) {    /* linear has no table */
         CHECK(k_curves[c][0] == 0);
         CHECK(k_curves[c][CURVE_POINTS - 1] == CURVE_OUT_MAX);
         for (uint8_t i = 0; i + 1 < CURVE_POINTS; i++) {
@@ -123,10 +123,10 @@ static uint16_t curve_signed(uint8_t curve, uint16_t value) {
     if (value >= DIM_VALUE_MAX) {
         return DIM_DUTY_MAX;
     }
-    if (curve >= CURVE_COUNT) {
-        curve = CURVE_LINEAR;
+    if (curve == CURVE_LINEAR || curve >= CURVE_COUNT) {
+        return (uint16_t)(value * 10u);                /* linear: computed, as dim_output does */
     }
-    const uint16_t *k    = k_curves[curve];
+    const uint16_t *k    = k_curves[curve - 1];
     uint32_t        pos  = (uint32_t)value * (CURVE_POINTS - 1);
     uint32_t        seg  = pos / DIM_VALUE_MAX;
     uint32_t        frac = pos % DIM_VALUE_MAX;

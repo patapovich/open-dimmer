@@ -83,8 +83,10 @@ def main():
     print(f"#define CURVE_POINTS   {POINTS}\n#define CURVE_OUT_MAX  {OUT_MAX}\n#define CURVE_COUNT    {len(CURVES)}\n")
     for i, (name, _) in enumerate(CURVES):
         print(f"#define CURVE_{name.upper():13} {i}")
-    print("\nstatic const uint16_t k_curves[CURVE_COUNT][CURVE_POINTS] = {")
-    for name, vals in tables:
+    # linear is computed (value * 10, as dim_output does), no table: the tables start at led.
+    print("\n/* Index curve - 1: linear has no table (dim_curve computes it). */")
+    print("static const uint16_t k_curves[CURVE_COUNT - 1][CURVE_POINTS] = {")
+    for name, vals in tables[1:]:
         print(f"    /* {name} */")
         for j in range(0, POINTS, 11):
             print("    " + ("{ " if j == 0 else "  ") + ", ".join(f"{v:5d}" for v in vals[j:j + 11]) + (" }," if j + 11 >= POINTS else ","))
