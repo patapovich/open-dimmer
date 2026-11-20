@@ -104,8 +104,9 @@ module that already runs Open Dimmer is left alone. A `device_config` written by
 ## Updates
 
 Update the Zigbee firmware over the air as usual. It carries Open Dimmer and updates the dimmer
-chip by itself a few seconds after it restarts; the light comes back as it was. A version that
-fails to start three times in a row is reinstalled by itself. The wires stay in the module.
+chip by itself a few seconds after it restarts. The light goes dark for the few seconds the
+install takes and then comes back as it was. A version that fails to start three times in a row
+is reinstalled by itself. The wires stay in the module.
 
 **Button rescue** (reinstalls the version the Zigbee firmware carries; the case stays closed):
 

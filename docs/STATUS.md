@@ -118,7 +118,8 @@ During a hold the level is reported every 0.5 s.
 
 **Module button:** a press toggles both channels (any on → all off); held ≥ 3 s it rejoins.
 
-**Restarts:** after a watchdog, fault or update restart the light comes back as it was. A second
+**Restarts:** after a watchdog, fault or update restart the light comes back as it was (an update
+keeps it dark for the few seconds the bootloader writes). A second
 such reset within a minute, a power cut or a brown-out takes the power-on setting.
 
 **Mains frequency:** the zero-cross tracker takes 40..70 Hz, and the times scale with the half
@@ -193,3 +194,4 @@ Before deploying a changed Zigbee2MQTT converter:
 | 9 | Zigbee firmware: hold reports after the module's wall-switch OnLevel write were held back about 2 s | fixed in the Zigbee firmware (a hold gesture ends the holdoff), tested on hardware |
 | 10 | Zigbee firmware: right after a restart it reported the light off before it knew the dimmer chip's state | fixed in the Zigbee firmware (reports wait until every dimmer knows its state), tested on hardware |
 | 11 | Download counts: hubs fetched the OTA images as raw files, which GitHub does not count | done: each build's OTA images are release assets of the fork and the OTA index points to them (download counts per asset) |
+| 12 | Zigbee firmware: install an Open Dimmer update only while the light is off (it goes dark for the few seconds the bootloader writes), with a time limit and a way to update at once | planned |
