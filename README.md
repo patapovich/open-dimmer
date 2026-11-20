@@ -44,7 +44,6 @@ The stock firmware is quirky in use: it reads the wall switch inconsistently and
 | Double, triple, hold | not reported | Zigbee2MQTT actions; can drive bound lights |
 | Modes | the switch always drives the light | normal, detached (only reports), off |
 | Stuck input | – | a hold ends by itself |
-| Power-up | – | lit after ~1.5 s (checks for an update first) |
 
 ## Zigbee firmware features
 
