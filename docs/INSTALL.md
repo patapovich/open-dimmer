@@ -38,7 +38,8 @@ If it does not work:
 - Still "Tuya (stock)" after a power cycle: set the device option `mcu_flasher` to `show` and
   read `mcu_flasher_status` ([watching it](#a-two-wires-no-probe)). With
   `no answer (wires? power?)` check the two joints, mains off.
-- A `device_config` written by hand must contain `SWD3D7;` ([section A](#a-two-wires-no-probe)).
+- A `device_config` written by hand gets `SWD3D7;` once with the Zigbee firmware update; if you
+  removed it later, add it back ([section A](#a-two-wires-no-probe)).
 - A power cut during the install: switch on again, it carries on or starts over by itself.
 
 The sections below are the details.
@@ -208,8 +209,9 @@ curve led_soft. Set them as in steps 4–5 of section 2 below.
   module to install Open Dimmer" (after the Reconfigure of section 0). Power the module off for
   a few seconds and on again: that power-up installs Open Dimmer.
 - **A `device_config` written by hand.** The board's default config names the two pins (the
-  token `SWD3D7;`), but a module uses it only until a `device_config` is written to it. If one
-  was, check that it has `SWD3D7;`, append it if not (the module restarts), then power-cycle the
+  token `SWD3D7;`). A config written before the default had it gets the token once with the
+  Zigbee firmware update (home-dimmer 2b098b13, 2026-11-20, or later); one removed by hand
+  afterwards stays removed. Then append `SWD3D7;` again (the module restarts) and power-cycle the
   module once.
 - **Already Open Dimmer** (installed with a probe): the firmware sees that the MCU is not
   read-protected and leaves it alone.
