@@ -1,4 +1,9 @@
-# Bootloader v2: design (fix plan phase 3)
+# Bootloader: design record
+
+> A design record, kept as written in November 2026: plans, reviews and bench logs of their
+> day ("v2" is the bootloader every module runs now; the "v1" of 2.1.x is gone). The current
+> state, the datapoints and the open items are in [STATUS.md](STATUS.md); installing is in
+> [INSTALL.md](INSTALL.md).
 
 Status: design, 2026-11-18, revised the same day after an adversarial review of this design
 (three reviewers), again after two factory-firmware compatibility reviews (section 15), and
@@ -12,7 +17,7 @@ branch `home-dimmer` at 51f5c95a (paths under `src/zigbee/` there are marked "fo
 Addresses marked "stock ZTU" are in the public dump of the `_TZE284_jtbgusdc` ZTU (sha256
 f4afb7a8..., named in `docs/stock-firmware-analysis.md`), and "WiFi 1.0.3" ones in the WiFi PY32
 dump of the same document. Item numbers refer to the project review of 2026-11-18, which is
-kept privately (see STATUS.md).
+kept privately.
 
 The bootloader can only be replaced over SWD (mains off, probe on CN2). Every module installed
 from now on keeps the v2 bootloader for good, so v2 is designed to never need replacing: it
@@ -873,7 +878,7 @@ less than 4 h apart (crashes); one that crashes more rarely gets the probe at ea
 unconfirmed boot opens a 30 s dark window, until a confirmed run or a power cut (*measured*: 7
 windows in 1 cold + 9 warm boots, `...WWWWWWW`), and the light takes the power-on behaviour after
 it (section 3). Who is affected:
-- an own ZTU without Open Dimmer support (a fork build from before it, forbidden by the STATUS
+- an own ZTU without Open Dimmer support (a fork build from before it, forbidden by STATUS.md's rollout rule
   migration order). It never sends 0x01 either, so the second path does not help there;
 - an app whose identity answers are lost in every run.
 
@@ -1482,7 +1487,7 @@ the update wait, from the implementation review, is 8 of them).
 | B10 | 1-2 weeks trial: health DPs 131-137 | No unexpected resets; DP 137 shows tries 1 at every start (each run before it confirmed) and LINK clear (no link restart under a working ZTU) |
 | B11 | Link watchdog: a spare test build (below R) with the thresholds cut to 2 min silence / 5 min uptime and its frame counter fed nothing (an SWD build switch: frames are still handled, only the watchdog does not see them); the ZTU carries R, then the same build. With a channel on, then with both off | Never fires while a channel is on. With both off: a restart, the light state unchanged, mode-6 requests in the ZTU log; R installed by the probe; with nothing newer, the switch answers again within ~0.2 s; DP 137 shows LINK and the probe time; never a rescue window over 10 cycles |
 
-6. **Further modules**, each at its migration slot (STATUS migration order): install.sh stock
+6. **Further modules**, each at its migration slot (STATUS.md, "Rollout to further modules"): install.sh stock
    path with the same release full image, then record DP 136 and 137 per module. From then on
    their bootloader never changes. App and ZTU updates go over Zigbee, the spare first, as the
    process rule says. After every ZTU rollout, a cold boot with probe time 0 (and LINK clear) in
@@ -1643,7 +1648,7 @@ Phase 3 stays inside these limits (rule 4). Contract item 6 keeps later ZTU chan
 | 5 | factory MCU of another fork board (touch switch, relay) | (stock) | own, any | unchanged | No identity code in the build (rule 6) |
 | 6 | Open Dimmer 2.1.x / v2 app | v1 / v2 | own, phase 1 / 3 | supported: the design target | Section 2 matrix |
 | 7 | Open Dimmer, any | v1 / v2 | stock Tuya | NOT SUPPORTED, but safe | Next subsection |
-| 8 | Open Dimmer, any | v1 / v2 | own, from before Open Dimmer support | forbidden (STATUS migration order) | Never asked 0xA3, no updates. Counter windows from the 3rd warm reset (section 7) |
+| 8 | Open Dimmer, any | v1 / v2 | own, from before Open Dimmer support | forbidden (STATUS.md, "Rollout to further modules") | Never asked 0xA3, no updates. Counter windows from the 3rd warm reset (section 7) |
 | 9 | Open Dimmer, any | any | own ZDMS16 build without an image | does not exist | `embed_ztu.py` has no empty mode. Forbidden like row 8 |
 
 ### Open Dimmer under a stock Tuya ZTU (row 7)
