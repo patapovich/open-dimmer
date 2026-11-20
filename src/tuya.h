@@ -33,7 +33,7 @@
 #define FW_VERSION               0xBF
 #else
 #ifndef FW_VERSION
-#define FW_VERSION               0xA3   /* 2.2.3, build 800 (make VERSION_BYTE=0x.. overrides) */
+#define FW_VERSION               0xA4   /* 2.2.4, build 900 (make VERSION_BYTE=0x.. overrides) */
 #endif
 #endif
 
@@ -51,7 +51,7 @@
 #ifdef FW_BUILD
 #error "FW_BUILD is the release build in src/tuya.h; test builds: make FW_TEST=n [FW_PREV=1]"
 #endif
-#define FW_BUILD                 800
+#define FW_BUILD                 900
 #ifndef FW_TEST
 #define FW_TEST                  0
 #elif FW_TEST < 1 || FW_TEST > 99

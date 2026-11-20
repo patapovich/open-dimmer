@@ -1,4 +1,4 @@
-# Open Dimmer: status (2026-11-19, release 2.2.3)
+# Open Dimmer: status (2026-11-20, release 2.2.4)
 
 Open Dimmer is open-source firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2,
 updated over Zigbee by the fork's Zigbee (ZTU) firmware (`patapovich/tuya-zigbee-switch`,
@@ -98,7 +98,7 @@ already does).
 
 | DP | Meaning |
 |---|---|
-| 1..6 / 7..12 | channel 1 / 2: on, level, min, switch type, max, countdown (stock layout; from 2.2.0 the countdown is an auto-off in s, up to a day, RAM only, reported 0 when an off ends it) |
+| 1..6 / 7..12 | channel 1 / 2: on, level, min, switch type, max, countdown (stock layout; from 2.2.0 the countdown is an auto-off in s, up to a day, RAM only, reported 0 when an off ends it; from 2.2.4 a wall switch hold reports the level every 0.5 s on the way, as the stock MCU) |
 | 14 | power-on, both channels (written: both; reported: channel 1's) |
 | 101 / 102 | dimming curve: incandescent, led, led_deep, led_deeper, led_soft (default for new channels), linear |
 | 103 / 104 | power-on per channel |
