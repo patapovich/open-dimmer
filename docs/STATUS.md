@@ -12,9 +12,9 @@ branch `home-dimmer`).
 | Other modules | none runs Open Dimmer yet: see "Before further modules" |
 | PY32 source | this repo (github.com/patapovich/zdms16-py32) |
 | ZTU + converter | fork `patapovich/tuya-zigbee-switch`, branch `home-dimmer` (carries PY32 v2.2.2; dimmer-only build; ring gate with a refusal answer to gated probes; transitions: no time = the module fade, 0 = instant, per-channel brightness_fade_time; build changelog in `docs/changelog_home_dimmer.md`); `home-dimmer_build` has the generated converter and the OTA images |
-| SWD tools | `tools/swd/install.sh` (one-contact install, docs/INSTALL.md; untested on a stock module yet), the single steps beside it (`.venv` and `pack/` next to the clone, see docs/INSTALL.md) |
+| SWD tools | `tools/swd/install.sh` (one-contact install, docs/INSTALL-PROBE.md; untested on a stock module yet), the single steps beside it (`.venv` and `pack/` next to the clone, see docs/INSTALL-PROBE.md) |
 | HA / Z2M helpers | `tools/ha/` (see its README): expose dump and configure check with the real zhc, websocket client, OTA deploy |
-| Docs | `docs/INSTALL.md`, `docs/REVIEW-2026-11-17.md`, `docs/ZC-DELAY-MEASUREMENT.md`, `docs/stock-firmware-analysis.md` |
+| Docs | `docs/INSTALL.md` (two wires), `docs/INSTALL-PROBE.md` (probe), `docs/REVIEW-2026-11-17.md`, `docs/ZC-DELAY-MEASUREMENT.md`, `docs/stock-firmware-analysis.md` |
 
 ## Bench tests (spare, 2026-11-19; docs/BOOTLOADER.md bench table)
 
@@ -395,7 +395,7 @@ resets that are not explained.
 3. Fade / hold defaults: the user set channel 1 to `led_soft`; settle the defaults after use.
 4. Further modules: see "Before further modules". Install with
    `FREQ=400000 IMAGE=release tools/swd/install.sh` (one contact; **untested on hardware**, the
-   stock path with the option reload has never run) or the single steps in docs/INSTALL.md.
+   stock path with the option reload has never run) or the single steps in docs/INSTALL-PROBE.md.
    Mains off, probe only on a dead board.
 5. Optional: zero-cross delay measurement (`docs/ZC-DELAY-MEASUREMENT.md`; the DIAG build
    declines the ZTU's update offers, so it stays until `make flash-all` over SWD).

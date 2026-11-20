@@ -85,7 +85,7 @@ esac
 for v in ERASE_SETTINGS WRP; do   # "0" must not mean yes
     case "${!v:-}" in "" | 1) ;; *) die "$v must be 1 or unset" ;; esac
 done
-[ -x "$PYOCD" ] || die "pyOCD not found at $PYOCD (see docs/INSTALL.md)"
+[ -x "$PYOCD" ] || die "pyOCD not found at $PYOCD (see docs/INSTALL-PROBE.md)"
 [ -f "$PACK" ]  || die "pack not found: run tools/swd/make_opt_pack.sh"
 [ "$(od -An -tx1 -v "$OB_IMAGE" | tr -d ' \n')" = "aaf95506ff0000ffffffffffffff0000" ] ||
     die "$OB_IMAGE is not the expected option bytes (RDP off, BOR 2.5 V, no write protection)"

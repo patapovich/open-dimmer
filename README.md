@@ -9,14 +9,13 @@ For Zigbee2MQTT users. No debug probe needed.
 ## Install
 
 1. **Zigbee firmware over the air** from Zigbee2MQTT, no opening
-   ([INSTALL section 0](docs/INSTALL.md#0-zigbee-side-first)).
+   ([INSTALL step 1](docs/INSTALL.md#1-zigbee-firmware-over-the-air)).
 2. **Solder two wires**, module off the mains: ZTU pad D3 → CN2 pad SWC, ZTU pad D7 → CN2 pad
-   SWD ([INSTALL section A](docs/INSTALL.md#a-two-wires-no-probe), with photos).
+   SWD ([INSTALL step 2](docs/INSTALL.md#2-solder-two-wires), with photos).
 3. **Close the module and switch it on.** Open Dimmer installs itself; within about 10 s
    Zigbee2MQTT shows `mcu_firmware` "Open Dimmer". Press Reconfigure on the device.
 
-After that every update goes over Zigbee. The stock MCU's settings are lost (Open Dimmer starts
-with its defaults): write them down first.
+After that every update goes over Zigbee. The MCU's settings go back to Open Dimmer's defaults.
 
 > **Mains voltage.** The low-voltage side is not isolated from the mains. Open the module only
 > with all mains wires disconnected, close it before reconnecting them, and never connect a

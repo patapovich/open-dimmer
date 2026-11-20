@@ -3,7 +3,7 @@
 
     .venv/bin/python fw/tools/swd/identity.py [--freq HZ] [--json OUT.json]
 
-OFF THE MAINS, powered from the probe (docs/INSTALL.md). Attaches without
+OFF THE MAINS, powered from the probe (docs/INSTALL-PROBE.md). Attaches without
 halting or resetting the core and reads; the firmware keeps running. Safe on a
 running Open Dimmer unit and on a read-protected stock one (there the flash
 reads fail, which is reported, not an error).
