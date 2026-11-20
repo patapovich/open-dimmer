@@ -1,7 +1,8 @@
 # Installing Open Dimmer with a debug probe
 
 The alternative to the [two-wire install](INSTALL.md), with no soldering: a probe pressed onto
-the dimmer's SWD pads installs Open Dimmer in one contact.
+the SWD pads of the **dimmer chip** (PY32) installs Open Dimmer in one contact. The **Zigbee
+module** (ZTU) is the small board with the antenna.
 
 1. [Zigbee firmware](#1-zigbee-firmware) over the air, from Zigbee2MQTT.
 2. [Set up the PC](#2-set-up-the-pc), once.
@@ -14,9 +15,15 @@ the dimmer's SWD pads installs Open Dimmer in one contact.
 > such a module to the mains, run the install again instead.
 
 > [!NOTE]
-> **Settings go back to defaults:** min 20 %, max 100 %, switch type toggle, power-on off.
+> Open Dimmer replaces the stock dimmer firmware for good. **Settings go back to defaults:**
+> min 20 %, max 100 %, switch type toggle, power-on off. Note yours before you start.
 
-## What you need
+## Before you start
+
+- [ ] Zigbee2MQTT, with the dimmer paired
+- [ ] an SWD probe, a clip and a Linux PC, as below
+
+### What you need
 
 - **An SWD probe** with a 3.3 V output. Tested: Raspberry Pi Pico with
   [debugprobe](https://github.com/raspberrypi/debugprobe) (`PROBE=cmsis-dap`, the default).
@@ -49,9 +56,10 @@ fw/tools/swd/make_opt_pack.sh "$PWD/py32f0-template" "$PWD/pack"
 
 ## 3. Install
 
-1. **Mains off:** disconnect all mains wires, then open the module. Bend the Zigbee module (ZTU)
-   carefully aside to reach CN2.
-2. **Wire the clip to the probe:**
+1. **Mains off:** disconnect all mains wires, then open the module.
+2. **Make room:** bend the Zigbee module carefully aside to reach CN2. It does not need to be
+   desoldered.
+3. **Wire the clip to the probe:**
 
    | CN2 pad | Signal | PY32 pin | Pico |
    |---|---|---|---|
@@ -62,16 +70,16 @@ fw/tools/swd/make_opt_pack.sh "$PWD/py32f0-template" "$PWD/pack"
 
    ![The board: CN2 next to the PY32](img/board-cn2-elektroda.png)
 
-   CN2 is the row of four pads next to the PY32 chip. The row at the board's edge (CN3) is the
+   CN2 is the row of four pads next to the dimmer chip. The row at the board's edge (CN3) is the
    radio header, not for SWD.
-3. **Start the install:**
+4. **Start the install:**
 
    ```
    cd ~/open-dimmer/fw
    IMAGE=release FREQ=400000 tools/swd/install.sh
    ```
 
-4. **When it beeps,** press the clip onto CN2 and hold it there until it says **DONE**
+5. **When it beeps,** press the clip onto CN2 and hold it there until it says **DONE**
    (10–20 s).
 
 The script downloads the newest release and checks it against the release's `SHA256SUMS`, then
@@ -86,7 +94,8 @@ only re-flashes and keeps the settings. `IMAGE=release:vX.Y.Z` picks a release.
 
 ## 4. Close and power on
 
-1. Take the clip off, close the module, reconnect it and switch the mains on.
+1. Take the clip off, bend the Zigbee module back, close the module, reconnect it and switch
+   the mains on.
 2. **Reconfigure** the device in Zigbee2MQTT.
 3. Set your settings again. A push button needs switch type **momentary**.
 

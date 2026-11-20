@@ -4,20 +4,27 @@
 2. [Two wires](#2-solder-two-wires) soldered inside the module.
 3. [Close and power on](#3-close-and-power-on): Open Dimmer installs itself.
 
-You need Zigbee2MQTT, a fine-tipped soldering iron and two thin insulated wires a few cm long
-(e.g. 30 AWG wire-wrap). With a debug probe instead of the wires: [INSTALL-PROBE.md](INSTALL-PROBE.md).
+The module has two chips: the **Zigbee module** (ZTU), the small board with the antenna, and
+the **dimmer chip** (PY32) on the main board. The two wires let the Zigbee module install Open
+Dimmer on the dimmer chip. With a debug probe instead of the wires: [INSTALL-PROBE.md](INSTALL-PROBE.md).
+
+## Before you start
+
+- [ ] Zigbee2MQTT, with the dimmer paired
+- [ ] a fine-tipped soldering iron
+- [ ] two thin insulated wires, a few cm long (e.g. 30 AWG wire-wrap)
 
 > [!WARNING]
 > **Mains voltage.** The low-voltage side is not isolated from the mains. Disconnect all mains
 > wires before you open the module, and close it before you reconnect them.
 
 > [!NOTE]
-> **Settings go back to defaults:** min 20 %, max 100 %, switch type toggle, power-on off.
-> Set them again in Zigbee2MQTT after the install.
+> Open Dimmer replaces the stock dimmer firmware for good. **Settings go back to defaults:**
+> min 20 %, max 100 %, switch type toggle, power-on off. Note yours before you start.
 
 ## 1. Zigbee firmware over the air
 
-The module stays closed and keeps working with its stock MCU firmware.
+The module stays closed and keeps working with its stock dimmer firmware.
 
 1. **OTA index.** Zigbee2MQTT → Settings → OTA updates → OTA index override file name:
 
@@ -45,15 +52,17 @@ More detail: the upstream [conversion guide](https://github.com/romasku/tuya-zig
 ## 2. Solder two wires
 
 1. **Mains off:** disconnect all mains wires, then open the module.
-2. **Find the pads:** D3 and D7 on the Zigbee module (ZTU), the first two pads at the antenna
-   end of the edge with C0, SWS, B6, A0 and A1 (nothing else is connected to them); CN2 on the
-   board, the row of four pads next to the PY32 chip.
+2. **Make room:** bend the Zigbee module carefully aside to reach CN2. It does not need to be
+   desoldered.
+3. **Find the pads:** D3 and D7 on the Zigbee module, the first two pads at the antenna end of
+   the edge with C0, SWS, B6, A0 and A1 (nothing else is connected to them); CN2 on the main
+   board, the row of four pads next to the dimmer chip.
 
    | ZTU: D3 and D7 | Board: CN2 |
    |---|---|
    | ![ZTU front view with D3 and D7 marked](img/ztu-d3-d7-swc-swd.png) | ![The board: CN2 next to the PY32](img/board-cn2-elektroda.png) |
 
-3. **Solder:**
+4. **Solder:**
 
    | ZTU pad | → | CN2 pad |
    |---|---|---|
@@ -62,7 +71,7 @@ More detail: the upstream [conversion guide](https://github.com/romasku/tuya-zig
 
    ![The two wires from the ZTU down to CN2](img/two-wires-side.jpg)
 
-4. **Check:** no solder bridges, and the wires touch nothing else.
+5. **Check:** no solder bridges, and the wires touch nothing else. Bend the Zigbee module back.
 
 ## 3. Close and power on
 
@@ -77,7 +86,7 @@ per channel: dimming curve, power-on behaviour, fade and hold times, wall switch
 
 `power_on_behavior` is now one per channel: update automations that use the shared one.
 
-## If it does not work
+## Troubleshooting
 
 | Problem | Do |
 |---|---|
@@ -94,8 +103,8 @@ module that already runs Open Dimmer is left alone. A `device_config` written by
 ## Updates
 
 Update the Zigbee firmware over the air as usual. It carries Open Dimmer and updates the dimmer
-by itself a few seconds after it restarts; the light comes back as it was. A version that fails
-to start three times in a row is reinstalled by itself.
+chip by itself a few seconds after it restarts; the light comes back as it was. A version that
+fails to start three times in a row is reinstalled by itself. The wires stay in the module.
 
 **Button rescue** (reinstalls the version the Zigbee firmware carries; the case stays closed):
 
@@ -129,7 +138,7 @@ mv ota_index.json.new ota_index.json
   wall switch works) but has no Zigbee control or updates: do step 1 without re-pairing or
   resetting the module first.
 - More pictures: [the wires from the front](img/two-wires-angle.jpg),
-  [the board from below](img/board-bottom.jpg), [PY32 pinout and CN2](img/dms16-pinout-elektroda.png).
+  [the board from below](img/board-bottom.jpg), [dimmer chip pinout and CN2](img/dms16-pinout-elektroda.png).
 - Picture credits: the board and pinout pictures are by divadiow
   ([elektroda.com topic4066696](https://www.elektroda.com/rtvforum/topic4066696.html), not
   covered by this repository's license); the ZTU drawing is from the fork's
