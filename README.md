@@ -38,6 +38,16 @@ and reports only on, off and level. Open Dimmer adds, per channel:
 
 It needs the fork's Zigbee firmware.
 
+### The wall switch
+
+| | Stock firmware | Open Dimmer |
+|---|---|---|
+| Tap | on / off | on / off; from dark quickly to the stored level |
+| Hold | dims at one fixed rate, up and down by turns | from dark: rises slowly from the minimum (very dim levels are easy to pick); while lit: up or down by turns, the first towards the far end; slow near the minimum; the hold time is a setting |
+| Double, triple, hold, release | not reported | Zigbee2MQTT `action`; can drive bound lights |
+| Modes | the switch always drives the light | normal, detached (only reports: automations, bound lights), off |
+| Stuck or shorted input | – | a hold ends by itself |
+
 ## Zigbee firmware features
 
 With the stock MCU and with Open Dimmer:
