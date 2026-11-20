@@ -3,7 +3,7 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
-## 2.2.5 (unreleased)
+## 2.2.5 (2026-11-20)
 
 - Wall switch hold: the way a hold goes is learnt. A hold right after another (within 2 s)
   still goes the other way; any other hold now takes the way learnt for the brightness it

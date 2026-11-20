@@ -25,8 +25,8 @@ Last updated: 2026-11-20.
 
 | | |
 |---|---|
-| Release | **2.2.4**, build 900 |
-| Size | app 13 500 of 14 336 bytes; bootloader 3 364 of 4 096 bytes |
+| Release | **2.2.5**, build 1000 |
+| Size | app 13 940 of 14 336 bytes; bootloader 3 364 of 4 096 bytes |
 | Bootloader checksum | CRC-32 `0x7D215316` (health DP 136) |
 | Zigbee firmware | fork [`patapovich/tuya-zigbee-switch`](https://github.com/patapovich/tuya-zigbee-switch), branch `home-dimmer`; CI builds the OTA images on `home-dimmer_build` for every change |
 
@@ -190,5 +190,5 @@ Before deploying a changed Zigbee2MQTT converter:
 | 5 | Fade and hold defaults | settle after more use |
 | 6 | Zero-cross delay measurement ([ZC-DELAY-MEASUREMENT.md](ZC-DELAY-MEASUREMENT.md)) | optional |
 | 7 | Module button gestures | parked |
-| 8 | Predictive first hold direction: learnt per quarter of the range from quick reversals (next release) | done, untested on hardware |
-| 9 | Zigbee firmware: after its wall-switch OnLevel write it holds the dimmer chip's level reports, so during a hold from dark the hub shows the OnLevel and the real level arrives about 2 s after the release | planned |
+| 8 | Predictive first hold direction: learnt per quarter of the range from quick reversals | done (2.2.5), tested on hardware |
+| 9 | Zigbee firmware: hold reports after the module's wall-switch OnLevel write were held back about 2 s | fixed in the Zigbee firmware (a hold gesture ends the holdoff), tested on hardware |
