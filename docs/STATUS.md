@@ -42,8 +42,8 @@ channel 1 / channel 2.
 | 105 / 106 | wall switch gesture: 1 single, 2 double, 3 triple, 4 hold, 5 release, 6 press (fast press) |
 | 110..123 | DIAG / MEASURE builds only |
 | 130..135 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, settings saves, UART receive losses |
-| 136 / 137 | CRC-32 of the boot sector; the boot word at start (tries, probe answer time, rescue / button / link flags; bits 24 / 25 settings ring layout; BOOTLOADER.md section 9) |
-| 138 / 139 | die temperature °C (about ±10 °C absolute) / its calibration |
+| 136, 137 | 136: CRC-32 of the boot sector; 137: the boot word at start (tries, probe answer time, rescue / button / link flags; bits 24 / 25 settings ring layout; BOOTLOADER.md section 9) |
+| 138, 139 | 138: die temperature °C (about ±10 °C absolute); 139: its calibration |
 | 150..154 / 155..159 | fade on ms, fade off ms, fade-off slow zone %, hold ms, hold slow zone % |
 | 160 / 161 | transition time in ms for the network changes of the next second (not saved) |
 | 162 / 163 | wall switch mode: 0 normal, 1 detached (only reports), 2 off |
