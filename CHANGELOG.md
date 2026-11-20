@@ -3,6 +3,13 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
+## 2.2.4 (unreleased)
+
+- Wall switch hold: the level is reported every 0.5 s while the hold dims (from its hold time
+  on; a tap from dark reports none), as the factory MCU does, and once more at the release.
+  Home Assistant shows the brightness moving, and the Zigbee module's direct control (lights
+  bound to the wall switch) follows the hold instead of jumping after it.
+
 ## 2.2.3 (2026-11-19)
 
 - Health: DP 137 bit 25 ("settings ring moved") is also set when there are no settings at all

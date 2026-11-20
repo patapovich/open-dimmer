@@ -69,6 +69,14 @@ _Static_assert(sizeof(saved_t) == STORE_DATA_SIZE, "saved_t must match the store
 
 static int8_t   g_last_hold_dir[DIMMER_CHANNELS];
 static uint8_t  g_holding[DIMMER_CHANNELS];
+/* A hold's level on the way, every HOLD_REPORT_MS from its hold time on (the factory MCU
+ * reports the same way): the Zigbee side follows it (Home Assistant, the lights bound to the
+ * wall switch). g_hold_rep_at 0: none (a hold sets it, the next hold's start clears it);
+ * g_hold_rep_val: the last level reported (none twice: at the hold's end). The hold keeps the
+ * light inside min..max already. */
+#define HOLD_REPORT_MS  500u
+static uint32_t g_hold_rep_at[DIMMER_CHANNELS];
+static uint16_t g_hold_rep_val[DIMMER_CHANNELS];
 static saved_t  g_saved;          /* what flash holds now */
 static uint8_t  g_dirty;          /* something changed that may need saving */
 static uint8_t  g_dirty_restart;  /* a new change: restart the delay */
@@ -282,10 +290,24 @@ void dimmer_prepare_restart(void) {
     OTA_MAILBOX->restored = 0;        /* a planned restart: restored after it in any case */
 }
 
+static void hold_report(uint8_t ch, uint32_t now) {
+    if (g_holding[ch] && g_hold_rep_at[ch] && (int32_t)(now - g_hold_rep_at[ch]) >= 0) {
+        g_hold_rep_at[ch] = now + HOLD_REPORT_MS;
+        uint16_t v        = phase_current(ch);
+        if (v != g_hold_rep_val[ch]) {
+            g_hold_rep_val[ch] = v;
+            tuya_report_begin(0);
+            tuya_report_value((uint8_t)(ch * DP_PER_CHANNEL + 1 + DP_LEVEL), v);
+            tuya_report_send();
+        }
+    }
+}
+
 void dimmer_poll(uint32_t now, uint32_t rx_quiet_ms, uint8_t stall_ok) {
     g_now      = now;
     g_no_boost = 0;
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
+        hold_report(ch, now);
         if (g_ch[ch].countdown && (int32_t)(now - g_cd_end[ch]) >= 0) {
             dimmer_local_set(ch, 0);  /* auto-off: as a switch off (reported; the countdown 0) */
         }
@@ -698,6 +720,16 @@ void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark) {
     g_last_hold_dir[ch] = dir;
     g_holding[ch]       = 1;
     phase_hold_start(ch, dir, c->min, c->max, from_dark);
+    g_hold_rep_at[ch] = 0;            /* from dark: from its hold time on (a tap: none) */
+    if (!from_dark) {
+        dimmer_hold_reports(ch);
+    }
+}
+
+void dimmer_hold_reports(uint8_t ch) {
+    if (ch < DIMMER_CHANNELS) {
+        g_hold_rep_at[ch] = g_now + HOLD_REPORT_MS;   /* 0 once in 49 days: that hold none */
+    }
 }
 
 void dimmer_hold_end(uint8_t ch) {
