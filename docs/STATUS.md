@@ -1,114 +1,188 @@
-# Open Dimmer: status
+# Open Dimmer: project status
 
-Open-source firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2, installed and updated
-by the Zigbee firmware of the fork `patapovich/tuya-zigbee-switch` (branch `home-dimmer`).
-State of 2026-11-20.
+The state of the project for contributors: what is released and tested, the datapoints, the
+behaviour, how to build and release, and what is open. Users start from the
+[README](../README.md) and the [install guide](INSTALL.md).
 
-## Current state
+Last updated: 2026-11-20.
 
-- **Release 2.2.4** (build 900): app 13 500 of 14 336 bytes; bootloader 3 364 of 4 096 bytes,
-  boot sector CRC-32 `0x7D215316` (health DP 136).
-- **Zigbee firmware:** fork `home-dimmer`; CI builds the OTA images on `home-dimmer_build` for
-  every change. It carries the newest release, updates an Open Dimmer MCU that runs an older one
-  (never a stock MCU) and installs Open Dimmer over two soldered wires.
-- **Tested on hardware:**
-  - two-wire install on a stock unit, also with power cuts in every install phase;
-  - updates over Zigbee, with both channels lit; a mains cut in the middle recovered;
-  - SWD bootloader rewrite over the two wires; probe re-flash keeping the settings;
-  - bootloader probe, rescue, button and link watchdog;
-  - Zigbee Scenes and wall switch bindings.
-- **Not yet tested:** see [Open items](#open-items).
+> [!CAUTION]
+> **The board is not isolated from the mains.** Never connect a probe, a computer or an earthed
+> oscilloscope while it is on the mains. Disconnect the mains and wait a minute before SWD work.
+> A `SIM=1` build never goes on the mains.
 
-## Where things are
+## Contents
 
-| Path | What |
+- [At a glance](#at-a-glance)
+- [Terms](#terms)
+- [Datapoints](#datapoints)
+- [Behaviour](#behaviour)
+- [Development](#development)
+- [Checklists](#checklists)
+- [Open items](#open-items)
+
+## At a glance
+
+| | |
 |---|---|
-| `src/`, `boot/` | the app and the 4 KB bootloader |
-| `tests/` | host tests (`make test`, with the bootloader harness) |
-| `tools/` | image and release tools, `swd/` (probe install), `ha/` (Zigbee2MQTT / Home Assistant helpers) |
-| `docs/` | [INSTALL.md](INSTALL.md), [INSTALL-PROBE.md](INSTALL-PROBE.md), [BOOTLOADER.md](BOOTLOADER.md) (design), `stock-firmware-analysis.md`, `ZC-DELAY-MEASUREMENT.md` |
+| Release | **2.2.4**, build 900 |
+| Size | app 13 500 of 14 336 bytes; bootloader 3 364 of 4 096 bytes |
+| Bootloader checksum | CRC-32 `0x7D215316` (health DP 136) |
+| Zigbee firmware | fork [`patapovich/tuya-zigbee-switch`](https://github.com/patapovich/tuya-zigbee-switch), branch `home-dimmer`; CI builds the OTA images on `home-dimmer_build` for every change |
+
+The Zigbee firmware carries the newest release. It installs Open Dimmer over the two soldered
+wires and updates a dimmer chip that runs an older Open Dimmer; it never writes over a stock
+dimmer chip without the wires.
+
+**Tested on hardware:**
+
+- two-wire install on a stock unit, also with power cuts in every install phase;
+- updates over Zigbee with both channels lit; a mains cut in the middle recovered;
+- bootloader rewrite over the two wires; probe re-flash keeping the settings;
+- bootloader probe, rescue, button and link watchdog;
+- Zigbee Scenes and wall switch bindings.
+
+Not yet tested: see [Open items](#open-items).
+
+## Terms
+
+| Term | Meaning |
+|---|---|
+| Dimmer chip, MCU | the PY32F002A on the main board; runs Open Dimmer |
+| Zigbee module, ZTU | the Tuya ZTU (TLSR8258) radio module; runs the fork's Zigbee firmware |
+| App | Open Dimmer itself, updated over Zigbee |
+| Bootloader | installs every app update; written only over SWD and stays |
+| DP | Tuya datapoint, the dimmer chip's interface to the Zigbee module |
 
 ## Datapoints
 
-The stock DPs 1..14 keep their meaning; the rest are Open Dimmer's. A pair like 101 / 102 is
+DPs 1..14 are the stock ones and keep their meaning; the rest are Open Dimmer's. "a / b" is
 channel 1 / channel 2.
 
-| DP | Meaning |
-|---|---|
-| 1..6 / 7..12 | on, level, min, switch type, max, countdown (an auto-off in s, up to a day, not saved; 0 when an off ends it). A hold reports the level every 0.5 s |
-| 14 | power-on, both channels (written: both; reported: channel 1's) |
-| 101 / 102 | dimming curve: incandescent, led, led_deep, led_deeper, led_soft (default), linear |
-| 103 / 104 | power-on per channel |
-| 105 / 106 | wall switch gesture: 1 single, 2 double, 3 triple, 4 hold, 5 release, 6 press (fast press) |
-| 110..123 | DIAG / MEASURE builds only |
-| 130..135 | health every 2 min: uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, settings saves, UART receive losses |
-| 136, 137 | 136: CRC-32 of the boot sector; 137: the boot word at start (tries, probe answer time, rescue / button / link flags; bits 24 / 25 settings ring layout; BOOTLOADER.md section 9) |
-| 138, 139 | 138: die temperature °C (about ±10 °C absolute); 139: its calibration |
-| 150..154 / 155..159 | fade on ms, fade off ms, fade-off slow zone %, hold ms, hold slow zone % |
-| 160 / 161 | transition time in ms for the network changes of the next second (not saved) |
-| 162 / 163 | wall switch mode: 0 normal, 1 detached (only reports), 2 off |
-| 164 / 165 | level after a power cut (0: the last level) |
-| 166 / 167 | identify: blink for that many s (0 stops; not saved) |
-| 168 / 169 | start boost ms (steps of 50, up to 750) |
-| 170 / 171 | fast press: in detached mode a momentary press is reported at once |
-| 0xA0..0xA3 | Open Dimmer's own commands: update notify / block / result, identity |
+### Per channel
 
-Min and max are physical conduction limits for every curve, as on the stock MCU.
+| DP | What | Values |
+|---|---|---|
+| 1 / 7 | on | on, off |
+| 2 / 8 | level | – |
+| 3 / 9 | min | physical conduction limit, for every curve as on the stock chip |
+| 4 / 10 | switch type | 0 toggle, 1 state, 2 momentary |
+| 5 / 11 | max | as min |
+| 6 / 12 | countdown | auto-off in s, up to a day; not saved; 0 when an off ends it |
+| 101 / 102 | dimming curve | incandescent, led, led_deep, led_deeper, led_soft (default), linear |
+| 103 / 104 | power-on | – |
+| 105 / 106 | wall switch gesture (report) | 1 single, 2 double, 3 triple, 4 hold, 5 release, 6 press (fast press) |
+| 150..154 / 155..159 | fade and hold | fade on ms, fade off ms, fade-off slow zone %, hold ms, hold slow zone % |
+| 160 / 161 | transition | ms, for the network changes of the next second; not saved |
+| 162 / 163 | wall switch mode | 0 normal, 1 detached (only reports), 2 off |
+| 164 / 165 | level after a power cut | 0: the last level |
+| 166 / 167 | identify | blink for that many s; 0 stops; not saved |
+| 168 / 169 | start boost | ms, steps of 50, up to 750 |
+| 170 / 171 | fast press | in detached mode a momentary press is reported at once |
+
+During a hold the level is reported every 0.5 s.
+
+### Module wide
+
+| DP | What | Values |
+|---|---|---|
+| 14 | power-on, both channels | written: both; reported: channel 1's |
+| 130..135 | health, every 2 min | uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, settings saves, UART receive losses |
+| 136 | bootloader checksum | CRC-32 of the boot sector |
+| 137 | boot word at start | tries, probe answer time, rescue / button / link flags; bits 24 / 25 settings ring layout ([BOOTLOADER.md](BOOTLOADER.md) section 9) |
+| 138 | die temperature | °C, about ±10 °C absolute |
+| 139 | its calibration | – |
+| 110..123 | diagnostics | DIAG / MEASURE builds only |
+| 0xA0..0xA3 | Open Dimmer commands | update notify / block / result, identity |
 
 ## Behaviour
 
-- On from dark: starts at min, 950 ms to full. Off: 950 ms, slower in the lowest 12 % above min,
-  80 ms at min, then dark.
-- Momentary switch: tap from dark quickly to the stored level; hold from dark rises slowly from
-  min; hold while lit goes up or down by turns (the first towards the far end), slow near min;
-  release stops at once and the level is saved. A hold ends by itself after 2 × hold time + 2 s.
-- Toggle switch: every change toggles. State switch: on while closed, set at once when the type
-  changes to it. An input closed at power-up is no press.
+**Fades**
+
+- On from dark: starts at min, 950 ms to full.
+- Off: 950 ms, slower in the lowest 12 % above min, 80 ms at min, then dark.
+
+**Wall switch**
+
+- Momentary: a tap from dark goes quickly to the stored level. A hold from dark rises slowly from
+  min; a hold while lit goes up or down by turns (the first towards the far end), slow near min.
+  Release stops at once and saves the level. A hold ends by itself after 2 × hold time + 2 s.
+- Toggle: every change toggles.
+- State: on while closed; set at once when the type changes to it.
+- An input closed at power-up is no press.
 - The S1 input stays low ~0.1 s after release: a very fast double tap merges in hardware.
-- Module button: both channels (any on → all off); held ≥ 3 s: rejoin.
-- After a watchdog, fault or update restart the light comes back as it was; a second such reset
-  within a minute, a power cut or a brown-out takes the power-on setting.
-- 50 / 60 Hz: the zero-cross tracker takes 40..70 Hz and the times scale with the half period.
 
-## Flash, build, release
+**Module button:** a press toggles both channels (any on → all off); held ≥ 3 s it rejoins.
 
-- Flash: bootloader 4 KB @0x08000000, app up to 14 KB @0x08001000, settings ring 2 KB
-  @0x08004800. Layout and update rules: [BOOTLOADER.md](BOOTLOADER.md).
-- CI (`.github/workflows/ci.yml`): host and bootloader tests, the normal, DIAG, MEASURE and SIM
-  builds, layout and header checks, size report.
-- Release: bump `FW_VERSION` and `FW_BUILD` (+100 per release) in `src/tuya.h`, add the
-  `CHANGELOG.md` section, run `tools/release/release.sh` (checks, tag, CI release, carries it
-  into the fork). The fork then builds the OTA images by itself.
-- Deploy: over the air from Zigbee2MQTT, or `tools/ha/deploy_ota.sh` (see `tools/ha/README.md`).
+**Restarts:** after a watchdog, fault or update restart the light comes back as it was. A second
+such reset within a minute, a power cut or a brown-out takes the power-on setting.
 
-## Converter changes: checklist
+**Mains frequency:** the zero-cross tracker takes 40..70 Hz, and the times scale with the half
+period.
+
+## Development
+
+### Where things are
+
+| Path | What |
+|---|---|
+| `src/`, `boot/` | the app and the bootloader |
+| `tests/` | host tests (`make test`, with the bootloader harness) |
+| `tools/` | image and release tools; `swd/` probe install; `ha/` Zigbee2MQTT / Home Assistant helpers |
+| `docs/` | [INSTALL.md](INSTALL.md), [INSTALL-PROBE.md](INSTALL-PROBE.md), [BOOTLOADER.md](BOOTLOADER.md) (design record), [stock-firmware-analysis.md](stock-firmware-analysis.md), [ZC-DELAY-MEASUREMENT.md](ZC-DELAY-MEASUREMENT.md) |
+
+### Flash layout
+
+| Region | Address | Size |
+|---|---|---|
+| Bootloader | `0x08000000` | 4 KB |
+| App | `0x08001000` | up to 14 KB |
+| Settings ring | `0x08004800` | 2 KB |
+
+Update rules: [BOOTLOADER.md](BOOTLOADER.md).
+
+### CI
+
+`.github/workflows/ci.yml` runs the host and bootloader tests, the normal, DIAG, MEASURE and SIM
+builds, the layout and header checks and a size report.
+
+### Release
+
+1. Bump `FW_VERSION` and `FW_BUILD` (+100 per release) in `src/tuya.h`.
+2. Add the version's section to `CHANGELOG.md`.
+3. Run `tools/release/release.sh`: it checks, tags, waits for the CI release and carries the
+   release into the fork. The fork then builds the OTA images by itself.
+
+Deploy over the air from Zigbee2MQTT, or with `tools/ha/deploy_ota.sh`
+(see [tools/ha/README.md](../tools/ha/README.md)).
+
+## Checklists
+
+### Converter change
 
 Before deploying a changed Zigbee2MQTT converter:
-1. Dump the exposes (`tools/ha/expose_dump.js`) for an Open Dimmer, a stock and an unknown MCU
-   and diff them against the deployed converter.
-2. Check that every other model's definition is unchanged.
-3. Snapshot Home Assistant's entity registry before and after the Zigbee2MQTT restart: no
-   entity removed, added or renamed unless intended.
 
-## Rollout to further modules
+- [ ] Dump the exposes (`tools/ha/expose_dump.js`) for an Open Dimmer, a stock and an unknown
+      dimmer chip, and diff them against the deployed converter.
+- [ ] Check that every other model's definition is unchanged.
+- [ ] Snapshot Home Assistant's entity registry before and after the Zigbee2MQTT restart: no
+      entity removed, added or renamed unless intended.
 
-The Zigbee firmware first, with the stock MCU still in, one module at a time; then the MCU (two
-wires or probe). A PY32 version goes to further modules only after a test module has run it and
-taken an update over Zigbee from it.
+### Rollout to further modules
+
+- [ ] The Zigbee firmware first, with the stock dimmer chip still in, one module at a time.
+- [ ] Then Open Dimmer (two wires or probe).
+- [ ] A new Open Dimmer version goes to further modules only after a test module has run it
+      and taken an update over Zigbee from it.
 
 ## Open items
 
-1. 60 Hz mains and the `_TZE204_jtbgusdc` variant: untested on hardware.
-2. Probe path: `install.sh`'s option reload has never run on a stock module (the steps by hand
-   have).
-3. Watchdog and fault light restore: host tests only.
-4. Long trial: read the health DPs now and then (131, 132, 133, 135).
-5. Fade and hold defaults: settle them after more use.
-6. Optional: zero-cross delay measurement (`ZC-DELAY-MEASUREMENT.md`).
-7. Parked: module button gestures.
-
-## Safety rules
-
-The board is not isolated from the mains. Never a probe, a computer or an earthed scope on it
-while it is on the mains; mains off and wait a minute before SWD. The SIM build never goes on
-the mains.
+| # | Item | State |
+|---|---|---|
+| 1 | 60 Hz mains and the `_TZE204_jtbgusdc` variant | untested on hardware |
+| 2 | Probe path: `install.sh`'s option reload on a stock module | never run (the steps by hand have) |
+| 3 | Watchdog and fault light restore | host tests only |
+| 4 | Long trial: read the health DPs 131, 132, 133 and 135 now and then | ongoing |
+| 5 | Fade and hold defaults | settle after more use |
+| 6 | Zero-cross delay measurement ([ZC-DELAY-MEASUREMENT.md](ZC-DELAY-MEASUREMENT.md)) | optional |
+| 7 | Module button gestures | parked |
