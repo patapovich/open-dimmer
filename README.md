@@ -37,8 +37,11 @@ version in `mcu_version` (for example 2.1.11); with the stock MCU `mcu_firmware`
   stay until the next SWD flash (`make flash-all` brings back a normal build).
 
 **Installation:** [docs/INSTALL.md](docs/INSTALL.md): first the Zigbee firmware over the air
-([section 0](docs/INSTALL.md#0-zigbee-side-first)), then once per module over SWD, in one contact with
-`tools/swd/install.sh` (read protection off, brown-out reset, flash, check); then updates over Zigbee.
+([section 0](docs/INSTALL.md#0-zigbee-side-first)), then once per module: either solder two wires
+between the Zigbee module and the MCU's SWD pads and power the module on, and the Zigbee firmware
+installs Open Dimmer by itself ([section A](docs/INSTALL.md#a-two-wires-no-probe)), or with a debug
+probe, in one contact with `tools/swd/install.sh` (read protection off, brown-out reset, flash,
+check). Then updates over Zigbee.
 
 See [docs/STATUS.md](docs/STATUS.md) for the datapoints, the flash layout, the build and deploy
 recipe and the open items.

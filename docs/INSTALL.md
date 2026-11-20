@@ -1,33 +1,190 @@
 # Installing Open Dimmer on an AVATTO ZDMS16-2
 
-The first installation is done once per module over SWD, with the module **off the mains**.
+First the module's Zigbee firmware is replaced over the air (section 0, no opening). Then the
+dimming MCU gets Open Dimmer once, in one of two ways:
+
+- **Two wires, no probe** (section A): solder two wires inside the module, close it and power it
+  on. The Zigbee firmware installs Open Dimmer by itself over the two wires.
+- **Debug probe** (sections 1 and 2): a probe on the MCU's SWD pads, with the module off the
+  mains.
+
 After that, every update goes over Zigbee.
 
 > **Mains voltage.** The module's low-voltage side is not isolated from the mains. Disconnect
-> all mains wires before you open it, and power it only from the debug probe's 3.3 V during the
-> whole procedure. Never connect a probe, a computer or an earthed oscilloscope to a module that
-> is connected to the mains.
-
-> **Blank until DONE.** Once the read protection is removed, the PY32 is blank or incomplete
-> until the install has finished: nothing drives the dimmer outputs. Do NOT connect such a module
-> to the mains. If anything fails or stops half way, rerun the install (`tools/swd/install.sh`, or
-> the steps by hand) until it has written and checked the firmware.
+> all mains wires before you open it, and close it again before you reconnect them. Never connect
+> a probe, a computer or an earthed oscilloscope to a module that is connected to the mains. On
+> the probe path, power the module only from the probe's 3.3 V during the whole procedure.
 
 > **No way back.** The stock PY32 firmware is read-protected (RDP level 1). Removing the
 > protection erases it, and it cannot be read out beforehand. It also erases the settings the MCU
-> keeps (min/max, switch type, power-on): write them down first (below). After this the module
-> needs Open Dimmer (or another firmware written for it). Open Dimmer in turn works only with the
-> fork's Zigbee firmware (section 0): it does not answer the product query (0x01) that the stock
-> Zigbee firmware needs.
+> keeps (min/max, switch type, power-on): Open Dimmer starts with its own defaults (write the old
+> settings down first if you want them back, see below). After this the module needs Open Dimmer
+> (or another firmware written for it). Open Dimmer in turn works only with the fork's Zigbee
+> firmware (section 0): it does not answer the product query (0x01) that the stock Zigbee
+> firmware needs.
 
 > **Zigbee side first.** Open Dimmer under the stock Zigbee firmware is not supported, but safe:
 > the light works from the wall switch and the module button, Zigbee control may not work, the
 > MCU gets no updates, and every power-up takes ~3 s before the light reacts. If it happens (an
-> MCU installed before section 0, or the Zigbee firmware put back to stock), do not re-pair or
-> reset the module (that can lose the name the conversion needs): convert the Zigbee firmware
-> over the air first (section 0). Then everything below applies.
+> MCU installed with a probe before section 0, or the Zigbee firmware put back to stock), do not
+> re-pair or reset the module (that can lose the name the conversion needs): convert the Zigbee
+> firmware over the air first (section 0). Then everything below applies.
 
-## What you need
+## 0. Zigbee side first
+
+The module must run the Zigbee firmware that carries Open Dimmer: the ZDMS16-2 build of
+the fork [patapovich/tuya-zigbee-switch](https://github.com/patapovich/tuya-zigbee-switch)
+(branch `home-dimmer`, built on `home-dimmer_build`), based on
+[romasku/tuya-zigbee-switch](https://github.com/romasku/tuya-zigbee-switch). It is installed
+over the air from the stock firmware, no opening needed:
+
+1. Follow the upstream guide for Zigbee2MQTT:
+   [conversion from the stock firmware](https://github.com/romasku/tuya-zigbee-switch/blob/main/docs/updating.md#conversion)
+   and [external converters](https://github.com/romasku/tuya-zigbee-switch/blob/main/docs/updating.md#quirks--converters--extensions),
+   but take the fork's files (only the fork has the ZDMS16-2 with Open Dimmer):
+   - OTA index (`ota.zigbee_ota_override_index_location`):
+     `https://raw.githubusercontent.com/patapovich/tuya-zigbee-switch/home-dimmer_build/zigbee2mqtt/ota/index_router.json`.
+     It lists only the ZDMS16-2 (the update and the conversion from stock), and Zigbee2MQTT takes
+     only one override index. If other devices of yours run tuya-zigbee-switch firmware, this
+     index alone stops their updates and conversions. Merge upstream's index and the fork's into a
+     local file instead: run the commands below in the Zigbee2MQTT data directory (next to
+     `configuration.yaml`), set the option to `ota_index.json`, and run them again to pick up new
+     releases. Upstream entries for the fork's devices are dropped, all others are kept. They need
+     `curl` and `jq` 1.6 or newer, in any POSIX shell. If you use another upstream index
+     (`index_end_device.json` or a `-FORCE` one), put its name in the first URL; the fork's
+     ZDMS16-2 entries are in its `index_router.json`.
+
+     ```
+     curl -fsSL -o ota_upstream.json https://raw.githubusercontent.com/romasku/tuya-zigbee-switch/refs/heads/main/zigbee2mqtt/ota/index_router.json &&
+     curl -fsSL -o ota_fork.json https://raw.githubusercontent.com/patapovich/tuya-zigbee-switch/refs/heads/home-dimmer_build/zigbee2mqtt/ota/index_router.json &&
+     jq -s '(.[1] | map(.manufacturerName[]?)) as $m
+            | [.[0][] | select(any(.manufacturerName[]?; IN($m[])) | not)] + .[1]' \
+       ota_upstream.json ota_fork.json > ota_index.json.new &&
+     mv ota_index.json.new ota_index.json
+     ```
+
+     Zigbee2MQTT reads this file at every OTA check of every device, and an empty or broken file
+     makes all of those checks fail. So the last line replaces it only when both downloads and jq
+     have succeeded; otherwise the old file stays.
+
+   - the converter `switch_custom.js` (it also gives the stock module OTA: `tuya_with_ota.js` is
+     not needed):
+     [zigbee2mqtt/converters](https://github.com/patapovich/tuya-zigbee-switch/tree/home-dimmer_build/zigbee2mqtt/converters)
+   - images, if you install them by hand:
+     [bin/router/MODULE_AVATTO_ZDMS16_2](https://github.com/patapovich/tuya-zigbee-switch/tree/home-dimmer_build/bin/router/MODULE_AVATTO_ZDMS16_2)
+     (`*-from_tuya.zigbee` converts a stock module, the plain `.zigbee` updates a converted one)
+2. Wait after the conversion and leave the power on. The new firmware can take several minutes
+   (about 6 seen) to come back on the network after the transfer. Zigbee2MQTT stops waiting
+   after 2 minutes, reports the update as done, and shows the stock values from its database
+   until then. The module's LED stays dark. The conversion is through when Zigbee2MQTT shows
+   the model id `TS0601-ZDMS16-2` and the software build `1.1.3-…` for it.
+3. Interview the device in Zigbee2MQTT (Devices → the device → Interview), then reconfigure
+   it. The interview is needed first: the database still holds the stock firmware's endpoints
+   (1 and 242), and a reconfigure without it fails with "Cannot read properties of undefined
+   (reading 'bind')". Without the reconfigure the reporting binds are missing, and wall
+   switch changes never reach Zigbee2MQTT.
+4. Check that it works with the
+   stock MCU: `mcu_version` shows the stock version (for example 1.0.7) and `mcu_firmware` shows
+   "Tuya (stock)". Only then open the module for the MCU part below. An older converter of the
+   fork has no `mcu_firmware`: there `mcu_version` alone is the check, Open Dimmer shows later
+   as `mcu_version` "2.x.y own", and the device option is called `own_mcu_settings`.
+
+## Before you open it: write the settings down
+
+Removing the read protection also erases the settings the stock MCU keeps. The MCU then starts
+with Open Dimmer's defaults: min 20 % (MCU 200, `min_level` 51), max 100 % (1000, 254),
+switch type toggle, power-on off, dimming curve led_soft. These can drive an existing setup
+wrongly: with toggle a push button lights the lamp only while it is held, and the brightness of
+every level changes.
+
+Before the erase, write down for each channel, from Zigbee2MQTT (or Home Assistant):
+
+- `min_level` and `max_level` (on the 1..254 scale; values set from Zigbee2MQTT come back
+  exactly when written again),
+- `switch_type`,
+- `power_on_behavior` (the stock MCU has one setting for both channels).
+
+The exact MCU values are the raw DPs: 3 min, 5 max, 4 switch type for channel 1; 9, 11, 10 for
+channel 2; 14 power-on. One place to read them is the fork's log of the MCU link: Basic
+attributes 0xff41..0xff45 on endpoint 1 hold its last 30 events of every kind (sent and received
+DPs and commands, acks, timeouts), so the dump from the first contact has scrolled out soon.
+Fill it on demand: write 1 to Basic attribute 0xff4f (clears the log), then 2 (asks the MCU for
+all its DPs), and read 0xff41..0xff45 right after. Each 8-byte entry is the time in ms (2 bytes),
+the kind (3 or 4 = a DP report), the DP id and the value (4 bytes), little-endian. The fork's
+`helper_scripts/decode_mcu_diag.py` decodes them.
+
+## A. Two wires, no probe
+
+The fork's Zigbee firmware has an SWD master: over two wires from the Zigbee module (the ZTU) to
+the MCU's SWD pads it removes the read protection, writes the bootloader, and the bootloader then
+fetches Open Dimmer from the Zigbee firmware over the serial link, as for every update. It does
+this by itself at the first power-up that sees the wires. Nothing to run on a computer, no
+Zigbee2MQTT command.
+
+You need a soldering iron with a fine tip and two thin insulated wires, a few cm each (for
+example 30 AWG wire-wrap wire). Plain wires, nothing else in between.
+
+1. Section 0 first, and check there that the module works with the stock MCU
+   (`mcu_firmware` "Tuya (stock)").
+2. Disconnect all mains wires and open the module.
+3. Solder the two wires:
+
+   | ZTU pad | to CN2 pad | Signal |
+   |---|---|---|
+   | D3 | SWC (pad 2) | SWCLK, PY32 PA14 |
+   | D7 | SWD (pad 1) | SWDIO, PY32 PA13 |
+
+   D3 and D7 are the two pads above C0 on the ZTU's edge that has C0, SWS, B6, A0 and A1 (see
+   the fork's [ZTU front view](https://github.com/patapovich/tuya-zigbee-switch/blob/home-dimmer/docs/diagrams/telink/ZTU_front.png));
+   on the stock board nothing is connected to them. CN2 is described under "What you need for a
+   probe" below (the picture there). GND and 3.3 V need no wire: the two parts already share them.
+   Check that no solder bridges D3, D7 and C0, and that the wires touch nothing else.
+4. Close the module, reconnect it and switch the mains on.
+
+At this power-up the Zigbee firmware sees the wires, catches the MCU before the stock firmware
+starts, and installs Open Dimmer. The lamps stay dark meanwhile. Within about 10 s Open Dimmer
+runs, and Zigbee2MQTT shows `mcu_firmware` "Open Dimmer" and `mcu_version` (`2.x.y`) by itself.
+Then press **Reconfigure** on the device: only then does Zigbee2MQTT show the settings that only
+Open Dimmer has (per channel the dimming curve, the power-on behaviour, fade and hold, and the
+wall switch gestures as `action`), and Home Assistant gets entities for them. The shared
+`power_on_behavior` is replaced by the per-channel ones: update automations that use it. Open
+Dimmer starts with its defaults: min 20 %, max 100 %, switch type toggle, power-on off, dimming
+curve led_soft. Set them as in steps 4–5 of section 2 below.
+
+- **Once per module.** The firmware does this by itself only once in the module's life: at the
+  first power-up that sees the wires. Later installs are started by hand (below).
+- **Power cut during the install.** Switch the power on again: from the step that erases the
+  stock firmware on, the install goes on at every power-up until it has finished. Before that
+  step the stock firmware is still there, and the next power-up starts over.
+- **Wires soldered before section 0** (the module still ran the stock Zigbee firmware). The
+  conversion restarts only the Zigbee module; the stock MCU runs on and holds its SWD pins, so
+  the install waits for a power cycle: `mcu_firmware` shows "Tuya (stock): power-cycle the
+  module to install Open Dimmer" (after the Reconfigure of section 0). Power the module off for
+  a few seconds and on again: that power-up installs Open Dimmer.
+- **A `device_config` written by hand.** The board's default config names the two pins (the
+  token `SWD3D7;`), but a module uses it only until a `device_config` is written to it. If one
+  was, check that it has `SWD3D7;`, append it if not (the module restarts), then power-cycle the
+  module once.
+- **Already Open Dimmer** (installed with a probe): the firmware sees that the MCU is not
+  read-protected and leaves it alone.
+
+**Watching it, starting it by hand.** While the MCU is not Open Dimmer yet, `mcu_firmware` also
+tells an install that waits for a power cycle, runs ("installing Open Dimmer") or failed. For
+the details set the device option `mcu_flasher` to `show`
+(Zigbee2MQTT: the device → Settings (specific)). `mcu_flasher_status` then shows the last job,
+for example `done install; ...`, `armed install; power-cycle the module now (...)` while it
+waits for a power-up, or `failed install; error: ...` with the reason. After a failure (for example
+`no answer (wires? power?)` or `no attach in the armed power-ups`: check the two wires, with
+the mains off), start it again by hand: write `install` to `mcu_flasher_confirm`, then within
+60 s set `mcu_flasher` to `install`, and power-cycle the module when the status says so.
+`install` is taken only while the MCU runs its stock firmware.
+
+## What you need for a probe
+
+> **Blank until DONE.** Once the probe has removed the read protection, the PY32 is blank or
+> incomplete until the install has finished: nothing drives the dimmer outputs. Do NOT connect
+> such a module to the mains. If anything fails or stops half way, rerun the install (`tools/swd/install.sh`, or
+> the steps by hand) until it has written and checked the firmware.
 
 - A debug probe with SWD and a 3.3 V output to power the module. Tested: a Raspberry Pi Pico /
   RP2040 board with the [debugprobe](https://github.com/raspberrypi/debugprobe) firmware.
@@ -105,88 +262,6 @@ After that, every update goes over Zigbee.
   If `pyocd list` shows no probe or a permission error, the probe needs a udev rule (the
   openocd package brings rules for the common ones). The commands below run in the work
   directory or in `fw`.
-
-## 0. Zigbee side first
-
-The module must run the Zigbee firmware that carries Open Dimmer: the ZDMS16-2 build of
-the fork [patapovich/tuya-zigbee-switch](https://github.com/patapovich/tuya-zigbee-switch)
-(branch `home-dimmer`, built on `home-dimmer_build`), based on
-[romasku/tuya-zigbee-switch](https://github.com/romasku/tuya-zigbee-switch). It is installed
-over the air from the stock firmware, no opening needed:
-
-1. Follow the upstream guide for Zigbee2MQTT:
-   [conversion from the stock firmware](https://github.com/romasku/tuya-zigbee-switch/blob/main/docs/updating.md#conversion)
-   and [external converters](https://github.com/romasku/tuya-zigbee-switch/blob/main/docs/updating.md#quirks--converters--extensions),
-   but take the fork's files (only the fork has the ZDMS16-2 with Open Dimmer):
-   - OTA index (`ota.zigbee_ota_override_index_location`):
-     `https://raw.githubusercontent.com/patapovich/tuya-zigbee-switch/home-dimmer_build/zigbee2mqtt/ota/index_router.json`.
-     It lists only the ZDMS16-2 (the update and the conversion from stock), and Zigbee2MQTT takes
-     only one override index. If other devices of yours run tuya-zigbee-switch firmware, this
-     index alone stops their updates and conversions. Merge upstream's index and the fork's into a
-     local file instead: run the commands below in the Zigbee2MQTT data directory (next to
-     `configuration.yaml`), set the option to `ota_index.json`, and run them again to pick up new
-     releases. Upstream entries for the fork's devices are dropped, all others are kept. They need
-     `curl` and `jq` 1.6 or newer, in any POSIX shell. If you use another upstream index
-     (`index_end_device.json` or a `-FORCE` one), put its name in the first URL; the fork's
-     ZDMS16-2 entries are in its `index_router.json`.
-
-     ```
-     curl -fsSL -o ota_upstream.json https://raw.githubusercontent.com/romasku/tuya-zigbee-switch/refs/heads/main/zigbee2mqtt/ota/index_router.json &&
-     curl -fsSL -o ota_fork.json https://raw.githubusercontent.com/patapovich/tuya-zigbee-switch/refs/heads/home-dimmer_build/zigbee2mqtt/ota/index_router.json &&
-     jq -s '(.[1] | map(.manufacturerName[]?)) as $m
-            | [.[0][] | select(any(.manufacturerName[]?; IN($m[])) | not)] + .[1]' \
-       ota_upstream.json ota_fork.json > ota_index.json.new &&
-     mv ota_index.json.new ota_index.json
-     ```
-
-     Zigbee2MQTT reads this file at every OTA check of every device, and an empty or broken file
-     makes all of those checks fail. So the last line replaces it only when both downloads and jq
-     have succeeded; otherwise the old file stays.
-
-   - converters (`switch_custom.js`, and `tuya_with_ota.js` for the stock module):
-     [zigbee2mqtt/converters](https://github.com/patapovich/tuya-zigbee-switch/tree/home-dimmer_build/zigbee2mqtt/converters)
-   - images, if you install them by hand:
-     [bin/router/MODULE_AVATTO_ZDMS16_2](https://github.com/patapovich/tuya-zigbee-switch/tree/home-dimmer_build/bin/router/MODULE_AVATTO_ZDMS16_2)
-     (`*-from_tuya.zigbee` converts a stock module, the plain `.zigbee` updates a converted one)
-2. Wait after the conversion and leave the power on. The new firmware can take several minutes
-   (about 6 seen) to come back on the network after the transfer. Zigbee2MQTT stops waiting
-   after 2 minutes, reports the update as done, and shows the stock values from its database
-   until then. The module's LED stays dark. The conversion is through when Zigbee2MQTT shows
-   the model id `TS0601-ZDMS16-2` and the software build `1.1.3-…` for it.
-3. Interview the device in Zigbee2MQTT (Devices → the device → Interview), then reconfigure
-   it. The interview is needed first: the database still holds the stock firmware's endpoints
-   (1 and 242), and a reconfigure without it fails with "Cannot read properties of undefined
-   (reading 'bind')". Without the reconfigure the reporting binds are missing, and wall
-   switch changes never reach Zigbee2MQTT.
-4. Check that it works with the
-   stock MCU: `mcu_version` shows the stock version (for example 1.0.7) and `mcu_firmware` shows
-   "Tuya (stock)". Only then open the module for the MCU part below. An older converter of the
-   fork has no `mcu_firmware`: there `mcu_version` alone is the check, Open Dimmer shows later
-   as `mcu_version` "2.x.y own", and the device option is called `own_mcu_settings`.
-
-## Before you open it: write the settings down
-
-Removing the read protection also erases the settings the stock MCU keeps. The MCU then starts
-with Open Dimmer's defaults: min 20 % (MCU 200, `min_level` 51), max 100 % (1000, 254),
-switch type toggle, power-on off, dimming curve led_soft. These can drive an existing setup
-wrongly: with toggle a push button lights the lamp only while it is held, and the brightness of
-every level changes.
-
-Before the erase, write down for each channel, from Zigbee2MQTT (or Home Assistant):
-
-- `min_level` and `max_level` (on the 1..254 scale; values set from Zigbee2MQTT come back
-  exactly when written again),
-- `switch_type`,
-- `power_on_behavior` (the stock MCU has one setting for both channels).
-
-The exact MCU values are the raw DPs: 3 min, 5 max, 4 switch type for channel 1; 9, 11, 10 for
-channel 2; 14 power-on. One place to read them is the fork's log of the MCU link: Basic
-attributes 0xff41..0xff45 on endpoint 1 hold its last 30 events of every kind (sent and received
-DPs and commands, acks, timeouts), so the dump from the first contact has scrolled out soon.
-Fill it on demand: write 1 to Basic attribute 0xff4f (clears the log), then 2 (asks the MCU for
-all its DPs), and read 0xff41..0xff45 right after. Each 8-byte entry is the time in ms (2 bytes),
-the kind (3 or 4 = a DP report), the DP id and the value (4 bytes), little-endian. The fork's
-`helper_scripts/decode_mcu_diag.py` decodes them.
 
 ## 1. Quick install: one contact
 
