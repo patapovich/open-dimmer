@@ -25,8 +25,8 @@ Last updated: 2026-11-20.
 
 | | |
 |---|---|
-| Release | **2.2.5**, build 1000 |
-| Size | app 13 940 of 14 336 bytes; bootloader 3 364 of 4 096 bytes |
+| Release | **2.2.6**, build 1100 |
+| Size | app 13 676 of 14 336 bytes; bootloader 3 364 of 4 096 bytes |
 | Bootloader checksum | CRC-32 `0x7D215316` (health DP 136) |
 | Zigbee firmware | fork [`patapovich/tuya-zigbee-switch`](https://github.com/patapovich/tuya-zigbee-switch), branch `home-dimmer`; CI builds the OTA images on `home-dimmer_build` for every change |
 
@@ -192,5 +192,5 @@ Before deploying a changed Zigbee2MQTT converter:
 | 7 | Module button gestures | parked |
 | 8 | Predictive first hold direction: learnt per quarter of the range from quick reversals | done (2.2.5), tested on hardware |
 | 9 | Zigbee firmware: hold reports after the module's wall-switch OnLevel write were held back about 2 s | fixed in the Zigbee firmware (a hold gesture ends the holdoff), tested on hardware |
-| 10 | Zigbee firmware: right after a restart (e.g. an OTA update) it reports the light off before it knows the dimmer chip's state; a hub takes that as an off (Adaptive Lighting then drops a level set by hand) | planned |
+| 10 | Zigbee firmware: right after a restart it reported the light off before it knew the dimmer chip's state | fixed in the Zigbee firmware (reports wait until every dimmer knows its state), tested on hardware |
 | 11 | Download counts: hubs fetch the OTA images as raw files, which GitHub does not count. Publish them as release assets of the fork and point the OTA index there | planned |
