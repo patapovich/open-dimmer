@@ -192,3 +192,5 @@ Before deploying a changed Zigbee2MQTT converter:
 | 7 | Module button gestures | parked |
 | 8 | Predictive first hold direction: learnt per quarter of the range from quick reversals | done (2.2.5), tested on hardware |
 | 9 | Zigbee firmware: hold reports after the module's wall-switch OnLevel write were held back about 2 s | fixed in the Zigbee firmware (a hold gesture ends the holdoff), tested on hardware |
+| 10 | Zigbee firmware: right after a restart (e.g. an OTA update) it reports the light off before it knows the dimmer chip's state; a hub takes that as an off (Adaptive Lighting then drops a level set by hand) | planned |
+| 11 | Download counts: hubs fetch the OTA images as raw files, which GitHub does not count. Publish them as release assets of the fork and point the OTA index there | planned |
