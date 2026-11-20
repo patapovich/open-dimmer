@@ -42,11 +42,13 @@ It needs the fork's Zigbee firmware.
 
 | | Stock firmware | Open Dimmer |
 |---|---|---|
+| Any brightness change | one fixed fade, the whole range in 2 s; Zigbee transitions ignored | fade on / off times (0.95 s by default), the transition of each Zigbee command |
 | Tap | on / off | on / off; from dark quickly to the stored level |
-| Hold | dims at one fixed rate, up and down by turns | from dark: rises slowly from the minimum (very dim levels are easy to pick); while lit: up or down by turns, the first towards the far end; slow near the minimum; the hold time is a setting |
+| Hold | one slow fixed rate, the whole range in ~6 s; up and down by turns | the whole range in 3.3 s by default (`hold_time`); from dark it rises slowly from the minimum (very dim levels are easy to pick); while lit up or down by turns, the first towards the far end; slow near the minimum |
 | Double, triple, hold, release | not reported | Zigbee2MQTT `action`; can drive bound lights |
 | Modes | the switch always drives the light | normal, detached (only reports: automations, bound lights), off |
 | Stuck or shorted input | – | a hold ends by itself |
+| Power-up | no bootloader wait | lit after ~1.5 s (the bootloader first asks the Zigbee firmware for an update) |
 
 ## Zigbee firmware features
 
