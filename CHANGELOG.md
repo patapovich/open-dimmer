@@ -3,6 +3,13 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
+## 2.2.6 (unreleased)
+
+- Smaller app, nothing else changed: 264 bytes freed (13 676 of 14 336 bytes) by building the app
+  with less inlining and without switch jump tables, and by computing the linear curve instead of
+  keeping a table for it (dim_output already computed it). The bootloader is byte for byte the
+  same.
+
 ## 2.2.5 (2026-11-20)
 
 - Wall switch hold: the way a hold goes is learnt. A hold right after another (within 2 s)

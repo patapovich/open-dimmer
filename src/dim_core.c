@@ -265,10 +265,11 @@ uint16_t dim_curve(uint8_t curve, uint16_t value) {
     if (value >= DIM_VALUE_MAX) {
         return DIM_DUTY_MAX;
     }
-    if (curve >= CURVE_COUNT) {
-        curve = CURVE_LINEAR;
+    _Static_assert(CURVE_LINEAR == 0, "the tables start at the curve after linear");
+    if (curve == CURVE_LINEAR || curve >= CURVE_COUNT) {     /* linear (also unknown): no table */
+        return (uint16_t)(value * (DIM_DUTY_MAX / DIM_VALUE_MAX));
     }
-    const uint16_t *k   = k_curves[curve];
+    const uint16_t *k   = k_curves[curve - 1];
     uint32_t        pos = (uint32_t)value * (CURVE_POINTS - 1);   /* in 1/1000 of a segment */
     uint32_t        seg = pos / DIM_VALUE_MAX;
     uint32_t        frac = pos % DIM_VALUE_MAX;
