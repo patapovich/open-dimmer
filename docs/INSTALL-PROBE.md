@@ -36,7 +36,7 @@ read protection and flashes Open Dimmer. Do [step 1 of INSTALL.md](INSTALL.md#1-
   ```
   sudo apt install python3-venv git curl
   mkdir -p ~/projects/zdms16-py32 && cd ~/projects/zdms16-py32
-  git clone https://github.com/patapovich/zdms16-py32 fw
+  git clone https://github.com/patapovich/open-dimmer fw
   git clone https://github.com/IOsetting/py32f0-template ../py32f0-template
   git -C ../py32f0-template checkout 009bdec7ed77c9b782a258c064c227e15ec19498
   python3 -m venv .venv && .venv/bin/pip install pyocd==0.46.1

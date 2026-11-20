@@ -233,7 +233,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: zdms16-py32-${{ github.sha }}
+          name: open-dimmer-${{ github.sha }}
           path: |
             build/zdms16_py32.img
             build/zdms16_py32_full.bin
@@ -244,7 +244,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: zdms16-py32-release-files-${{ github.sha }}
+          name: open-dimmer-release-files-${{ github.sha }}
           path: dist/
 
   release:
@@ -268,7 +268,7 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          name: zdms16-py32-release-files-${{ github.sha }}
+          name: open-dimmer-release-files-${{ github.sha }}
           path: dist
 
       - name: Publish

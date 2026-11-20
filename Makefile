@@ -45,7 +45,7 @@ CRASH_TEST ?=
 # option bytes): an app the module takes for the factory firmware (it reports version 1.0.7, so the
 # module never asks who it is and treats it as stock) that, like the factory firmware, makes the SWD
 # pins PA13 / PA14 outputs (low) STOCKLIKE_PINS_MS after its start (default 1500; 0 = never). For
-# the module's SWD install rehearsal (zdms16-py32 has no copy of the factory firmware). Above the
+# the module's SWD install rehearsal (this repository has no copy of the factory firmware). Above the
 # carried release (FW_TEST, no FW_PREV), so the bootloader's power-on probe never replaces it.
 STOCKLIKE_TEST ?=
 STOCKLIKE_PINS_MS ?= 1500

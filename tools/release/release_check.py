@@ -212,7 +212,7 @@ def main(argv):
     ap.add_argument("--image", required=True)
     ap.add_argument("--tag", required=True)
     ap.add_argument("--repo", default=".")
-    ap.add_argument("--gh-repo", default="patapovich/zdms16-py32")
+    ap.add_argument("--gh-repo", default="patapovich/open-dimmer")
     ap.add_argument("--earlier-images")
     ap.add_argument("--ztu-ota", required=True, help="OTA file of the fork's ZDMS16-2 build, or 'skip'")
     ap.add_argument("--accept-headroom", type=int, help="the free bytes accepted below the minimum")

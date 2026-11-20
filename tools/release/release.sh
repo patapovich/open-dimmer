@@ -29,7 +29,7 @@
 #                                             the version's section to CHANGELOG.md first)
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")/../.."
-PY32=patapovich/zdms16-py32
+PY32=patapovich/open-dimmer
 ZTU=patapovich/tuya-zigbee-switch
 ZTU_DIR=~/projects/tzs-diag
 # Everything that ends up in the released files: a change here needs a new version.
