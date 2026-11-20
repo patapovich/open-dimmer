@@ -60,9 +60,7 @@ More detail: the upstream [conversion guide](https://github.com/romasku/tuya-zig
    | **D3** | → | **SWC** (pad 2) |
    | **D7** | → | **SWD** (pad 1) |
 
-   | CN2 close up | The two wires |
-   |---|---|
-   | ![CN2 pads: SWD, SWC, GND, VCC](img/cn2-pads-elektroda.png) | ![The two wires from the ZTU down to CN2](img/two-wires-side.jpg) |
+   ![The two wires from the ZTU down to CN2](img/two-wires-side.jpg)
 
 4. **Check:** no solder bridges, and the wires touch nothing else.
 
@@ -132,7 +130,7 @@ mv ota_index.json.new ota_index.json
   resetting the module first.
 - More pictures: [the wires from the front](img/two-wires-angle.jpg),
   [the board from below](img/board-bottom.jpg), [PY32 pinout and CN2](img/dms16-pinout-elektroda.png).
-- Picture credits: the board, CN2 and pinout pictures are by divadiow
+- Picture credits: the board and pinout pictures are by divadiow
   ([elektroda.com topic4066696](https://www.elektroda.com/rtvforum/topic4066696.html), not
   covered by this repository's license); the ZTU drawing is from the fork's
   [ZTU front view](https://github.com/patapovich/tuya-zigbee-switch/blob/home-dimmer/docs/diagrams/telink/ZTU_front.png).
