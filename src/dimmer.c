@@ -69,6 +69,23 @@ _Static_assert(sizeof(saved_t) == STORE_DATA_SIZE, "saved_t must match the store
 
 static int8_t   g_last_hold_dir[DIMMER_CHANNELS];
 static uint8_t  g_holding[DIMMER_CHANNELS];
+/* The way a hold while lit goes. A hold that starts within HOLD_SEQ_MS of the last one's end
+ * goes the other way (a correction). Any other hold takes the way learnt for the level band it
+ * starts in (HOLD_BANDS of min..max), at first the far end. A learnt hold let go within
+ * HOLD_WRONG_MS and turned round at once was the wrong way: the band learns the other one. A
+ * band the last verdict confirmed (g_lrn_sure, RAM only) needs two such misses to turn.
+ * g_lrn_ways bit (ch * HOLD_BANDS + band): that band goes against the far end; saved in the record's
+ * spare bits (on_mask bits 2..7, reserved[0] bits 6..7: 0 in older records, ignored by older
+ * firmware). */
+#define HOLD_BANDS     4u
+#define HOLD_SEQ_MS    2000u
+#define HOLD_WRONG_MS  1200u
+static uint8_t  g_lrn_ways;               /* the learnt bits (saved) */
+static uint8_t  g_lrn_sure;               /* the bands the last verdict confirmed */
+static uint8_t  g_lrn_band[DIMMER_CHANNELS];   /* 1 + the band of a learnt hold awaiting its verdict */
+static uint32_t g_lrn_t0[DIMMER_CHANNELS];     /* the last hold's start ... */
+static uint32_t g_lrn_t1[DIMMER_CHANNELS];     /* ... and end (0: none since the light came on) */
+_Static_assert(DIMMER_CHANNELS * HOLD_BANDS <= 8, "the learnt ways fit in a byte");
 /* A hold's level on the way, every HOLD_REPORT_MS from its hold time on (the factory MCU
  * reports the same way): the Zigbee side follows it (Home Assistant, the lights bound to the
  * wall switch). g_hold_rep_at 0: none (a hold sets it, the next hold's start clears it);
@@ -129,6 +146,8 @@ static void snapshot(saved_t *s) {
             s->on_mask |= (uint8_t)(1u << i);
         }
     }
+    s->on_mask |= (uint8_t)(g_lrn_ways << 2);        /* the learnt hold ways, bits 0..5 */
+    s->reserved[0] |= (uint8_t)(g_lrn_ways & 0xC0u);  /* ... and bits 6..7 */
 }
 
 /* The light state in the mailbox, kept current: after a reset that keeps the
@@ -192,6 +211,12 @@ uint8_t dimmer_init(uint32_t reset_csr) {
     }
     g_power_on[0] = POWER_ON_OFF;
     g_power_on[1] = POWER_ON_OFF;
+    g_lrn_ways = 0;
+    g_lrn_sure = 0;
+    for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
+        g_lrn_band[i] = 0;
+        g_lrn_t1[i]   = 0;
+    }
 
     saved_t s;
     if (store_load((uint8_t *)&s) && s.format >= 1 && s.format <= SAVED_FORMAT) {
@@ -226,6 +251,7 @@ uint8_t dimmer_init(uint32_t reset_csr) {
                 g_ch[i].boost50      = (uint8_t)((s.reserved[1] >> (4 * i)) & 15u);
                 g_ch[i].power_level4 = s.reserved[2 + i] <= 250u ? s.reserved[2 + i] : 0;
             }
+            g_lrn_ways = (uint8_t)((s.on_mask >> 2) | (s.format >= 3 ? s.reserved[0] & 0xC0u : 0));
             if (g_ch[i].min > g_ch[i].max) {
                 g_ch[i].min = g_ch[i].max;
             }
@@ -501,6 +527,9 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         if (!value[0] || !c->on) {
             end_hold(ch);
         }
+        if (!value[0]) {
+            g_lrn_t1[ch] = 0;           /* no correction across an off */
+        }
         c->on = value[0] ? 1 : 0;
         apply(ch);
         mark_dirty();   /* switching off fixes the level to keep */
@@ -660,6 +689,7 @@ void dimmer_local_set(uint8_t ch, uint8_t on) {
     }
     if (!on) {
         end_hold(ch);                 /* e.g. the module button during a hold */
+        g_lrn_t1[ch] = 0;             /* no correction across an off */
     }
     uint8_t had_countdown = g_ch[ch].countdown != 0;
     g_ch[ch].on = on ? 1 : 0;
@@ -699,24 +729,52 @@ void dimmer_local_toggle(uint8_t ch) {
     }
 }
 
+/* The verdict on a learnt hold, at the next hold or an off: turned round within HOLD_SEQ_MS
+ * after being let go within HOLD_WRONG_MS, it went the wrong way. */
+static void learn_verdict(uint8_t ch, uint8_t turned_round) {
+    uint8_t band = g_lrn_band[ch];
+    if (!band) {
+        return;
+    }
+    g_lrn_band[ch] = 0;
+    uint8_t bit    = (uint8_t)(1u << (ch * HOLD_BANDS + band - 1u));
+    if (!turned_round || g_lrn_t1[ch] - g_lrn_t0[ch] >= HOLD_WRONG_MS) {
+        g_lrn_sure |= bit;            /* kept, or a long hold corrected: the right way */
+    } else if (g_lrn_sure & bit) {
+        g_lrn_sure &= (uint8_t)~bit;  /* confirmed before: one miss is not enough */
+    } else {
+        g_lrn_ways ^= bit;            /* the band learns the other way */
+        mark_dirty();
+    }
+}
+
 void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark) {
     if (ch >= DIMMER_CHANNELS || !g_ch[ch].on) {
         return;
     }
     dimmer_channel_t *c   = &g_ch[ch];
     uint16_t          now = phase_current(ch);
+    uint8_t           seq = g_lrn_t1[ch] && g_now - g_lrn_t1[ch] <= HOLD_SEQ_MS;
 
+    learn_verdict(ch, seq);
     if (dir == 0) {
         if (from_dark || now <= c->min + 2 * DIM_HOLD_RATE) {
             dir = +1;
         } else if (now + 2 * DIM_HOLD_RATE >= c->max) {
             dir = -1;
-        } else if (g_last_hold_dir[ch]) {
-            dir = (int8_t)-g_last_hold_dir[ch];
-        } else {                      /* the first hold: towards the far end */
-            dir = now > (unsigned)(c->min + c->max) / 2u ? -1 : +1;
+        } else if (seq && g_last_hold_dir[ch]) {
+            dir = (int8_t)-g_last_hold_dir[ch];          /* a correction: the other way */
+        } else {                      /* towards the far end, or the way learnt here */
+            uint8_t band = (uint8_t)((unsigned)(now - c->min) * HOLD_BANDS /
+                                     (unsigned)(c->max - c->min + 1u));
+            dir          = band >= HOLD_BANDS / 2u ? -1 : +1;
+            if (g_lrn_ways & (1u << (ch * HOLD_BANDS + band))) {
+                dir = (int8_t)-dir;
+            }
+            g_lrn_band[ch] = (uint8_t)(band + 1u);
         }
     }
+    g_lrn_t0[ch]        = g_now;
     g_last_hold_dir[ch] = dir;
     g_holding[ch]       = 1;
     phase_hold_start(ch, dir, c->min, c->max, from_dark);
@@ -737,7 +795,11 @@ void dimmer_hold_end(uint8_t ch) {
         return;
     }
     g_holding[ch] = 0;
+    g_lrn_t1[ch]  = g_now ? g_now : 1u;
     uint16_t v    = phase_hold_stop(ch);
+    if (v <= g_ch[ch].min + 2 * DIM_HOLD_RATE || v + 2 * DIM_HOLD_RATE >= g_ch[ch].max) {
+        learn_verdict(ch, 0);         /* taken to the end: the way was right */
+    }
     if (!g_ch[ch].on) {
         apply(ch);                  /* switched off during the hold: stay off */
         return;

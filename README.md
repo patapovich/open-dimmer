@@ -49,7 +49,7 @@ The stock firmware is quirky in use: it reads the wall switch inconsistently and
 | Reading the switch | inconsistent | debounced; contact bounce and a switch held at power-up are ignored |
 | Brightness changes | one fixed fade (2 s); Zigbee transitions ignored | adjustable fades; Zigbee transitions |
 | Tap | on / off | on / off; from dark quickly to the stored level |
-| Hold | slow fixed rate (~6 s over the range) | ~3 s over the range (adjustable); from dark it starts at the minimum; slow near the minimum |
+| Hold | slow fixed rate (~6 s over the range) | ~3 s over the range (adjustable); from dark it starts at the minimum; slow near the minimum; learns which way you want at each brightness |
 | Double, triple press, hold | not reported | Zigbee2MQTT actions; can drive bound lights |
 | Modes | the switch always drives the light | normal, detached (only reports), off |
 | Stuck input | – | a hold ends by itself |

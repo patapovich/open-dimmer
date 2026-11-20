@@ -3,6 +3,16 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
+## 2.2.5 (unreleased)
+
+- Wall switch hold: the way a hold goes is learnt. A hold right after another (within 2 s)
+  still goes the other way; any other hold now takes the way learnt for the brightness it
+  starts at (four bands of the range), at first towards the far end as before. Turning a hold
+  round at once teaches its band the other way. Before, holds simply alternated, so with an on
+  level set by Adaptive Lighting the first hold brightened in the evening. The learnt ways are
+  kept over power cuts (in spare bits of the settings record: no format change, and older
+  firmware ignores them).
+
 ## 2.2.4 (2026-11-20)
 
 - Wall switch hold: the level is reported every 0.5 s while the hold dims (from its hold time

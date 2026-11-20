@@ -427,6 +427,126 @@ static void test_first_hold_direction_low(void) {
     dimmer_hold_end(0);
 }
 
+/* ---- the hold's way is learnt per level band ------------------------------------------- */
+
+/* Lit at a level of band 0 (min 200, max 1000: 200..399), not in a correction sequence. */
+static void lit_again(uint16_t level) {
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, level);
+    run_ms(3000);
+}
+
+static int8_t hold_for(uint32_t ms) {
+    dimmer_hold_begin(0, 0, 0);
+    int8_t dir = g_host_fader[0].hold_dir;
+    run_ms(ms);
+    dimmer_hold_end(0);
+    return dir;
+}
+
+static void test_hold_learns_the_way(void) {
+    power_up(1);
+    lit_again(300);
+    CHECK(hold_for(500) == 1);                     /* band 0: the far end, up */
+    run_ms(300);
+    CHECK(hold_for(500) == -1);                    /* turned round at once: the other way */
+    lit_again(300);
+    CHECK(hold_for(500) == -1);                    /* learnt: band 0 goes down first now */
+    lit_again(800);
+    CHECK(hold_for(500) == -1);                    /* band 2 untouched: the far end, down */
+}
+
+static void test_a_long_hold_corrected_teaches_nothing(void) {
+    power_up(1);
+    lit_again(300);
+    CHECK(hold_for(1500) == 1);                    /* long: it went the right way, too far */
+    run_ms(300);
+    CHECK(hold_for(300) == -1);
+    lit_again(300);
+    CHECK(hold_for(500) == 1);                     /* still up */
+}
+
+static void test_a_confirmed_band_needs_two_misses(void) {
+    power_up(1);
+    lit_again(300);
+    CHECK(hold_for(500) == 1);
+    lit_again(300);                                   /* kept: confirmed */
+    CHECK(hold_for(500) == 1);
+    run_ms(300);
+    CHECK(hold_for(300) == -1);                    /* one miss */
+    lit_again(300);
+    CHECK(hold_for(500) == 1);                     /* not enough */
+    run_ms(300);
+    CHECK(hold_for(300) == -1);                    /* a second miss */
+    lit_again(300);
+    CHECK(hold_for(500) == -1);                    /* turned */
+}
+
+static void test_no_correction_across_an_off(void) {
+    power_up(1);
+    lit_again(300);
+    CHECK(hold_for(500) == 1);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 0);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 300);
+    run_ms(300);
+    CHECK(hold_for(500) == 1);                     /* a new start: learnt way, not the other one */
+    lit_again(300);
+    CHECK(hold_for(500) == 1);                     /* and nothing learnt */
+}
+
+static void test_a_hold_to_the_end_was_the_right_way(void) {
+    power_up(1);
+    lit_again(250);
+    CHECK(hold_for(500) == 1);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 1000);   /* as if the hold had reached the max */
+    run_ms(3000);
+    dimmer_hold_begin(0, -1, 0);                       /* any hold settles the verdict */
+    dimmer_hold_end(0);
+    lit_again(250);
+    CHECK(hold_for(500) == 1);
+}
+
+static void test_the_learnt_way_is_saved(void) {
+    power_up(1);
+    host_write(POWER_ON_1, TUYA_DP_TYPE_ENUM, 2);       /* power-on: last state */
+    lit_again(300);
+    CHECK(hold_for(500) == 1);
+    run_ms(300);
+    CHECK(hold_for(500) == -1);
+    run_ms(10000);                                     /* saved */
+    host_saved_t s;
+    memcpy(&s, g_host_flash, sizeof(s));
+    CHECK(s.format == 3);
+    CHECK((s.on_mask & 1u) == 1u);                     /* channel 1 on, kept as before */
+    CHECK(((s.on_mask >> 2) & 1u) == 1u);              /* band 0 of channel 1 learnt */
+    CHECK((s.reserved[0] & 0xC0u) == 0);
+    power_up(0);
+    CHECK(c1()->on == 1);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 300);
+    run_ms(3000);
+    CHECK(hold_for(500) == -1);                        /* still learnt after the power cut */
+}
+
+static void test_an_older_record_has_the_far_end_ways(void) {
+    host_saved_t s;
+    memset(&s, 0, sizeof(s));
+    s.format = 3;
+    for (int i = 0; i < 2; i++) {
+        s.ch[i].level = 300;
+        s.ch[i].min   = 200;
+        s.ch[i].max   = 1000;
+    }
+    s.reserved[0] = 0x3Fu;                             /* the spare bits clear */
+    memcpy(g_host_flash, &s, sizeof(s));
+    g_host_flash_valid = 1;
+    power_up(0);
+    lit_again(300);
+    CHECK(hold_for(500) == 1);
+    lit_again(800);
+    CHECK(hold_for(500) == -1);
+}
+
 /* ---- item 36: min/max writes keep the level inside -------------------------- */
 
 static void test_max_below_level(void) {
@@ -853,6 +973,13 @@ int main(void) {
     RUN(test_update_during_hold);
     RUN(test_first_hold_direction);
     RUN(test_first_hold_direction_low);
+    RUN(test_hold_learns_the_way);
+    RUN(test_a_long_hold_corrected_teaches_nothing);
+    RUN(test_a_confirmed_band_needs_two_misses);
+    RUN(test_no_correction_across_an_off);
+    RUN(test_a_hold_to_the_end_was_the_right_way);
+    RUN(test_the_learnt_way_is_saved);
+    RUN(test_an_older_record_has_the_far_end_ways);
     RUN(test_max_below_level);
     RUN(test_load_clamps);
     RUN(test_transition_level_takes_the_time);

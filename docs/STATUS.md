@@ -105,7 +105,11 @@ During a hold the level is reported every 0.5 s.
 **Wall switch**
 
 - Momentary: a tap from dark goes quickly to the stored level. A hold from dark rises slowly from
-  min; a hold while lit goes up or down by turns (the first towards the far end), slow near min.
+  min. A hold while lit that starts within 2 s of the last one's end goes the other way (a
+  correction); any other takes the way learnt for the quarter of min..max it starts in, at first
+  towards the far end. A learnt hold let go within 1.2 s and turned round at once was the wrong
+  way: that quarter learns the other one (a quarter that was just confirmed needs a second miss).
+  A hold taken to the end counts as right. The learnt ways survive a power cut. Slow near min.
   Release stops at once and saves the level. A hold ends by itself after 2 × hold time + 2 s.
 - Toggle: every change toggles.
 - State: on while closed; set at once when the type changes to it.
@@ -186,5 +190,5 @@ Before deploying a changed Zigbee2MQTT converter:
 | 5 | Fade and hold defaults | settle after more use |
 | 6 | Zero-cross delay measurement ([ZC-DELAY-MEASUREMENT.md](ZC-DELAY-MEASUREMENT.md)) | optional |
 | 7 | Module button gestures | parked |
-| 8 | Predictive first hold direction: the first hold while lit goes towards the far end, which with an on level from Adaptive Lighting brightens in the evening and dims in the day. Options: always down first; a setting the hub switches by time of day; or learning from quick reversals per level band | planned |
+| 8 | Predictive first hold direction: learnt per quarter of the range from quick reversals (next release) | done, untested on hardware |
 | 9 | Zigbee firmware: after its wall-switch OnLevel write it holds the dimmer chip's level reports, so during a hold from dark the hub shows the OnLevel and the real level arrives about 2 s after the release | planned |
