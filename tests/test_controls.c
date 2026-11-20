@@ -9,6 +9,7 @@
 #include "host_boot.h"
 #include "phase.h"
 #include "tuya.h"
+#include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -547,6 +548,65 @@ static void test_tap_from_dark_fastest_hold(void) {
     CHECK(c1()->on == 1 && c1()->level == 600 && g_host_fader[0].current == 600);
 }
 
+/* ---- a hold's level on the way ------------------------------------------------ */
+
+/* The level-only reports (A[2=v]) in the log from that point on, at most max. */
+static unsigned hold_reports(uint16_t *v, unsigned max) {
+    unsigned n  = 0;
+    long     at = 0;
+    while (n < max && (at = host_log_find_from(at, "A[2=")) >= 0) {
+        v[n++] = (uint16_t)atoi(&g_host_log[at + 4]);
+        at    += 4;
+    }
+    return n;
+}
+
+/* Every 0.5 s from the hold time on (as the factory MCU), for the Zigbee side to follow it
+ * (Home Assistant, the lights bound to the wall switch); the end reported as before. */
+static void test_hold_reports_its_level_on_the_way(void) {
+    uint16_t v[8];
+
+    momentary_lit_at(800);
+    host_log_clear();
+    s1(1);
+    run_ms(400 + 1200);                            /* the hold time, then 1.2 s */
+    unsigned n = hold_reports(v, 8);
+    CHECK(n == 2);
+    CHECK(n == 2 && v[0] < 800 && v[1] < v[0]);    /* the first hold goes down from 800 */
+    host_log_clear();
+    s1(0);
+    run_ms(100);
+    CHECK(host_log_find("A[1=1,2=") >= 0);
+    CHECK(hold_reports(v, 8) == 0);
+}
+
+static void test_hold_from_dark_reports_from_its_hold_time(void) {
+    uint16_t v[8];
+
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, MOMENTARY);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 600);
+    run_ms(3000);
+    host_log_clear();
+    s1(1);                                         /* a tap from dark: none */
+    run_ms(300);
+    s1(0);
+    run_ms(1500);
+    CHECK(c1()->on == 1 && hold_reports(v, 8) == 0);
+    s1(1);                                         /* off again */
+    run_ms(100);
+    s1(0);
+    run_ms(1500);
+    CHECK(c1()->on == 0);
+    host_log_clear();
+    s1(1);                                         /* a hold from dark: rising */
+    run_ms(400 + 1200);
+    unsigned n = hold_reports(v, 8);
+    CHECK(n == 2 && v[1] > v[0]);
+    s1(0);
+    run_ms(100);
+}
+
 static void run(void (*test)(void), const char *name) {
     fflush(stdout);
     pid_t pid = fork();
@@ -738,6 +798,8 @@ int main(void) {
     RUN(test_dp_on_during_hold_from_dark);
     RUN(test_hold_cap);
     RUN(test_tap_from_dark_fastest_hold);
+    RUN(test_hold_reports_its_level_on_the_way);
+    RUN(test_hold_from_dark_reports_from_its_hold_time);
     RUN(test_detached_momentary_reports_gestures_and_leaves_the_light);
     RUN(test_detached_toggle_reports_each_change_as_a_single);
     RUN(test_input_off_ignores_the_switch_and_the_mode_is_saved);

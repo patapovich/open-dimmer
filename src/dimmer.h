@@ -121,6 +121,9 @@ void dimmer_report_action(uint8_t ch, uint8_t gesture);
 /** Start hold dimming; dir 0 = pick (up from dark or at min, down at max,
  * else the opposite of the last hold; the first hold goes towards the far end). */
 void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark);
+/** The hold time of a press from dark is over (its rise runs since the press): report its
+ *  level on the way from now on, as a hold's (dimmer_hold_begin starts them by itself). */
+void dimmer_hold_reports(uint8_t ch);
 /** End hold dimming: keep the level the light has (saved), and report it.
  * Nothing if no hold is running. */
 void dimmer_hold_end(uint8_t ch);

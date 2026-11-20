@@ -176,6 +176,8 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
         case INPUT_EV_HOLD:
             if (!g_turned_on_by_press[ch]) {
                 dimmer_hold_begin(ch, 0, 0);    /* from dark the rise is already running */
+            } else {
+                dimmer_hold_reports(ch);
             }
             break;
         case INPUT_EV_RELEASE_AFTER_HOLD:
