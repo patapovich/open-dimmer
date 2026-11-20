@@ -189,8 +189,7 @@ Before deploying a changed Zigbee2MQTT converter:
 | 4 | Long trial: read the health DPs 131, 132, 133 and 135 now and then | ongoing |
 | 5 | Fade and hold defaults | settle after more use |
 | 6 | Zero-cross delay measurement ([ZC-DELAY-MEASUREMENT.md](ZC-DELAY-MEASUREMENT.md)) | optional |
-| 7 | Module button gestures | parked |
 | 8 | Predictive first hold direction: learnt per quarter of the range from quick reversals | done (2.2.5), tested on hardware |
 | 9 | Zigbee firmware: hold reports after the module's wall-switch OnLevel write were held back about 2 s | fixed in the Zigbee firmware (a hold gesture ends the holdoff), tested on hardware |
 | 10 | Zigbee firmware: right after a restart it reported the light off before it knew the dimmer chip's state | fixed in the Zigbee firmware (reports wait until every dimmer knows its state), tested on hardware |
-| 11 | Download counts: hubs fetch the OTA images as raw files, which GitHub does not count. Publish them as release assets of the fork and point the OTA index there | planned |
+| 11 | Download counts: hubs fetched the OTA images as raw files, which GitHub does not count | done: each build's OTA images are release assets of the fork and the OTA index points to them (download counts per asset) |
