@@ -51,7 +51,7 @@ More detail: the upstream [conversion guide](https://github.com/romasku/tuya-zig
 
    | ZTU: D3 and D7 | Board: CN2 |
    |---|---|
-   | ![ZTU front view with D3 and D7 marked](img/ztu-d3-d7.png) | ![The board: CN2 next to the PY32](img/board-cn2-elektroda.png) |
+   | ![ZTU front view with D3 and D7 marked](img/ztu-d3-d7-swc-swd.png) | ![The board: CN2 next to the PY32](img/board-cn2-elektroda.png) |
 
 3. **Solder:**
 
