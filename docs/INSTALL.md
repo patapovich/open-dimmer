@@ -134,11 +134,37 @@ example 30 AWG wire-wrap wire). Plain wires, nothing else in between.
    | D3 | SWC (pad 2) | SWCLK, PY32 PA14 |
    | D7 | SWD (pad 1) | SWDIO, PY32 PA13 |
 
-   D3 and D7 are the two pads above C0 on the ZTU's edge that has C0, SWS, B6, A0 and A1 (see
-   the fork's [ZTU front view](https://github.com/patapovich/tuya-zigbee-switch/blob/home-dimmer/docs/diagrams/telink/ZTU_front.png));
-   on the stock board nothing is connected to them. CN2 is described under "What you need for a
-   probe" below (the picture there). GND and 3.3 V need no wire: the two parts already share them.
-   Check that no solder bridges D3, D7 and C0, and that the wires touch nothing else.
+   D3 and D7 are the two pads above C0 on the ZTU's edge that has C0, SWS, B6, A0 and A1: on
+   the module they are the first two pads of that edge at the end away from the ZTU's pin
+   header (its antenna end). On the stock board nothing is connected to them. GND and 3.3 V
+   need no wire: the two parts already share them. Check that no solder bridges D3, D7 and C0,
+   and that the wires touch nothing else.
+
+   ![ZTU front view with D3 and D7 marked](img/ztu-d3-d7.png)
+
+   (Drawing: the fork's [ZTU front view](https://github.com/patapovich/tuya-zigbee-switch/blob/home-dimmer/docs/diagrams/telink/ZTU_front.png),
+   MIT license, with D3 and D7 marked.)
+
+   CN2 is the row of four pads next to the PY32 (close-up at the bottom right of the picture
+   below; the pads in detail under "What you need for a probe"): SWD is pad 1 (blue), SWC
+   pad 2 (yellow).
+
+   ![PY32F002A pinout and the CN2 / CN3 pads of the board (picture: divadiow, elektroda.com topic4066696)](img/dms16-pinout-elektroda.png)
+
+   (Picture by divadiow, elektroda.com thread
+   [topic4066696](https://www.elektroda.com/rtvforum/topic4066696.html); not covered by this
+   repository's MIT license. It shows the WiFi model; the PY32 side is the same.)
+
+   The two wires on a module (the ZTU on top, its pin header at the right; the wires run from
+   its D3 / D7 down to CN2 next to the PY32):
+
+   ![The two wires from the ZTU down to CN2, side view](img/two-wires-side.jpg)
+
+   ![The two wires, seen from the front](img/two-wires-angle.jpg)
+
+   The board these photos show, from below (MK-WC1H16A-A V1.1, 2023-08-23):
+
+   ![The ZDMS16-2 board from below](img/board-bottom.jpg)
 4. Close the module, reconnect it and switch the mains on.
 
 At this power-up the Zigbee firmware sees the wires, catches the MCU before the stock firmware
