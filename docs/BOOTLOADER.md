@@ -167,7 +167,7 @@ SWD note: pyOCD erases whole 4 KB sectors (Makefile:98-102). An SWD install of a
 12 KB therefore erases sector 4, the ring, unless the tool keeps it: `install.sh` reads sector 4
 first and writes it back with the image's start merged in (the image ends below the ring at
 0x08004800), as an update over the UART would; `ERASE_SETTINGS=1` erases instead; `make
-flash-all` refuses such an image. docs/INSTALL-PROBE.md says so.
+flash-all` refuses such an image. docs/INSTALL-PROGRAMMER.md says so.
 
 ### Write protection (WRP) of sector 0
 

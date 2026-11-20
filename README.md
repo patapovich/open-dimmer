@@ -60,7 +60,7 @@ The stock firmware is quirky in use: it reads the wall switch inconsistently and
   and push buttons. The `_TZE204_jtbgusdc` variant and 60 Hz are untested:
   [reports welcome](#support).
 - **Zigbee2MQTT**, with the dimmer paired.
-- A **soldering iron** and two thin wires, or an [SWD programmer](docs/INSTALL-PROBE.md) (e.g. ST-Link
+- A **soldering iron** and two thin wires, or an [SWD programmer](docs/INSTALL-PROGRAMMER.md) (e.g. ST-Link
   or a Raspberry Pi Pico) instead.
 
 ## Quick start

@@ -129,7 +129,7 @@ period.
 | `src/`, `boot/` | the app and the bootloader |
 | `tests/` | host tests (`make test`, with the bootloader harness) |
 | `tools/` | image and release tools; `swd/` SWD programmer install; `ha/` Zigbee2MQTT / Home Assistant helpers |
-| `docs/` | [INSTALL.md](INSTALL.md), [INSTALL-PROBE.md](INSTALL-PROBE.md), [BOOTLOADER.md](BOOTLOADER.md) (design record), [stock-firmware-analysis.md](stock-firmware-analysis.md), [ZC-DELAY-MEASUREMENT.md](ZC-DELAY-MEASUREMENT.md) |
+| `docs/` | [INSTALL.md](INSTALL.md), [INSTALL-PROGRAMMER.md](INSTALL-PROGRAMMER.md), [BOOTLOADER.md](BOOTLOADER.md) (design record), [stock-firmware-analysis.md](stock-firmware-analysis.md), [ZC-DELAY-MEASUREMENT.md](ZC-DELAY-MEASUREMENT.md) |
 
 ### Flash layout
 
