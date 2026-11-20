@@ -45,27 +45,26 @@ More detail: the upstream [conversion guide](https://github.com/romasku/tuya-zig
 ## 2. Solder two wires
 
 1. **Mains off:** disconnect all mains wires, then open the module.
-2. **Find D3 and D7** on the Zigbee module (ZTU): the first two pads at the antenna end of the
-   edge with C0, SWS, B6, A0 and A1. Nothing else is connected to them.
+2. **Find the pads:** D3 and D7 on the Zigbee module (ZTU), the first two pads at the antenna
+   end of the edge with C0, SWS, B6, A0 and A1 (nothing else is connected to them); CN2 on the
+   board, the row of four pads next to the PY32 chip.
 
-   ![ZTU front view with D3 and D7 marked](img/ztu-d3-d7.png)
-
-3. **Find CN2:** the row of four pads next to the PY32 chip.
-
-   | The board | CN2 |
+   | ZTU: D3 and D7 | Board: CN2 |
    |---|---|
-   | ![The board: CN2 next to the PY32](img/board-cn2-elektroda.png) | ![CN2 pads: SWD, SWC, GND, VCC](img/cn2-pads-elektroda.png) |
+   | ![ZTU front view with D3 and D7 marked](img/ztu-d3-d7.png) | ![The board: CN2 next to the PY32](img/board-cn2-elektroda.png) |
 
-4. **Solder:**
+3. **Solder:**
 
    | ZTU pad | → | CN2 pad |
    |---|---|---|
    | **D3** | → | **SWC** (pad 2) |
    | **D7** | → | **SWD** (pad 1) |
 
-   ![The two wires from the ZTU down to CN2](img/two-wires-side.jpg)
+   | CN2 close up | The two wires |
+   |---|---|
+   | ![CN2 pads: SWD, SWC, GND, VCC](img/cn2-pads-elektroda.png) | ![The two wires from the ZTU down to CN2](img/two-wires-side.jpg) |
 
-5. **Check:** no solder bridges, and the wires touch nothing else.
+4. **Check:** no solder bridges, and the wires touch nothing else.
 
 ## 3. Close and power on
 
