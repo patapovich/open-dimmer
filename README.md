@@ -1,5 +1,7 @@
 # Open Dimmer
 
+<img src="docs/img/zdms16-2-z2m.png" alt="AVATTO ZDMS16-2 two-channel Zigbee dimmer module" width="200" align="right">
+
 [![CI](https://github.com/patapovich/open-dimmer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/patapovich/open-dimmer/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/patapovich/open-dimmer)](https://github.com/patapovich/open-dimmer/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/patapovich/open-dimmer)](LICENSE)
@@ -7,8 +9,6 @@
 Open-source firmware for the **AVATTO ZDMS16-2** two-channel Zigbee dimmer. It gives smooth
 dimming curves, wall switch gestures and settings per channel. You solder two wires once, and
 after that every update comes over Zigbee.
-
-![The dimmer with the two wires from the Zigbee module down to the dimmer chip](docs/img/two-wires-side.jpg)
 
 The module has two chips: the **Zigbee module** (ZTU), which talks to Zigbee2MQTT, and the
 **dimmer chip** (PY32), which drives the lamps and reads the wall switch. Open Dimmer is the
@@ -70,6 +70,8 @@ The stock firmware is quirky in use: it reads the wall switch inconsistently and
    in place.
 3. **Close the module and switch it on.** Open Dimmer installs itself in a few seconds.
 
+![The dimmer with the two wires from the Zigbee module down to the dimmer chip](docs/img/two-wires-side.jpg)
+
 Full guide with pictures: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 > [!WARNING]
@@ -128,6 +130,9 @@ starts carrying it. Design notes: [docs/BOOTLOADER.md](docs/BOOTLOADER.md).
   [elektroda.com topic4066696](https://www.elektroda.com/rtvforum/topic4066696.html)). They are
   copied with credit and are not covered by this repository's license.
 - [IOsetting/py32f0-template](https://github.com/IOsetting/py32f0-template): the PY32 SDK.
+- The product picture (`docs/img/zdms16-2-z2m.png`) is from the
+  [Zigbee2MQTT device page](https://www.zigbee2mqtt.io/devices/ZDMS16-2.html) and is not
+  covered by this repository's license.
 
 MIT, see [LICENSE](LICENSE). No warranty: you work on a mains device at your own risk. Not
 affiliated with AVATTO, Tuya or Puya.
