@@ -43,13 +43,15 @@ bridges, and the wires touch nothing else.
 
 ![ZTU front view with D3 and D7 marked](img/ztu-d3-d7.png)
 
+![CN2 next to the PY32: SWD, SWC, GND, VCC](img/cn2-pads-elektroda.png)
+
 ![The two wires from the ZTU down to CN2](img/two-wires-side.jpg)
 
 More pictures: [the wires from the front](img/two-wires-angle.jpg),
 [the board from below](img/board-bottom.jpg),
-[PY32 pinout and CN2](img/dms16-pinout-elektroda.png) (picture by divadiow,
-[elektroda.com topic4066696](https://www.elektroda.com/rtvforum/topic4066696.html); not covered
-by this repository's license). The ZTU drawing is from the fork's
+[PY32 pinout and CN2](img/dms16-pinout-elektroda.png). The CN2 picture above is cut from it
+(both by divadiow, [elektroda.com topic4066696](https://www.elektroda.com/rtvforum/topic4066696.html);
+not covered by this repository's license). The ZTU drawing is from the fork's
 [ZTU front view](https://github.com/patapovich/tuya-zigbee-switch/blob/home-dimmer/docs/diagrams/telink/ZTU_front.png).
 
 ## 3. Power on
