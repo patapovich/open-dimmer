@@ -1,67 +1,72 @@
 # Open Dimmer
 
-Open Dimmer is open-source firmware for the PY32F002A dimming MCU of the AVATTO ZDMS16-2
-two-channel Zigbee dimmer module. The Zigbee side runs a fork of
-[romasku/tuya-zigbee-switch](https://github.com/romasku/tuya-zigbee-switch) (branch
-`home-dimmer` of `patapovich/tuya-zigbee-switch`), which carries Open Dimmer and updates the
-MCU over the module's internal UART, so after the first SWD flash every update goes over Zigbee.
-The stock MCU firmware is never touched by the update.
+Open-source firmware for the PY32F002A dimming MCU of the **AVATTO ZDMS16-2** two-channel
+Zigbee dimmer module, with a Zigbee firmware for its radio: the ZDMS16-2 build of
+[patapovich/tuya-zigbee-switch](https://github.com/patapovich/tuya-zigbee-switch) (branch
+`home-dimmer`, a fork of [romasku/tuya-zigbee-switch](https://github.com/romasku/tuya-zigbee-switch)).
+For Zigbee2MQTT users. No debug probe needed.
 
-In Zigbee2MQTT a module with Open Dimmer shows `mcu_firmware` "Open Dimmer" and the plain
-version in `mcu_version` (for example 2.1.11); with the stock MCU `mcu_firmware` shows
-"Tuya (stock)".
+## Install
 
-> **Mains voltage.** The module's low-voltage side is not isolated from the mains. Never connect
-> a debug probe, a computer or an earthed oscilloscope while it is connected to the mains: unplug,
-> wait, then connect. The bench (`SIM=1`) build must never run on the mains.
+1. **Zigbee firmware over the air** from Zigbee2MQTT, no opening
+   ([INSTALL section 0](docs/INSTALL.md#0-zigbee-side-first)).
+2. **Solder two wires**, module off the mains: ZTU pad D3 → CN2 pad SWC, ZTU pad D7 → CN2 pad
+   SWD ([INSTALL section A](docs/INSTALL.md#a-two-wires-no-probe), with photos).
+3. **Close the module and switch it on.** Open Dimmer installs itself; within about 10 s
+   Zigbee2MQTT shows `mcu_firmware` "Open Dimmer". Press Reconfigure on the device.
 
-## Features
+After that every update goes over Zigbee. The stock MCU's settings are lost (Open Dimmer starts
+with its defaults): write them down first.
 
-- Phase dimming locked to the zero cross, min/max as physical conduction limits for every curve
-  (the same meaning as in the stock firmware).
-- Dimming curves: led_soft (default), led (CIE lightness), led_deep, led_deeper, incandescent, linear (stock).
-- Per-channel power-on behaviour and per-channel saved fade / hold settings.
-- Wall switch: toggle, state or momentary; with momentary a tap from dark goes on at once, a hold
-  from dark rises slowly from the minimum, the hold stops the moment the switch is released.
-- Gestures single / double / triple / hold / release reported to Zigbee2MQTT as `action`.
-- Update over Zigbee: 4 KB bootloader, nothing erased before an image is checked, the light state
-  is kept over the update, only newer builds are taken. Bootloader v2 (from 2.1.13, installed
-  over SWD) also installs a newer build at power-on by itself, opens rescue windows for an app
-  that keeps crashing or on a module-button press at power-on, and restarts an app whose Zigbee
-  link stays silent (docs/BOOTLOADER.md; not yet tested on hardware). A watchdog or fault
-  restart keeps the light state too (not yet tested on hardware); a power cut follows the
-  power-on setting.
-- Health report (uptime, reset cause, zero-cross lock losses, UART receive losses) and
-  measurement builds that report statistics over Zigbee with nothing wired to the board. The
-  measurement and diagnostics builds decline every update the Zigbee firmware offers, so they
-  stay until the next SWD flash (`make flash-all` brings back a normal build).
+> **Mains voltage.** The low-voltage side is not isolated from the mains. Open the module only
+> with all mains wires disconnected, close it before reconnecting them, and never connect a
+> probe, a computer or an earthed oscilloscope to a module on the mains.
 
-**Installation:** [docs/INSTALL.md](docs/INSTALL.md): first the Zigbee firmware over the air
-([section 0](docs/INSTALL.md#0-zigbee-side-first)), then once per module: either solder two wires
-between the Zigbee module and the MCU's SWD pads and power the module on, and the Zigbee firmware
-installs Open Dimmer by itself ([section A](docs/INSTALL.md#a-two-wires-no-probe)), or with a debug
-probe, in one contact with `tools/swd/install.sh` (read protection off, brown-out reset, flash,
-check). Then updates over Zigbee.
+## Why Open Dimmer
 
-See [docs/STATUS.md](docs/STATUS.md) for the datapoints, the flash layout, the build and deploy
-recipe and the open items.
+The stock firmware dims linearly at one fixed rate, has one power-on setting for both channels
+and reports only on, off and level. Open Dimmer adds, per channel:
+
+- dimming curves (led_soft, led, led_deep, led_deeper, incandescent, linear);
+- fade on / fade off / hold times with slow zones near the minimum; Zigbee transitions;
+- wall switch gestures as Zigbee2MQTT `action` (single, double, triple, hold, release, fast
+  press) and wall switch modes normal / detached / off;
+- power-on behaviour, the level after a power cut, start boost for LED drivers, auto-off
+  countdown, identify;
+- health reports (uptime, reset cause, zero-cross and UART losses, die temperature);
+- updates over Zigbee through a 4 KB bootloader: checked before anything is erased, the light
+  kept, a rescue window for a crashing app.
+
+It needs the fork's Zigbee firmware.
+
+## Zigbee firmware features
+
+With the stock MCU and with Open Dimmer:
+
+- two dimmable lights (`l1`, `l2`): min / max (level scaled to the range), switch type,
+  power-on behaviour, OnLevel, remote dimming at the remote's rate;
+- Zigbee Scenes (16, kept across power cuts) and groups;
+- direct control without the coordinator: lights and groups bound to a wall switch's own
+  endpoint (3 / 4) follow its on, off and hold;
+- OTA updates of itself, conversion from the stock Zigbee firmware, MCU link diagnostics, a
+  Zigbee2MQTT converter.
+
+With Open Dimmer:
+
+- carries it and updates the MCU over the internal UART; installs it over the two wires;
+- its settings in Zigbee2MQTT, plus the wall switch's own OnLevel, ExecuteIfOff and the level
+  after a power cut;
+- gestures drive the bound lights (detached mode); per channel `bind_mode` and double / triple
+  press actions (full, off, Recall Scene 1 / 2).
+
+Details: [docs/STATUS.md](docs/STATUS.md) (datapoints, flash layout, open items), the fork's
+[build changelog](https://github.com/patapovich/tuya-zigbee-switch/blob/home-dimmer/docs/changelog_home_dimmer.md).
 
 ## Tested hardware
 
-So far tested on one module:
-
-| | |
-|---|---|
-| Device | **AVATTO ZDMS16-2**, 2-gang Zigbee dimmer module |
-| Zigbee model | stock: `TS0601`, manufacturer `_TZE284_jtbgusdc`; with the fork's Zigbee firmware: **`TS0601-ZDMS16-2`**, manufacturer `jtbgusdc` (as Zigbee2MQTT shows it) |
-| Radio | Tuya ZTU module (Telink TLSR8258), running the fork's Zigbee firmware 1.1.3 |
-| Dimming MCU | Puya **PY32F002AF15P** (TSSOP20), stock firmware 1.0.7 (read-protected, replaced by Open Dimmer) |
-| Mains | 230 V / 50 Hz |
-| Load and switch | channel 1 (L1): a dimmable LED lamp, a momentary push button between L and S1; channel 2 (L2 / S2): a lamp and a push button too (on, off, hold dimming and gestures checked) |
-
-Not tested yet: 60 Hz mains (unit tests only), the
-`_TZE204_jtbgusdc` variant (listed as the same board, not verified), other DMS16 versions (the WiFi
-DMS16-W1, board MK-WC1H16A-A, was only read for the analysis). Reports of other modules are welcome.
+ZDMS16-2 `_TZE284_jtbgusdc` (Tuya ZTU / TLSR8258, PY32F002AF15P with stock firmware 1.0.7),
+230 V / 50 Hz, LED lamps and push buttons on both channels. Not tested: 60 Hz, the
+`_TZE204_jtbgusdc` variant, other DMS16 versions. Reports welcome.
 
 ## Build
 
@@ -69,29 +74,14 @@ Needs `arm-none-eabi-gcc` and the PY32F0 SDK from
 [IOsetting/py32f0-template](https://github.com/IOsetting/py32f0-template) (CI pins the commit).
 
 ```
-make test                                  # host unit tests, the bootloader harness included
-make test-boot                             # the bootloader harness alone (tests/boot)
+make test                                  # host tests, the bootloader harness included
 make SDK=<py32f0-template>/Libraries       # build/zdms16_py32.img (+ bootloader, full image)
-make check-boot                            # the bootloader's layout (boot_id, write range, size)
 make DIAG=1 | MEASURE=1 | SIM=1            # diagnostics / measurement / bench builds
-make FW_TEST=n | FW_PREV=1 FW_TEST=n       # spare test builds (n 1..99): above / below the release
 make flash-all                             # SWD (pyOCD), board off the mains
 ```
 
-`tools/embed_ztu.py` turns an image into the C file the Zigbee firmware carries.
-
-CI builds and tests every push; a `vX.Y.Z` tag publishes a release that the Zigbee firmware fork
-picks up and builds into its OTA image (`tools/release/release.sh`, see docs/STATUS.md).
-
-## Layout
-
-| Path | |
-|---|---|
-| `src/` | firmware (`dim_core`, `input_core`, `gesture_core` are hardware-free and unit tested) |
-| `boot/` | bootloader |
-| `tests/` | host tests; `tests/boot/` runs the real bootloader against models of the chip and the ZTU |
-| `tools/` | curve generator, image tools, SWD helpers (`tools/swd`), HA / Z2M helpers (`tools/ha`) |
-| `docs/` | status, review, measurement notes, analysis of the stock firmware |
+A `vX.Y.Z` tag publishes a release that the Zigbee firmware carries (`tools/release/release.sh`).
+`src/` firmware, `boot/` bootloader, `tests/`, `tools/` (image, SWD, Home Assistant helpers), `docs/`.
 
 ## License
 

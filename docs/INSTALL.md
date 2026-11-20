@@ -1,34 +1,47 @@
 # Installing Open Dimmer on an AVATTO ZDMS16-2
 
-First the module's Zigbee firmware is replaced over the air (section 0, no opening). Then the
-dimming MCU gets Open Dimmer once, in one of two ways:
-
-- **Two wires, no probe** (section A): solder two wires inside the module, close it and power it
-  on. The Zigbee firmware installs Open Dimmer by itself over the two wires.
-- **Debug probe** (sections 1 and 2): a probe on the MCU's SWD pads, with the module off the
-  mains.
-
-After that, every update goes over Zigbee.
+Two steps: the Zigbee firmware over the air, then two soldered wires, and the module installs
+Open Dimmer by itself. No debug probe and no computer at the module (the probe path is in the
+appendix at the end).
 
 > **Mains voltage.** The module's low-voltage side is not isolated from the mains. Disconnect
-> all mains wires before you open it, and close it again before you reconnect them. Never connect
-> a probe, a computer or an earthed oscilloscope to a module that is connected to the mains. On
-> the probe path, power the module only from the probe's 3.3 V during the whole procedure.
+> all mains wires before you open it and close it before you reconnect them. Never connect a
+> probe, a computer or an earthed oscilloscope to a module on the mains.
 
-> **No way back.** The stock PY32 firmware is read-protected (RDP level 1). Removing the
-> protection erases it, and it cannot be read out beforehand. It also erases the settings the MCU
-> keeps (min/max, switch type, power-on): Open Dimmer starts with its own defaults (write the old
-> settings down first if you want them back, see below). After this the module needs Open Dimmer
-> (or another firmware written for it). Open Dimmer in turn works only with the fork's Zigbee
-> firmware (section 0): it does not answer the product query (0x01) that the stock Zigbee
-> firmware needs.
+> **No way back.** The install erases the stock MCU firmware (read-protected: it cannot be saved
+> first) and the settings it keeps (min/max, switch type, power-on). Open Dimmer starts with its
+> own defaults and runs only with the fork's Zigbee firmware.
 
-> **Zigbee side first.** Open Dimmer under the stock Zigbee firmware is not supported, but safe:
-> the light works from the wall switch and the module button, Zigbee control may not work, the
-> MCU gets no updates, and every power-up takes ~3 s before the light reacts. If it happens (an
-> MCU installed with a probe before section 0, or the Zigbee firmware put back to stock), do not
-> re-pair or reset the module (that can lose the name the conversion needs): convert the Zigbee
-> firmware over the air first (section 0). Then everything below applies.
+## Quick install: two wires
+
+You need Zigbee2MQTT, a soldering iron with a fine tip and two thin insulated wires a few cm
+long (for example 30 AWG wire-wrap wire).
+
+1. Install the fork's Zigbee firmware over the air ([section 0](#0-zigbee-side-first)). Check
+   that `mcu_firmware` shows "Tuya (stock)".
+2. Write down each channel's `min_level`, `max_level`, `switch_type` and the
+   `power_on_behavior` ([why](#before-you-open-it-write-the-settings-down)).
+3. Disconnect all mains wires and open the module.
+4. Solder ZTU pad **D3** to CN2 pad **SWC** (pad 2) and ZTU pad **D7** to CN2 pad **SWD**
+   (pad 1). Nothing else, no solder bridges ([section A](#a-two-wires-no-probe) has the
+   pictures).
+5. Close the module, reconnect it and switch the mains on. The lamps stay dark for a few seconds
+   while it installs.
+6. Within about 10 s Zigbee2MQTT shows `mcu_firmware` "Open Dimmer" and `mcu_version` 2.x.y.
+   Press **Reconfigure** on the device, then set min / max, switch type and power-on again
+   ([section 2](#2-back-in-service), steps 4–5).
+
+If it does not work:
+
+- `mcu_firmware` says "power-cycle the module to install Open Dimmer": the wires were there
+  before the Zigbee firmware. Switch the module off for a few seconds and on again.
+- Still "Tuya (stock)" after a power cycle: set the device option `mcu_flasher` to `show` and
+  read `mcu_flasher_status` ([watching it](#a-two-wires-no-probe)). With
+  `no answer (wires? power?)` check the two joints, mains off.
+- A `device_config` written by hand must contain `SWD3D7;` ([section A](#a-two-wires-no-probe)).
+- A power cut during the install: switch on again, it carries on or starts over by itself.
+
+The sections below are the details.
 
 ## 0. Zigbee side first
 
@@ -88,6 +101,13 @@ over the air from the stock firmware, no opening needed:
    "Tuya (stock)". Only then open the module for the MCU part below. An older converter of the
    fork has no `mcu_firmware`: there `mcu_version` alone is the check, Open Dimmer shows later
    as `mcu_version` "2.x.y own", and the device option is called `own_mcu_settings`.
+
+> **Open Dimmer under the stock Zigbee firmware.** Open Dimmer under the stock Zigbee firmware is not supported, but safe:
+> the light works from the wall switch and the module button, Zigbee control may not work, the
+> MCU gets no updates, and every power-up takes ~3 s before the light reacts. If it happens (an
+> MCU installed with a probe before section 0, or the Zigbee firmware put back to stock), do not
+> re-pair or reset the module (that can lose the name the conversion needs): convert the Zigbee
+> firmware over the air first (section 0). Then everything below applies.
 
 ## Before you open it: write the settings down
 
@@ -205,6 +225,19 @@ the mains off), start it again by hand: write `install` to `mcu_flasher_confirm`
 60 s set `mcu_flasher` to `install`, and power-cycle the module when the status says so.
 `install` is taken only while the MCU runs its stock firmware.
 
+## Updates
+
+The Zigbee firmware carries Open Dimmer and updates the MCU when it runs an older version of
+Open Dimmer (never the stock firmware). Update the Zigbee firmware over the air as usual;
+the MCU follows a few seconds after the module restarts, and the light comes back as it was.
+From 2.1.13 on every image has a build number (2.1.13 is build 300), and a Zigbee firmware that
+knows build numbers offers by build; older ones offer by version.
+
+## Appendix: with a debug probe
+
+The original path: the probe removes the read protection and flashes Open Dimmer, the module
+off the mains. Needed only without the two wires.
+
 ## What you need for a probe
 
 > **Blank until DONE.** Once the probe has removed the read protection, the PY32 is blank or
@@ -289,7 +322,7 @@ the mains off), start it again by hand: write `install` to `mcu_flasher_confirm`
   openocd package brings rules for the common ones). The commands below run in the work
   directory or in `fw`.
 
-## 1. Quick install: one contact
+## 1. Probe install: one contact
 
 | Pico (debugprobe) | Module CN2 |
 |---|---|
@@ -470,14 +503,6 @@ and compares.
 
 Never flash a `SIM=1` build to a module that will go back on the mains: it simulates the
 zero cross and does not follow the real one.
-
-## Updates
-
-The Zigbee firmware carries Open Dimmer and updates the MCU when it runs an older version of
-Open Dimmer (never the stock firmware). Update the Zigbee firmware over the air as usual;
-the MCU follows a few seconds after the module restarts, and the light comes back as it was.
-From 2.1.13 on every image has a build number (2.1.13 is build 300), and a Zigbee firmware that
-knows build numbers offers by build; older ones offer by version.
 
 ## Bootloader v2 (from 2.1.13)
 
