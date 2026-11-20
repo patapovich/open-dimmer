@@ -6,7 +6,8 @@
 
 The module has two chips: the **Zigbee module** (ZTU), the small board with the antenna, and
 the **dimmer chip** (PY32) on the main board. The two wires let the Zigbee module install Open
-Dimmer on the dimmer chip. With a debug probe instead of the wires: [INSTALL-PROBE.md](INSTALL-PROBE.md).
+Dimmer on the dimmer chip. With an SWD programmer (e.g. ST-Link or a Raspberry Pi Pico) instead of the wires:
+[INSTALL-PROBE.md](INSTALL-PROBE.md).
 
 ## Before you start
 

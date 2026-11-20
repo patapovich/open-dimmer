@@ -1,16 +1,17 @@
-# Installing Open Dimmer with a debug probe
+# Installing Open Dimmer with an SWD programmer
 
-The alternative to the [two-wire install](INSTALL.md), with no soldering: a probe pressed onto
-the SWD pads of the **dimmer chip** (PY32) installs Open Dimmer in one contact. The **Zigbee
-module** (ZTU) is the small board with the antenna.
+The alternative to the [two-wire install](INSTALL.md), with no soldering: an SWD programmer
+(e.g. ST-Link or a Raspberry Pi Pico) with its clip pressed onto the SWD pads of the **dimmer
+chip** (PY32) installs Open Dimmer in one contact. The **Zigbee module** (ZTU) is the small
+board with the antenna.
 
 1. [Zigbee firmware](#1-zigbee-firmware) over the air, from Zigbee2MQTT.
 2. [Set up the PC](#2-set-up-the-pc), once.
-3. [Install](#3-install) with the probe.
+3. [Install](#3-install) with the programmer.
 4. [Close and power on](#4-close-and-power-on).
 
 > [!CAUTION]
-> **Never on the mains.** The probe powers the module: all mains wires stay disconnected
+> **Never on the mains.** The programmer powers the module: all mains wires stay disconnected
 > throughout. An install that stopped before **DONE** can leave the dimmer blank: never connect
 > such a module to the mains, run the install again instead.
 
@@ -21,11 +22,11 @@ module** (ZTU) is the small board with the antenna.
 ## Before you start
 
 - [ ] Zigbee2MQTT, with the dimmer paired
-- [ ] an SWD probe, a clip and a Linux PC, as below
+- [ ] an SWD programmer, a clip and a Linux PC, as below
 
 ### What you need
 
-- **An SWD probe** with a 3.3 V output. Tested: Raspberry Pi Pico with
+- **An SWD programmer** (also called a debug probe) with a 3.3 V output. Tested: Raspberry Pi Pico with
   [debugprobe](https://github.com/raspberrypi/debugprobe) (`PROBE=cmsis-dap`, the default).
   Untested but known to pyOCD: ST-Link V2 (`PROBE=stlink`), J-Link (`PROBE=jlink`, needs a
   separate 3.3 V supply).
@@ -52,14 +53,14 @@ fw/tools/swd/make_opt_pack.sh "$PWD/py32f0-template" "$PWD/pack"
 .venv/bin/pyocd list
 ```
 
-✅ `pyocd list` shows the probe. If not, add the probe's udev rule.
+✅ `pyocd list` shows the programmer. If not, add its udev rule.
 
 ## 3. Install
 
 1. **Mains off:** disconnect all mains wires, then open the module.
 2. **Make room:** bend the Zigbee module carefully aside to reach CN2. It does not need to be
    desoldered.
-3. **Wire the clip to the probe:**
+3. **Wire the clip to the programmer:**
 
    | CN2 pad | Signal | PY32 pin | Pico |
    |---|---|---|---|

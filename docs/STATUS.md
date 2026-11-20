@@ -7,7 +7,7 @@ behaviour, how to build and release, and what is open. Users start from the
 Last updated: 2026-11-20.
 
 > [!CAUTION]
-> **The board is not isolated from the mains.** Never connect a probe, a computer or an earthed
+> **The board is not isolated from the mains.** Never connect a programmer, a computer or an earthed
 > oscilloscope while it is on the mains. Disconnect the mains and wait a minute before SWD work.
 > A `SIM=1` build never goes on the mains.
 
@@ -38,7 +38,7 @@ dimmer chip without the wires.
 
 - two-wire install on a stock unit, also with power cuts in every install phase;
 - updates over Zigbee with both channels lit; a mains cut in the middle recovered;
-- bootloader rewrite over the two wires; probe re-flash keeping the settings;
+- bootloader rewrite over the two wires; re-flash with an SWD programmer keeping the settings;
 - bootloader probe, rescue, button and link watchdog;
 - Zigbee Scenes and wall switch bindings.
 
@@ -128,7 +128,7 @@ period.
 |---|---|
 | `src/`, `boot/` | the app and the bootloader |
 | `tests/` | host tests (`make test`, with the bootloader harness) |
-| `tools/` | image and release tools; `swd/` probe install; `ha/` Zigbee2MQTT / Home Assistant helpers |
+| `tools/` | image and release tools; `swd/` SWD programmer install; `ha/` Zigbee2MQTT / Home Assistant helpers |
 | `docs/` | [INSTALL.md](INSTALL.md), [INSTALL-PROBE.md](INSTALL-PROBE.md), [BOOTLOADER.md](BOOTLOADER.md) (design record), [stock-firmware-analysis.md](stock-firmware-analysis.md), [ZC-DELAY-MEASUREMENT.md](ZC-DELAY-MEASUREMENT.md) |
 
 ### Flash layout
@@ -171,7 +171,7 @@ Before deploying a changed Zigbee2MQTT converter:
 ### Rollout to further modules
 
 - [ ] The Zigbee firmware first, with the stock dimmer chip still in, one module at a time.
-- [ ] Then Open Dimmer (two wires or probe).
+- [ ] Then Open Dimmer (two wires or SWD programmer).
 - [ ] A new Open Dimmer version goes to further modules only after a test module has run it
       and taken an update over Zigbee from it.
 
@@ -180,7 +180,7 @@ Before deploying a changed Zigbee2MQTT converter:
 | # | Item | State |
 |---|---|---|
 | 1 | 60 Hz mains and the `_TZE204_jtbgusdc` variant | untested on hardware |
-| 2 | Probe path: `install.sh`'s option reload on a stock module | never run (the steps by hand have) |
+| 2 | SWD programmer path: `install.sh`'s option reload on a stock module | never run (the steps by hand have) |
 | 3 | Watchdog and fault light restore | host tests only |
 | 4 | Long trial: read the health DPs 131, 132, 133 and 135 now and then | ongoing |
 | 5 | Fade and hold defaults | settle after more use |
