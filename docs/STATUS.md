@@ -186,3 +186,5 @@ Before deploying a changed Zigbee2MQTT converter:
 | 5 | Fade and hold defaults | settle after more use |
 | 6 | Zero-cross delay measurement ([ZC-DELAY-MEASUREMENT.md](ZC-DELAY-MEASUREMENT.md)) | optional |
 | 7 | Module button gestures | parked |
+| 8 | Predictive first hold direction: the first hold while lit goes towards the far end, which with an on level from Adaptive Lighting brightens in the evening and dims in the day. Options: always down first; a setting the hub switches by time of day; or learning from quick reversals per level band | planned |
+| 9 | Zigbee firmware: after its wall-switch OnLevel write it holds the dimmer chip's level reports, so during a hold from dark the hub shows the OnLevel and the real level arrives about 2 s after the release | planned |
