@@ -40,8 +40,11 @@ It needs the fork's Zigbee firmware.
 
 ### The wall switch
 
+The stock firmware is quirky in use: it reads the wall switch inconsistently and reacts slowly.
+
 | | Stock firmware | Open Dimmer |
 |---|---|---|
+| Reading the switch | inconsistent | debounced; contact bursts and a switch closed at power-up are not taken as presses |
 | Any brightness change | one fixed fade, the whole range in 2 s; Zigbee transitions ignored | fade on / off times (0.95 s by default), the transition of each Zigbee command |
 | Tap | on / off | on / off; from dark quickly to the stored level |
 | Hold | one slow fixed rate, the whole range in ~6 s; up and down by turns | the whole range in 3.3 s by default (`hold_time`); from dark it rises slowly from the minimum (very dim levels are easy to pick); while lit up or down by turns, the first towards the far end; slow near the minimum |
