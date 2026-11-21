@@ -810,11 +810,14 @@ static void boot_confirm(void) {                /* main loop, once per run */
 
 Why both conditions on the first path:
 - The answered 0xA3 shows that UART RX/TX, framing and the identity handler work.
-- The ZTU makes its offer right after that answer, so a confirmed app has already had its chance
-  to take a newer image.
+- The ZTU makes its offer after that answer, once the light has been off for 70 s (a day after
+  the answer at the latest), so a confirmed app gets its chance to take a newer image.
 - The 30 s covers the start-up work: the first settings save (2 s after a change), the DP dump,
   the zero-cross lock and the first fades.
-- A crash after 30 s needs no bootloader rescue: the app lives long enough to accept an offer.
+- A crash after 30 s needs no bootloader rescue: an app that lives that long accepts an offer
+  when one comes. With the light lit the offer, and so a fix, may wait up to a day (the rescue by
+  the tries does not act, as every run confirms); a mains power cycle installs it at once through
+  the probe.
 
 **Stock-ZTU confirmation (second path).** A stock Tuya ZTU never asks 0xA3: every command byte
 it writes at frame offset 6 is ≤ 0x3C (stock ZTU, 0xAFCA-0xD926). Without this path, under a

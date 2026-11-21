@@ -96,6 +96,7 @@ per channel: dimming curve, power-on behaviour, fade and hold times, wall switch
 | `mcu_flasher_status` "no answer (wires? power?)" | Mains off, check the two joints. |
 | Start the install again | Write `install` to `mcu_flasher_confirm`, within 60 s set `mcu_flasher` to `install`, power-cycle the module when the status asks for it. |
 | Power cut during the install | Switch on again: it goes on or starts over by itself. |
+| `mcu_flasher_status` "kept" (error 16) after `abort` or a second `install` | The install had already removed the chip's read protection, so the chip may be without firmware and the install stays armed. Switch the module off for a few seconds and on again: it goes on. |
 
 The automatic install runs once per module, at the first power-up that sees the wires; a
 module that already runs Open Dimmer is left alone. A `device_config` written by hand gets
@@ -104,10 +105,10 @@ module that already runs Open Dimmer is left alone. A `device_config` written by
 ## Updates
 
 Update the Zigbee firmware over the air as usual. It carries Open Dimmer and updates the dimmer
-chip by itself while the light is off: a minute after it was switched off (at once if it is off
-already), a day later at the latest. The install takes a few seconds and keeps the light dark,
-then the light comes back as it was. A version that fails to start three times in a row is
-reinstalled by itself. The wires stay in the module.
+chip by itself while the light is off: 70 seconds after it was switched off (or after the Zigbee
+firmware started, if it was off already), a day later at the latest. The install takes a few
+seconds and keeps the light dark, then the light comes back as it was. A version that fails to
+start three times in a row is reinstalled by itself. The wires stay in the module.
 
 **Button rescue** (reinstalls the version the Zigbee firmware carries; the case stays closed):
 
