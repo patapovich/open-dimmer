@@ -156,16 +156,14 @@ uint16_t dim_curve(uint8_t curve, uint16_t value);
  * So min/max keep their meaning whatever the curve, and the linear curve
  * gives exactly value/1000 as before. 0 = dark; below min = min. */
 uint16_t dim_output(uint8_t curve, uint16_t value, uint16_t min, uint16_t max);
-/* dim_output, and below the min (only the lamp compensation goes there) linear: value * 10, the
- * min's own duty at the min, so it joins on. */
-uint16_t dim_output_low(uint8_t curve, uint16_t value, uint16_t min, uint16_t max);
-
 /* Lamp compensation (2.2.8). Some LED lamps give more light at the same conduction after they
  * have been brighter (their driver keeps a state): coming down to a level they are brighter
- * than when they came up to it or on from dark. The value is lowered by up to `amount` at the
- * min, less higher up and none from a quarter of min..max on; all of it once the light came down
- * a tenth of min..max from the highest value since it came on (`peak`), less after a smaller
- * fall, none while it rises. 0: none. Returns the value to output (it may be below the min). */
+ * than when they came up to it or on from dark. The duty (dim_output) is lowered by up to
+ * `amount` at the min, linearly less higher up and none from 40 % of min..max on (a lamp needs
+ * about the same conduction less over the bottom of the range, so after the curve, not before
+ * it: a soft curve's flat bottom would swallow a value offset); all of it once the light came
+ * down a tenth of min..max from the highest value since it came on (`peak`), less after a
+ * smaller fall, none while it rises. 0: none. Returns the duty to take off (0..amount). */
 uint16_t dim_comp(uint16_t value, uint16_t peak, uint16_t amount, uint16_t min, uint16_t max);
 
 /** TIM1 compare (2 us ticks) for a duty, half_period in 20 us ticks. */

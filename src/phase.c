@@ -80,8 +80,9 @@ static uint16_t channel_compare(uint8_t ch, uint16_t hp) {
         g_peak[ch] = v;                 /* dark resets it: the lamp starts cold */
     }
     uint16_t lo = g_min[ch], hi = g_max[ch];
-    return dim_compare(hp, dim_output_low(g_curve[ch], dim_comp(v, g_peak[ch], g_comp4[ch] * 4u, lo, hi),
-                                          lo, hi));
+    uint16_t d  = dim_output(g_curve[ch], v, lo, hi);
+    uint16_t c  = dim_comp(v, g_peak[ch], (uint16_t)(g_comp4[ch] * 40u), lo, hi);   /* value 4 = duty 40 */
+    return dim_compare(hp, d > c ? (uint16_t)(d - c) : (d ? 1u : 0u));
 }
 
 /* Channel 1 is PA1 = TIM1_CH4, channel 2 is PA0 = TIM1_CH3 (stock wiring). */

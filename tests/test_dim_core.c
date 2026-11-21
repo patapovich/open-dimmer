@@ -1327,35 +1327,28 @@ static void test_no_boost_from_lit_or_when_off_and_a_timed_on_after_it(void) {
     CHECK(n >= 89 && n <= 91);                   /* the time stays 1 s in all */
 }
 
-/* Lamp compensation: the value lowered after the light came down, never while it rises. */
+/* Lamp compensation: the duty to take off after the light came down, never while it rises. */
 static void test_lamp_compensation(void) {
-    const uint16_t lo = 276, hi = 709;              /* span 433: none from 384, all after a fall of 43 */
-    CHECK(dim_comp(276, 276, 32, lo, hi) == 276);    /* on from dark / rising: none */
-    CHECK(dim_comp(300, 300, 32, lo, hi) == 300);
-    CHECK(dim_comp(276, 600, 32, lo, hi) == 244);    /* came down from 600: all of it at the min */
-    CHECK(dim_comp(330, 600, 32, lo, hi) == 314);    /* 32 * 54 / 108 = 16 */
-    CHECK(dim_comp(384, 600, 32, lo, hi) == 384);    /* a quarter up: none */
-    CHECK(dim_comp(500, 700, 32, lo, hi) == 500);
-    CHECK(dim_comp(276, 296, 32, lo, hi) == 262);    /* a fall of 20 of 43: 32 * 20 / 43 = 14 */
-    CHECK(dim_comp(276, 600, 0, lo, hi) == 276);     /* 0: none */
-    CHECK(dim_comp(0, 600, 32, lo, hi) == 0);        /* dark */
-    CHECK(dim_comp(200, 600, 32, lo, hi) == 200);    /* below the min (fading in or out): as it is */
-    CHECK(dim_comp(10, 1000, 252, 10, 1000) == 1);   /* never 0 while lit */
-    CHECK(dim_comp(276, 600, 32, 300, 300) == 276);  /* no range */
-    /* continuous: every step down by one moves the value by at most two */
-    uint16_t prev = dim_comp(383, 600, 63 * 4, lo, hi);
-    for (uint16_t v = 382; v >= lo; v--) {
-        uint16_t c = dim_comp(v, 600, 63 * 4, lo, hi);
-        CHECK(c < prev && prev - c <= 4);
+    const uint16_t lo = 276, hi = 709;              /* span 433: none from 449, all after a fall of 43 */
+    CHECK(dim_comp(276, 276, 320, lo, hi) == 0);     /* on from dark / rising: none */
+    CHECK(dim_comp(300, 300, 320, lo, hi) == 0);
+    CHECK(dim_comp(276, 600, 320, lo, hi) == 320);   /* came down from 600: all of it at the min */
+    CHECK(dim_comp(330, 600, 320, lo, hi) == 220);   /* 320 * 119 / 173 */
+    CHECK(dim_comp(449, 600, 320, lo, hi) == 0);     /* 40 % up: none */
+    CHECK(dim_comp(448, 600, 320, lo, hi) == 1);
+    CHECK(dim_comp(600, 700, 320, lo, hi) == 0);
+    CHECK(dim_comp(276, 296, 320, lo, hi) == 148);   /* a fall of 20 of 43: 320 * 20 / 43 */
+    CHECK(dim_comp(276, 600, 0, lo, hi) == 0);       /* 0: none */
+    CHECK(dim_comp(0, 600, 320, lo, hi) == 0);       /* dark */
+    CHECK(dim_comp(200, 600, 320, lo, hi) == 0);     /* below the min (fading in or out): none */
+    CHECK(dim_comp(276, 600, 320, 300, 300) == 0);   /* no range */
+    CHECK(dim_comp(10, 1000, 2520, 10, 1000) == 2520);   /* the largest: no overflow */
+    /* continuous: every step down by one moves it by at most 15 (2520 / 173) */
+    uint16_t prev = dim_comp(448, 600, 2520, lo, hi);
+    for (uint16_t v = 447; v >= lo; v--) {
+        uint16_t c = dim_comp(v, 600, 2520, lo, hi);
+        CHECK(c > prev && c - prev <= 15);
         prev = c;
-    }
-    /* below the min the output goes on linearly from the min's own duty */
-    CHECK(dim_output_low(0, 244, lo, hi) == 2440);
-    CHECK(dim_output_low(0, 0, lo, hi) == 0);
-    for (uint8_t curve = 0; curve < CURVE_COUNT; curve++) {
-        CHECK(dim_output_low(curve, lo, lo, hi) == dim_output(curve, lo, lo, hi));
-        CHECK(dim_output_low(curve, lo - 1, lo, hi) < dim_output(curve, lo, lo, hi));
-        CHECK(dim_output_low(curve, 500, lo, hi) == dim_output(curve, 500, lo, hi));
     }
 }
 

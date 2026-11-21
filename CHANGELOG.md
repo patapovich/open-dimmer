@@ -9,8 +9,8 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
   at the same output after they have been brighter: dimmed down to a level they are brighter
   than when switched on at it, so the bottom of a dim-down never gets as dim as a start from
   dark. With the compensation set, the output is lowered after the light came down, most at
-  the minimum, none from a quarter of the range up, and never while it rises or right after
-  it came on. Set it to the difference at the minimum: dim down from bright to the minimum
+  the minimum, less higher up and none from 40 % of the range, and never while it rises or
+  right after it came on. Set it to the difference at the minimum: dim down from bright to the minimum
   and lower the compensation step by step until it looks like the minimum switched on from
   dark. The level shown does not change.
 - A downgrade to an older release keeps every setting except a channel's saved level when its
