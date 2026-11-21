@@ -1,5 +1,6 @@
 /* Health counters for long runs (normal and SIM builds; the measurement
- * builds report their own statistics every 10 s): a minute after start and
+ * builds report their own statistics every 10 s): 3 s after the module asked
+ * who we are (its start or ours; a minute after start if it never asks) and
  * then every 2 min (the module's log keeps ~7 min) as reports of DPs
  * 130..137, logged by the module's MCU link diagnostics like the measurement
  * DPs (no converter entity):
@@ -28,5 +29,9 @@
 void health_init(uint32_t reset_cause);
 /** Main loop: counts the minutes and sends the report when it is due. */
 void health_poll(uint32_t now_ms);
+/** The module asked who we are (a new contact: it restarted, or we did): the next report
+ * goes out in 3 s instead of at its time, so a hub sees a restart and its cause at once;
+ * the reports after it follow every 2 min. */
+void health_soon(uint32_t now_ms);
 
 #endif

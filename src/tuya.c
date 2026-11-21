@@ -1,6 +1,7 @@
 #include "tuya.h"
 #include "bootif.h"
 #include "dimmer.h"
+#include "health.h"
 #include "ota_proto.h"
 #include "uart.h"
 #include <string.h>
@@ -183,6 +184,9 @@ static void handle_frame(uint8_t cmd, uint16_t seq, const uint8_t *data, uint16_
                                       (uint8_t)FW_IMAGE_BUILD, g_boot_info.version };
         tuya_send(OTA_CMD_IDENT, seq, id, sizeof(id));
         g_tuya_confirm = BOOT_CONFIRM_QUERIES;   /* an own ZTU: this run may confirm */
+#if !(MEASURE || DIAG_REPORT)
+        health_soon(g_now_ms);                   /* a new contact: the health report now, not at its time */
+#endif
         break;
     }
 

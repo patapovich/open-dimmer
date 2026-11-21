@@ -95,6 +95,9 @@ uint16_t phase_current(uint8_t ch) {
 }
 void phase_shutdown(void) {
 }
+void health_soon(uint32_t now_ms) {
+    (void)now_ms;
+}
 void phase_poll(void) {
 }
 uint8_t phase_save_window(void) {

@@ -94,6 +94,9 @@ void phase_shutdown(void) {
     CHECK(g_step == 0);
     g_step = 1;                             /* gates first */
 }
+void health_soon(uint32_t now_ms) {
+    (void)now_ms;
+}
 void dimmer_prepare_restart(void) {
     CHECK(g_step == 1);
     g_step            = 2;

@@ -117,6 +117,25 @@ int main(void) {
     CHECK(g_reports == 2 && g_dp[130] == 3);
     CHECK(g_dp[137] == (0x009041u | 1u << 25 | (uint32_t)RING_HIGH << 24));   /* the app's bits */
 
+    /* The module asked who we are (tuya.c, a new contact): the report 3 s later, with a
+     * temperature (the conversions start at the question), the next one 2 min after it. */
+    {
+        uint32_t t0 = now + 120000u + 30000u;
+        unsigned r0 = g_reports, takes = g_temp_takes;
+        health_soon(t0);
+        CHECK(g_temp_takes == takes + 1);                  /* the conversions started */
+        health_poll(t0 + 2999u);
+        CHECK(g_reports == r0);
+        g_temp = 31;
+        health_poll(t0 + 3000u);
+        CHECK(g_reports == r0 + 1 && g_dp[138] == 31);
+        health_poll(t0 + 3000u + 119999u);
+        CHECK(g_reports == r0 + 1);
+        health_poll(t0 + 3000u + 120000u);
+        CHECK(g_reports == r0 + 2);
+        now = t0 + 3000u;                                  /* the 2 min rhythm from here */
+    }
+
     /* 60 days in 1 s steps: the uptime keeps counting minutes past the wrap
      * of the ms clock at 2^32 ms (49.7 days); a report every 2 min. */
     unsigned reports = g_reports, bad = 0;

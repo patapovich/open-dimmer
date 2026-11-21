@@ -12,6 +12,7 @@
 #endif
 
 #define HEALTH_FIRST_MS    60000u
+#define HEALTH_SOON_MS     3000u
 #define HEALTH_EVERY_MS    120000u
 #define MINUTE_MS          60000u
 
@@ -23,6 +24,11 @@ static uint32_t g_uptime_min;
 void health_init(uint32_t reset_cause) {
     g_reset_cause = reset_cause;
     temp_init();
+}
+
+void health_soon(uint32_t now) {
+    g_health_next = now + HEALTH_SOON_MS;
+    (void)temp_take();              /* starts the conversions: that report has a temperature */
 }
 
 void health_poll(uint32_t now) {

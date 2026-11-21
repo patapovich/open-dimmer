@@ -98,6 +98,12 @@ uint8_t controls_idle(void) {
 void phase_shutdown(void) {
     g_shutdowns++;
 }
+static unsigned g_health_soon;
+static uint32_t g_health_soon_at;
+void health_soon(uint32_t now_ms) {
+    g_health_soon++;
+    g_health_soon_at = now_ms;
+}
 void NVIC_SystemReset(void) {
     g_resets++;
 }
@@ -451,11 +457,19 @@ static void test_offer_app_limit(void) {
 /* ---- identity, version ------------------------------------------------------ */
 static void check_ident(uint8_t boot_version) {
     fresh();
+    unsigned soon = g_health_soon;
     feed_frame(OTA_CMD_IDENT, 5, NULL, 0);
     feed_frame(TUYA_CMD_VERSION, 6, NULL, 0);
     tuya_poll(g_now);
     sent_t f;
     CHECK(sent_count() == 2);
+    /* the module asked who we are: a new contact, the health report goes out soon (the
+     * measurement and diagnostics builds have no health report) */
+#if MEASURE || DIAG_REPORT
+    CHECK(g_health_soon == soon);
+#else
+    CHECK(g_health_soon == soon + 1 && g_health_soon_at == g_now);
+#endif
     CHECK(sent(0, &f) && f.cmd == OTA_CMD_IDENT && f.seq == 5 && f.len == OTA_IDENT_LEN &&
           memcmp(f.data + OTA_IDENT_AT_MAGIC, "ZDMS", 4) == 0 &&
           f.data[OTA_IDENT_AT_KIND] == OTA_IDENT_KIND_APP && f.data[OTA_IDENT_AT_VERSION] == FW_VERSION &&
