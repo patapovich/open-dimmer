@@ -81,6 +81,10 @@ void phase_set_range(uint8_t ch, uint16_t min, uint16_t max) {
 }
 void phase_set_curve(uint8_t ch, uint8_t curve) {
 }
+void phase_set_comp(uint8_t ch, uint8_t comp4) {
+    (void)ch;
+    (void)comp4;
+}
 void phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi, uint8_t from_dark) {
 }
 uint16_t phase_hold_stop(uint8_t ch) {

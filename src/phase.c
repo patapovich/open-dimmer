@@ -49,6 +49,8 @@ static void measure_edge(uint16_t now) {
 static dim_fader_t       g_fader[2];
 static volatile uint8_t  g_curve[2];
 static volatile uint16_t g_min[2] = { 10, 10 }, g_max[2] = { 1000, 1000 };
+static volatile uint8_t  g_comp4[2];      /* lamp compensation at the min, / 4 (dim_comp) */
+static uint16_t          g_peak[2];       /* the highest value since the light came on */
 static zc_tracker_t      g_zc;
 static volatile uint16_t g_last_zc;
 
@@ -71,6 +73,17 @@ static void sim_block(void) {
 }
 #endif
 
+/* The next half cycle's compare of a channel: its fader, the lamp compensation, the curve. */
+static uint16_t channel_compare(uint8_t ch, uint16_t hp) {
+    uint16_t v = dim_fader_tick(&g_fader[ch]);
+    if (!v || v > g_peak[ch]) {
+        g_peak[ch] = v;                 /* dark resets it: the lamp starts cold */
+    }
+    uint16_t lo = g_min[ch], hi = g_max[ch];
+    return dim_compare(hp, dim_output_low(g_curve[ch], dim_comp(v, g_peak[ch], g_comp4[ch] * 4u, lo, hi),
+                                          lo, hi));
+}
+
 /* Channel 1 is PA1 = TIM1_CH4, channel 2 is PA0 = TIM1_CH3 (stock wiring). */
 static void zero_cross(uint16_t now) {
 #if SIM_ZC
@@ -85,6 +98,7 @@ static void zero_cross(uint16_t now) {
         /* Lost the lock on a late edge: fade in again once relocked. */
         g_fader[0].current = 0;
         g_fader[1].current = 0;
+        g_peak[0] = g_peak[1] = 0;      /* dark for a moment: the lamp starts cold */
         g_phase_dbg.lock_losses++;
     }
     if (!accepted) {
@@ -102,8 +116,8 @@ static void zero_cross(uint16_t now) {
          * power-up fade in instead of jumping to the target. */
         dim_fader_set_half_period(&g_fader[0], hp);
         dim_fader_set_half_period(&g_fader[1], hp);
-        c0 = dim_compare(hp, dim_output(g_curve[0], dim_fader_tick(&g_fader[0]), g_min[0], g_max[0]));
-        c1 = dim_compare(hp, dim_output(g_curve[1], dim_fader_tick(&g_fader[1]), g_min[1], g_max[1]));
+        c0 = channel_compare(0, hp);
+        c1 = channel_compare(1, hp);
     }
 
     TIM1->ARR  = dim_reload(hp);
@@ -264,6 +278,12 @@ void phase_set_range(uint8_t ch, uint16_t min, uint16_t max) {
 void phase_set_curve(uint8_t ch, uint8_t curve) {
     if (ch < 2) {
         g_curve[ch] = curve;
+    }
+}
+
+void phase_set_comp(uint8_t ch, uint8_t comp4) {
+    if (ch < 2) {
+        g_comp4[ch] = comp4;
     }
 }
 

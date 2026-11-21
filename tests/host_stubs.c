@@ -140,6 +140,11 @@ void phase_set_curve(uint8_t ch, uint8_t curve) {
     (void)curve;
 }
 
+uint8_t g_host_comp4[2];
+void phase_set_comp(uint8_t ch, uint8_t comp4) {
+    g_host_comp4[ch] = comp4;
+}
+
 void phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi, uint8_t from_dark) {
     if (from_dark) {
         dim_fader_hold_start_from_dark(&g_host_fader[ch], lo, hi);

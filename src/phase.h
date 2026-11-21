@@ -55,6 +55,8 @@ void phase_set_timed(uint8_t ch, uint8_t on, uint16_t level, uint16_t ms);
 void     phase_set_range(uint8_t ch, uint16_t min, uint16_t max);
 /** Dimming curve of a channel (curves.h, 0 = linear like the stock firmware). */
 void     phase_set_curve(uint8_t ch, uint8_t curve);
+/* Lamp compensation at the min, / 4 (0: none; dim_comp). */
+void     phase_set_comp(uint8_t ch, uint8_t comp4);
 /** Hold dimming on a channel: the light follows directly between lo and hi. */
 void     phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi, uint8_t from_dark);
 /** End of hold: frozen at the value the light has now, which is returned. */

@@ -16,8 +16,8 @@
 #define DP_PROFILE_COUNT 5     /* hold ms, hold end % (ours, saved)                  */
 #define DP_TRANSITION_BASE 160 /* + channel: ms the next network change takes (ours, not saved) */
 #define DP_EXTRA_BASE    162   /* + 2 * k + channel, k: 0 switch mode, 1 power-cut level, */
-#define DP_EXTRA_END     172   /* 2 identify s, 3 start boost ms, 4 fast press (dimmer.h) */
-enum { EX_INPUT, EX_POWER_LEVEL, EX_IDENTIFY, EX_BOOST, EX_FAST_PRESS };
+#define DP_EXTRA_END     174   /* 2 identify s, 3 start boost ms, 4 fast press, 5 lamp compensation */
+enum { EX_INPUT, EX_POWER_LEVEL, EX_IDENTIFY, EX_BOOST, EX_FAST_PRESS, EX_COMP };
 #define COUNTDOWN_MAX    86400u
 #define TRANSITION_VALID_MS 1000  /* ... if it comes this soon after (on, then level) */
 enum { PF_FADE_ON, PF_FADE_OFF, PF_SOFT_END, PF_HOLD, PF_HOLD_END };
@@ -129,7 +129,9 @@ static void snapshot(saved_t *s) {
     s->power_on   = g_power_on[0];
     s->power_on_2 = g_power_on[1];
     for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
-        s->ch[i].level       = g_ch[i].level;
+        /* The lamp compensation in the level's top bits (the level is at most 1000): 0 in
+         * older records; firmware before 2.2.8 clamps such a level to the max. */
+        s->ch[i].level       = (uint16_t)(g_ch[i].level | (unsigned)g_ch[i].comp4 << 10);
         s->ch[i].min         = g_ch[i].min;
         s->ch[i].max         = g_ch[i].max;
         s->ch[i].switch_type = g_ch[i].switch_type;
@@ -172,6 +174,7 @@ static void apply(uint8_t ch) {
     }
     phase_set_range(ch, g_ch[ch].min, g_ch[ch].max);
     phase_set_curve(ch, g_ch[ch].curve);
+    phase_set_comp(ch, g_ch[ch].comp4);
     /* A transition time from the module applies to the changes in the second after it (the
      * network's on and its level). */
     uint16_t ms = g_now - g_trans_at[ch] < TRANSITION_VALID_MS ? g_trans_ms[ch] : 0;
@@ -263,7 +266,8 @@ uint8_t dimmer_init(uint32_t reset_csr) {
             if (g_ch[i].min > g_ch[i].max) {
                 g_ch[i].min = g_ch[i].max;
             }
-            g_ch[i].level = in_range(&g_ch[i], s.ch[i].level);
+            g_ch[i].comp4 = (uint8_t)(s.ch[i].level >> 10);
+            g_ch[i].level = in_range(&g_ch[i], s.ch[i].level & 0x3FFu);
             g_ch[i].on    = g_power_on[i] == POWER_ON_ON ||
                             (g_power_on[i] == POWER_ON_LAST && (s.on_mask & (1u << i)));
         }
@@ -499,6 +503,12 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
                 return 0;
             }
             pc->fast_press = (uint8_t)v;
+        } else if (k == EX_COMP) {
+            if (v > 252u) {
+                return 0;
+            }
+            pc->comp4 = (uint8_t)((v + 2u) / 4u);
+            apply(ch);
         } else {
             if (v > 750u) {
                 return 0;
@@ -637,6 +647,7 @@ void dimmer_report_dp(uint8_t dpid) {
                                 : k == EX_POWER_LEVEL ? pc->power_level4 * 4u
                                 : k == EX_IDENTIFY    ? g_ident_s[i]
                                 : k == EX_FAST_PRESS  ? pc->fast_press
+                                : k == EX_COMP        ? pc->comp4 * 4u
                                                       : pc->boost50 * 50u);
         return;
     }
@@ -852,6 +863,7 @@ void dimmer_report_all(void) {
         dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_INPUT + ch));
         dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_POWER_LEVEL + ch));
         dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_BOOST + ch));
+        dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_COMP + ch));   /* a frame of its own */
         tuya_report_send();
     }
 }

@@ -79,6 +79,7 @@ channel 1 / channel 2.
 | 166 / 167 | identify | blink for that many s; 0 stops; not saved |
 | 168 / 169 | start boost | ms, steps of 50, up to 750 |
 | 170 / 171 | fast press | in detached mode a momentary press is reported at once |
+| 172 / 173 | lamp compensation | value units at the min, steps of 4, up to 252; 0: none (2.2.8) |
 
 During a hold the level is reported every 0.5 s.
 

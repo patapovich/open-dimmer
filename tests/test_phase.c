@@ -769,6 +769,65 @@ static void test_main_loop_changes_faders_with_irqs_off(void) {
     CHECK(!fake_irq_off);                                    /* and back on afterwards */
 }
 
+#if !SIM_ZC
+/* Lamp compensation through the zero-cross path: none on from dark, the lowered value once the
+ * light came down, none again after it was dark. A clean train fed part by part. */
+static int  g_fed;
+static long g_poll_at;
+static void feed_part(long until) {
+    while (g_fed < g_n_edges && g_edges[g_fed].t <= until) {
+        long te = g_edges[g_fed].t;
+        while (g_poll_at <= te) {
+            poll(g_poll_at);
+            g_poll_at += POLL_TICKS;
+        }
+        g_pa4          = (uint8_t)!g_pa4;
+        fake_gpioa.IDR = g_pa4 ? (fake_gpioa.IDR | ZC_MASK) : (fake_gpioa.IDR & ~ZC_MASK);
+        run_exti(te);
+        g_fed++;
+    }
+    while (g_poll_at <= until) {
+        poll(g_poll_at);
+        g_poll_at += POLL_TICKS;
+    }
+}
+
+static void test_lamp_compensation_after_coming_down(void) {
+    module_start();
+    phase_set_range(0, 276, 709);
+    phase_set_comp(0, 8);                                    /* 32 at the min */
+    train_t tr = { .hz = 50, .jitter = 0, .halves = 2000, .seed = 5 };
+    make_train(&tr);
+    g_fed     = 0;
+    g_poll_at = g_now + POLL_TICKS;
+    long t    = 1000;
+    phase_set(0, 1, 276);
+    feed_part(t += 150000);                                  /* 3 s */
+    uint16_t hp = g_phase_dbg.half_period;
+    CHECK(g_phase_dbg.current[0] == 276 && hp == 500);
+    CHECK(g_phase_dbg.compare[0] == dim_compare(hp, 2760));  /* on from dark: none */
+    phase_set(0, 1, 600);
+    feed_part(t += 150000);
+    CHECK(g_phase_dbg.compare[0] == dim_compare(hp, dim_output(0, 600, 276, 709)));
+    phase_set(0, 1, 276);
+    feed_part(t += 150000);
+    CHECK(g_phase_dbg.current[0] == 276);
+    CHECK(g_phase_dbg.compare[0] == dim_compare(hp, 2440));  /* came down: 32 lower */
+    phase_set(0, 0, 276);
+    feed_part(t += 150000);
+    CHECK(g_phase_dbg.current[0] == 0 && g_phase_dbg.compare[0] == 0);
+    phase_set(0, 1, 276);
+    feed_part(t += 150000);
+    CHECK(g_phase_dbg.compare[0] == dim_compare(hp, 2760));  /* dark in between: none */
+    phase_set_comp(0, 0);
+    phase_set(0, 1, 600);
+    feed_part(t += 150000);
+    phase_set(0, 1, 276);
+    feed_part(t += 150000);
+    CHECK(g_phase_dbg.compare[0] == dim_compare(hp, 2760));  /* 0: none */
+}
+#endif
+
 #if SIM_ZC
 /* ---- bench build: virtual 50 Hz from TIM16, guarded against real mains ---- */
 
@@ -946,6 +1005,9 @@ int main(void) {
     RUN(test_sim_shutdown_survives_a_main_loop_moder_write);
 #endif
     RUN(test_main_loop_changes_faders_with_irqs_off);
+#if !SIM_ZC
+    RUN(test_lamp_compensation_after_coming_down);
+#endif
     const char *variant = SIM_ZC ? "SIM" : MEASURE ? "MEASURE" : DIAG_REPORT ? "DIAG" : "normal";
     if (failed) {
         printf("phase (%s): %d check(s) failed\n", variant, failed);

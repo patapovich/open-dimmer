@@ -73,6 +73,7 @@ typedef struct {
     } pf[2];
     uint8_t reserved[4];
 } host_saved_t;
+extern uint8_t g_host_comp4[2];   /* phase_set_comp */
 
 _Static_assert(sizeof(host_saved_t) == STORE_DATA_SIZE, "host_saved_t must match dimmer.c saved_t");
 

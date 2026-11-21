@@ -77,6 +77,8 @@ typedef struct {
     uint8_t  power_level4;   /* DP 164 / 165: the level after a power cut, / 4 (0: the last one) */
     uint8_t  boost50;        /* DP 168 / 169: start boost, 50 ms units (0..15, 0: none) */
     uint8_t  fast_press;     /* DP 170 / 171: detached momentary: a press reported at once (6) */
+    uint8_t  comp4;          /* DP 172 / 173: lamp compensation at the min, / 4 (0..63, 0: none;
+                                saved in the top bits of the level) */
 } dimmer_channel_t;
 
 #define DIMMER_INPUT_NORMAL    0

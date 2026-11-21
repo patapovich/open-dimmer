@@ -989,7 +989,41 @@ static void test_boost_dp_drives_the_fader_and_the_dump_has_the_new_dps(void) {
     CHECK(c1()->fast_press == 1 && dimmer_channel(1)->fast_press == 1);
 }
 
+static void test_lamp_compensation_dp_is_saved_in_the_top_bits_of_the_level(void) {
+    power_up(1);
+    host_write(150, TUYA_DP_TYPE_VALUE, 1500);                       /* fade on ms */
+    host_write(153, TUYA_DP_TYPE_VALUE, 6000);                       /* hold ms */
+    host_write(172, TUYA_DP_TYPE_VALUE, 32);
+    host_write(173, TUYA_DP_TYPE_VALUE, 250);
+    CHECK(c1()->comp4 == 8 && dimmer_channel(1)->comp4 == 63);
+    CHECK(g_host_comp4[0] == 8 && g_host_comp4[1] == 63);           /* to the phase */
+    CHECK(!dimmer_write_dp(172, TUYA_DP_TYPE_VALUE, (const uint8_t *)"\0\0\0\xFD", 4));   /* 253 */
+    CHECK(c1()->comp4 == 8);
+    host_log_clear();
+    dimmer_report_all();
+    CHECK(host_log_find("172=32") >= 0 && host_log_find("173=252") >= 0);
+    run_ms(3000);
+    host_saved_t s;
+    memcpy(&s, g_host_flash, sizeof(s));
+    CHECK(s.pf[0].fade_on_ms == 1501 && s.pf[0].hold_ms == 6001);    /* the times untouched */
+    CHECK((s.ch[0].level >> 10) == 8 && (s.ch[1].level >> 10) == 63);
+    CHECK((s.ch[0].level & 0x3FF) == c1()->level);
+    power_up(0);
+    CHECK(c1()->comp4 == 8 && dimmer_channel(1)->comp4 == 63);
+    CHECK(c1()->fade_on_ms == 1500 && c1()->hold_ms == 6000);       /* the times as they were */
+    CHECK(c1()->level == (s.ch[0].level & 0x3FF));                  /* the level without the bits */
+    CHECK(g_host_comp4[0] == 8);
+    /* a record of an older firmware (no top bits): none, times kept */
+    memcpy(&s, g_host_flash, sizeof(s));
+    host_write(172, TUYA_DP_TYPE_VALUE, 0);
+    host_write(173, TUYA_DP_TYPE_VALUE, 0);
+    run_ms(3000);
+    power_up(0);
+    CHECK(c1()->comp4 == 0 && dimmer_channel(1)->comp4 == 0 && c1()->fade_on_ms == 1500);
+}
+
 int main(void) {
+    RUN(test_lamp_compensation_dp_is_saved_in_the_top_bits_of_the_level);
     RUN(test_power_up_takes_power_on_rule);
     RUN(test_watchdog_reset_restores_live_state);
     RUN(test_restore_once_in_a_row);
