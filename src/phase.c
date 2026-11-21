@@ -306,6 +306,11 @@ void phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi, uint8_t 
         dim_fader_hold_start_from_dark(&g_fader[ch], lo, hi);
     } else {
         dim_fader_hold_start(&g_fader[ch], dir, lo, hi);
+        /* the custom curve is even: a hold of the lit light keeps its rate to the min (the slow
+         * zone is for a hold from dark only) */
+        if (g_curve[ch] == CURVE_CUSTOM) {
+            g_fader[ch].hold_fine = 0;
+        }
     }
     __enable_irq();
 }

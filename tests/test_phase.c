@@ -792,6 +792,37 @@ static void feed_part(long until) {
     }
 }
 
+/* With the custom curve a hold of the lit light keeps its rate down to the min (the slow zone
+ * is for a hold from dark only); with a built-in one it slows down towards the min. */
+static uint16_t hold_down_after(uint8_t curve, long *t) {
+    dim_profile_t p;
+    dim_profile_set(&p, 950, 950, 12, 7000, 80);            /* hold 7 s, slow zone 80 % */
+    phase_set_profile(0, &p);
+    phase_set_curve(0, curve);
+    phase_set(0, 1, 551);
+    feed_part(*t += 150000);                                 /* 3 s at the top */
+    phase_hold_start(0, -1, 276, 551, 0);
+    feed_part(*t += 25000);                                  /* 0.5 s down */
+    uint16_t v = g_phase_dbg.current[0];
+    (void)phase_hold_stop(0);
+    return v;
+}
+
+static void test_custom_curve_hold_of_the_lit_light_is_even(void) {
+    module_start();
+    phase_set_range(0, 276, 551);
+    train_t tr = { .hz = 50, .jitter = 0, .halves = 1200, .seed = 7 };
+    make_train(&tr);
+    g_fed     = 0;
+    g_poll_at = g_now + POLL_TICKS;
+    long t    = 1000;
+    uint16_t custom = hold_down_after(CURVE_CUSTOM, &t);
+    uint16_t soft   = hold_down_after(CURVE_LED_SOFT, &t);
+    /* 0.5 s at the full rate (1000 in 7 s: 71) against the eased one (slower near the min) */
+    CHECK(custom <= 551 - 70 && custom >= 551 - 73);
+    CHECK(soft > custom + 10);
+}
+
 static void test_lamp_compensation_after_coming_down(void) {
     module_start();
     phase_set_range(0, 276, 709);
@@ -1016,6 +1047,7 @@ int main(void) {
     RUN(test_main_loop_changes_faders_with_irqs_off);
 #if !SIM_ZC
     RUN(test_lamp_compensation_after_coming_down);
+    RUN(test_custom_curve_hold_of_the_lit_light_is_even);
 #endif
     const char *variant = SIM_ZC ? "SIM" : MEASURE ? "MEASURE" : DIAG_REPORT ? "DIAG" : "normal";
     if (failed) {

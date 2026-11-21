@@ -19,6 +19,8 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
   light meter) and writes a curve with even perceived steps. The dimmer chip saves the table
   with its settings (a settings record now fills its flash page; an older firmware still reads
   the settings in it, without the table).
+- With the custom curve a wall switch hold of the lit light keeps its rate down to the minimum:
+  the curve is already even, so `hold_slow_zone` only gives a hold from dark its slow start.
 - A downgrade to an older release keeps every setting except a channel's saved level when its
   compensation was set: that level is taken as the maximum once.
 
