@@ -151,15 +151,21 @@ void     dim_fader_hold_cancel(dim_fader_t *f);
 uint16_t dim_curve(uint8_t curve, uint16_t value);
 
 /* The custom curve (2.2.8): a table of CUSTOM_POINTS outputs (0..CURVE_OUT_MAX at 0, 1/16 ..
- * 1 of the range) per channel, written by the module (DPs 174.., RAM only: the module keeps
- * it and writes it again after every MCU start). Curve CURVE_CUSTOM takes the table of channel
- * dim_custom_ch (phase.c sets it before its dim_output). Until a valid table came: led_soft.
- * dim_custom_put writes 6 points from `first` (big-endian u16; from 12: 5, a sixth is ignored)
- * and checks the whole table: 0 at the start, CURVE_OUT_MAX at the end, never falling. */
+ * 1 of the range) per channel, written by the module (DPs 174..) and saved with the settings
+ * (the record's extension, dimmer.c). Curve CURVE_CUSTOM takes the table of channel
+ * dim_custom_ch (phase.c sets it before its dim_output); without a valid table: led_soft.
+ * dim_custom_put writes 6 points from `first` (little-endian u16; from 12: 5 and one more) and
+ * checks the whole table (dim_custom_check: 0 at the start, CURVE_OUT_MAX at the end, never
+ * falling). dim_custom_raw: the channel's CUSTOM_RAW bytes, channel 2's right after channel
+ * 1's (the record takes both at once), for the record and the DPs' reports. */
 #define CURVE_CUSTOM    6      /* = CURVE_COUNT (curves.h, checked in dim_core.c) */
 #define CUSTOM_POINTS   17
-void     dim_custom_put(uint8_t ch, uint8_t first, const uint8_t *be16);
+#define CUSTOM_RAW      36     /* 3 parts of 6 points, little-endian (the last part's sixth: none) */
+void     dim_custom_put(uint8_t ch, uint8_t first, const uint8_t *le16);
 uint8_t  dim_custom_ok(uint8_t ch);
+void     dim_custom_check(uint8_t ch);
+uint8_t *dim_custom_raw(uint8_t ch);
+void     dim_custom_load(const uint8_t *both);   /* 2 * CUSTOM_RAW bytes from the record, checked */
 extern uint8_t dim_custom_ch;
 /** Output duty for a channel: min and max are physical limits of the lamp
  * (conduction time = level/1000 of the half cycle, as the stock firmware and

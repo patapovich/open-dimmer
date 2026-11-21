@@ -1,5 +1,6 @@
 #include "dim_core.h"
 #include "curves.h"
+#include <string.h>
 
 static uint16_t rate_q(uint16_t ms) {
     /* the whole range (1000 steps) in ms: 1000 * 64 / (ms / 10) per 10 ms */
@@ -264,22 +265,35 @@ __attribute__((noinline)) uint16_t dim_fader_tick(dim_fader_t *f) {
 }
 
 _Static_assert(CURVE_CUSTOM == CURVE_COUNT, "the custom curve comes after the generated ones");
-static uint16_t g_custom[2][CUSTOM_POINTS];
+static uint16_t g_custom[2][CUSTOM_POINTS + 1];   /* the third part's sixth lands in the 18th */
 static uint8_t  g_custom_ok[2];
 uint8_t         dim_custom_ch;
+_Static_assert(sizeof(g_custom) == 2 * CUSTOM_RAW, "two tables of CUSTOM_RAW bytes, in a row");
 
-void dim_custom_put(uint8_t ch, uint8_t first, const uint8_t *be16) {
-    uint16_t *t = g_custom[ch & 1u];
-    for (uint8_t i = first; i < first + 6u && i < CUSTOM_POINTS; i++, be16 += 2) {
-        t[i] = (uint16_t)(be16[0] << 8 | be16[1]);   /* the third part's sixth point: none */
-    }
-    uint8_t ok = t[0] == 0 && t[CUSTOM_POINTS - 1] == CURVE_OUT_MAX;
+void dim_custom_check(uint8_t ch) {
+    const uint16_t *t  = g_custom[ch & 1u];
+    uint8_t         ok = t[0] == 0 && t[CUSTOM_POINTS - 1] == CURVE_OUT_MAX;
     for (uint8_t i = 1; i < CUSTOM_POINTS; i++) {
         if (t[i] < t[i - 1]) {
             ok = 0;
         }
     }
     g_custom_ok[ch & 1u] = ok;
+}
+
+void dim_custom_put(uint8_t ch, uint8_t first, const uint8_t *le16) {
+    memcpy(&g_custom[ch & 1u][first], le16, 12);
+    dim_custom_check(ch);
+}
+
+void dim_custom_load(const uint8_t *both) {
+    memcpy(g_custom, both, sizeof(g_custom));
+    dim_custom_check(0);
+    dim_custom_check(1);
+}
+
+uint8_t *dim_custom_raw(uint8_t ch) {
+    return (uint8_t *)g_custom[ch & 1u];
 }
 
 uint8_t dim_custom_ok(uint8_t ch) {
@@ -304,7 +318,7 @@ uint16_t dim_curve(uint8_t curve, uint16_t value) {
             k = g_custom[dim_custom_ch & 1u];
             n = CUSTOM_POINTS;
         } else {
-            curve = CURVE_LED_SOFT;                           /* none yet: the default */
+            curve = CURVE_LED_SOFT;                           /* none (valid): the default */
         }
     }
     if (!k) {
@@ -313,7 +327,7 @@ uint16_t dim_curve(uint8_t curve, uint16_t value) {
     uint32_t        pos = (uint32_t)value * (n - 1);          /* in 1/1000 of a segment */
     uint32_t        seg = pos / DIM_VALUE_MAX;
     uint32_t        frac = pos % DIM_VALUE_MAX;
-    uint32_t        a = k[seg], b = k[seg + 1];   /* b >= a: the tables never fall (gen_curves.py) */
+    uint32_t        a = k[seg], b = k[seg + 1];   /* b >= a: never falling (gen_curves.py, dim_custom_check) */
     uint32_t        v = a + ((b - a) * frac + DIM_VALUE_MAX / 2) / DIM_VALUE_MAX;
 
     return (uint16_t)(v < 1 ? 1 : v);       /* on is never fully dark */

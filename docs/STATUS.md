@@ -80,7 +80,7 @@ channel 1 / channel 2.
 | 168 / 169 | start boost | ms, steps of 50, up to 750 |
 | 170 / 171 | fast press | in detached mode a momentary press is reported at once |
 | 172 / 173 | lamp compensation | value units at the min, steps of 4, up to 252; 0: none (2.2.8) |
-| 174..176 / 177..179 | custom curve | raw, 6 big-endian u16 each: points 0-5, 6-11, 12-16 (a sixth ignored) of 17 outputs 0..10000 at 0, 1/16 .. 1 of min..max; 0 first, 10000 last, never falling; RAM only (the module writes them after every start); answered with 1 once the whole table is valid (2.2.8) |
+| 174..176 / 177..179 | custom curve | raw, 6 little-endian u16 each: points 0-5, 6-11, 12-16 (a sixth: none) of 17 outputs 0..10000 at 0, 1/16 .. 1 of min..max; used when 0 first, 10000 last, never falling (else led_soft); saved with the settings (the record's extension), in the dump, a write answered with the part as kept (2.2.8) |
 
 During a hold the level is reported every 0.5 s.
 

@@ -117,6 +117,10 @@ void tuya_report_bool(uint8_t dpid, uint8_t value) {
     report_unit(dpid, TUYA_DP_TYPE_BOOL, &v, 1);
 }
 
+void tuya_report_raw(uint8_t dpid, const uint8_t *value, uint8_t len) {
+    report_unit(dpid, TUYA_DP_TYPE_RAW, value, len);
+}
+
 void tuya_report_enum(uint8_t dpid, uint8_t value) {
     report_unit(dpid, TUYA_DP_TYPE_ENUM, &value, 1);
 }

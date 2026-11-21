@@ -12,7 +12,9 @@ typedef struct {
     uint32_t magic;
     uint32_t seq;
     uint8_t  data[STORE_DATA_SIZE];
-    uint32_t crc;
+    uint32_t crc;                    /* magic .. data: what every firmware reads */
+    uint8_t  ext[STORE_EXT_SIZE];    /* 2.2.8 */
+    uint32_t ext_crc;                /* magic .. ext */
 } record_t;
 
 _Static_assert(sizeof(record_t) <= PAGE_SIZE, "record must fit a page");
@@ -80,8 +82,12 @@ uint8_t store_load(uint8_t *data) {
     if (best == NULL) {
         return 0;
     }
-    memset(data, 0, STORE_DATA_SIZE);              /* fields newer than the record: 0 */
+    memset(data, 0, STORE_SAVE_SIZE);              /* fields newer than the record: 0 */
     memcpy(data, best->data, record_size(best));
+    if (best->magic == STORE_MAGIC &&
+        best->ext_crc == crc32((const uint8_t *)best, offsetof(record_t, ext_crc))) {
+        memcpy(data + STORE_DATA_SIZE, best->ext, STORE_EXT_SIZE);
+    }
     if ((const uint8_t *)best >= _settings_start) {
         g_newest = (int16_t)((uint32_t)((const uint8_t *)best - _settings_start) / PAGE_SIZE);
     } else {
@@ -118,6 +124,8 @@ uint8_t store_save_tries(const uint8_t *data, uint8_t attempts) {
         r->seq   = ++g_seq;
         memcpy(r->data, data, STORE_DATA_SIZE);
         r->crc = crc32((const uint8_t *)r, offsetof(record_t, crc));
+        memcpy(r->ext, data + STORE_DATA_SIZE, STORE_EXT_SIZE);
+        r->ext_crc = crc32((const uint8_t *)r, offsetof(record_t, ext_crc));
 
         /* g_newest -1 (nothing saved yet): page g_skip */
         uint32_t page = ((uint32_t)g_newest + 1u + g_skip) % STORE_PAGES;

@@ -73,6 +73,16 @@ void tuya_report_value(uint8_t dpid, uint32_t value) {
     unit(dpid, value);
 }
 
+void tuya_report_raw(uint8_t dpid, const uint8_t *value, uint8_t len) {
+    char s[8 + 2 * 64];
+    int  n = snprintf(s, sizeof(s), "%u=raw:", dpid);
+    for (uint8_t i = 0; i < len && n + 3 < (int)sizeof(s); i++) {
+        n += snprintf(s + n, sizeof(s) - (size_t)n, "%02x", value[i]);
+    }
+    snprintf(s + n, sizeof(s) - (size_t)n, " ");
+    log_add(s);
+}
+
 void tuya_report_send(void) {
     if (g_frame_len) {
         char s[sizeof(g_frame) + 8];
@@ -171,7 +181,7 @@ uint16_t phase_current(uint8_t ch) {
 
 /* ---- store.c --------------------------------------------------------------- */
 
-uint8_t  g_host_flash[STORE_DATA_SIZE];
+uint8_t  g_host_flash[STORE_SAVE_SIZE];
 uint8_t  g_host_flash_valid;
 unsigned g_host_saves;
 uint8_t  g_host_save_attempts;
@@ -180,13 +190,13 @@ uint8_t store_load(uint8_t *data) {
     if (!g_host_flash_valid) {
         return 0;
     }
-    memcpy(data, g_host_flash, STORE_DATA_SIZE);
+    memcpy(data, g_host_flash, STORE_SAVE_SIZE);
     return 1;
 }
 
 uint8_t store_save_tries(const uint8_t *data, uint8_t attempts) {
     g_host_save_attempts = attempts;
-    memcpy(g_host_flash, data, STORE_DATA_SIZE);
+    memcpy(g_host_flash, data, STORE_SAVE_SIZE);
     g_host_flash_valid = 1;
     g_host_saves++;
     return 1;

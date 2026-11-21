@@ -96,7 +96,7 @@ uint8_t flash_write_page(uint32_t addr, const uint32_t *src) {
 
 /* A fresh sector, loaded as at boot. */
 static void flash_reset(void) {
-    uint8_t d[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE];
     memset(g_flash, 0xFF, sizeof(g_flash));
     memset(g_erases, 0, sizeof(g_erases));
     memset(g_worn, 0, sizeof(g_worn));
@@ -139,18 +139,19 @@ static int newest_page(void) {
 
 /* The newest record holds d. */
 static int newest_is(const uint8_t *d) {
-    uint8_t o[STORE_DATA_SIZE];
+    uint8_t o[STORE_SAVE_SIZE];
     return ref_newest(o) >= 0 && memcmp(o, d, STORE_DATA_SIZE) == 0;
 }
 
-static void data_of(uint8_t *d, unsigned n) {
+static void data_of(uint8_t *d, unsigned n) {   /* STORE_SAVE_SIZE: the extension 0 */
+    memset(d, 0, STORE_SAVE_SIZE);
     for (unsigned i = 0; i < STORE_DATA_SIZE; i++) {
         d[i] = (uint8_t)(n * 7u + i);
     }
 }
 
 static void test_empty_and_ring_order(void) {
-    uint8_t d[STORE_DATA_SIZE], o[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE], o[STORE_SAVE_SIZE];
     flash_reset();
     CHECK(store_load(o) == 0);
     for (unsigned n = 0; n < 40; n++) {          /* round the ring once and more */
@@ -169,7 +170,7 @@ static void test_empty_and_ring_order(void) {
 
 /* The sequence number decides, also across its 32-bit wrap. */
 static void test_newest_by_sequence_across_the_wrap(void) {
-    uint8_t d[STORE_DATA_SIZE], o[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE], o[STORE_SAVE_SIZE];
     flash_reset();
     struct {
         uint32_t magic, seq;
@@ -198,7 +199,7 @@ static void test_newest_by_sequence_across_the_wrap(void) {
 /* A version 1 record (20 bytes of data) is read, the rest is 0; the next
  * save writes version 2 after it. */
 static void test_version_1_record(void) {
-    uint8_t o[STORE_DATA_SIZE], d[STORE_DATA_SIZE];
+    uint8_t o[STORE_SAVE_SIZE], d[STORE_SAVE_SIZE];
     flash_reset();
     struct {
         uint32_t magic, seq;
@@ -222,7 +223,7 @@ static void test_version_1_record(void) {
 /* One worn page after the newest record: one erase in the failing call, the
  * next call goes past it, and the newest record stays readable meanwhile. */
 static void test_worn_page_one_erase_per_call(void) {
-    uint8_t d[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE];
     flash_reset();
     for (unsigned n = 0; n < 8; n++) {
         data_of(d, n);
@@ -251,7 +252,7 @@ static void test_worn_page_one_erase_per_call(void) {
 
 /* Two worn pages in a row no longer block saves for good. */
 static void test_two_worn_pages_are_passed(void) {
-    uint8_t d[STORE_DATA_SIZE], o[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE], o[STORE_SAVE_SIZE];
     flash_reset();
     data_of(d, 1);
     CHECK(store_save(d) == 1);                  /* page 0 */
@@ -268,7 +269,7 @@ static void test_two_worn_pages_are_passed(void) {
 /* Every page fails: calls keep failing with one erase each, and none ever
  * erases the newest record or the one before it. */
 static void test_all_pages_worn_never_erase_the_newest(void) {
-    uint8_t d[STORE_DATA_SIZE], o[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE], o[STORE_SAVE_SIZE];
     flash_reset();
     for (unsigned n = 0; n < 12; n++) {
         data_of(d, n);
@@ -302,7 +303,7 @@ static void test_all_pages_worn_never_erase_the_newest(void) {
 /* store_save_tries(d, 2) (before a restart, gates off): past one worn page
  * in a single call. */
 static void test_two_attempts_pass_one_worn_page(void) {
-    uint8_t d[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE];
     flash_reset();
     data_of(d, 1);
     CHECK(store_save(d) == 1);                  /* page 0 */
@@ -323,7 +324,7 @@ static void test_two_attempts_pass_one_worn_page(void) {
 /* A page that failed its verify may still hold a valid record: a later save
  * must be newer than it, also when that save is the same call's retry. */
 static void test_failed_page_with_a_valid_record_is_older(void) {
-    uint8_t d[STORE_DATA_SIZE], o[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE], o[STORE_SAVE_SIZE];
     flash_reset();
     data_of(d, 1);
     CHECK(store_save(d) == 1);                  /* page 0 */
@@ -337,13 +338,37 @@ static void test_failed_page_with_a_valid_record_is_older(void) {
     CHECK((int32_t)(page_seq(2) - page_seq(1)) > 0);
 }
 
+/* 2.2.8: the record's extension (the custom curves) after the version 2 data and its CRC:
+ * saved and loaded; an older firmware's record (0xFF after its CRC) gives zeros there; a new
+ * record is a valid version 2 record for an older firmware (the reference reader). */
+static void test_the_extension_is_saved_and_an_older_record_has_none(void) {
+    uint8_t d[STORE_SAVE_SIZE], o[STORE_SAVE_SIZE];
+    flash_reset();
+    for (unsigned i = 0; i < STORE_SAVE_SIZE; i++) {
+        d[i] = (uint8_t)(i * 7 + 3);
+    }
+    CHECK(store_save(d));
+    memset(o, 0, sizeof(o));
+    CHECK(store_load(o) && memcmp(o, d, STORE_SAVE_SIZE) == 0);
+    uint8_t ref[STORE_DATA_SIZE];
+    CHECK(ref_newest(ref) >= 0 && memcmp(ref, d, STORE_DATA_SIZE) == 0);   /* as v2 */
+    /* an older firmware's record: its page after the CRC left erased */
+    unsigned pg = (unsigned)ref_newest(ref);
+    memset(RING + pg * PAGE + 8 + STORE_DATA_SIZE + 4, 0xFF, PAGE - (8 + STORE_DATA_SIZE + 4));
+    memset(o, 0x55, sizeof(o));
+    CHECK(store_load(o) && memcmp(o, d, STORE_DATA_SIZE) == 0);
+    for (unsigned i = STORE_DATA_SIZE; i < STORE_SAVE_SIZE; i++) {
+        CHECK(o[i] == 0);
+    }
+}
+
 #ifdef RING_HIGH_TEST
 /* ---- the ring moved up (release M): records of the old ring below it ----------------- */
 
 /* A record as an older app wrote it, at a page of the whole sector (version 2, or 1). */
 static void put_record(unsigned pg, uint32_t seq, unsigned n, int version1) {
     uint8_t *p = g_flash + pg * PAGE;
-    uint8_t  d[STORE_DATA_SIZE];
+    uint8_t  d[STORE_SAVE_SIZE];
     data_of(d, n);
     memset(p, 0xFF, PAGE);
     uint32_t magic = version1 ? 0x5A445331u : 0x5A445332u;
@@ -366,7 +391,7 @@ static void old_ring(void) {
 }
 
 static void test_records_below_are_found_and_copied_up_once(void) {
-    uint8_t d[STORE_DATA_SIZE], want[STORE_DATA_SIZE], below[2048];
+    uint8_t d[STORE_SAVE_SIZE], want[STORE_SAVE_SIZE], below[2048];
     old_ring();
     memcpy(below, g_flash, sizeof(below));
     CHECK(store_load(d));
@@ -388,7 +413,7 @@ static void test_records_below_are_found_and_copied_up_once(void) {
 }
 
 static void test_a_failed_copy_is_made_at_the_next_start(void) {
-    uint8_t d[STORE_DATA_SIZE], want[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE], want[STORE_SAVE_SIZE];
     old_ring();
     for (unsigned pg = 0; pg < RPAGES; pg++) {
         g_worn[pg] = 1;                              /* the copy cannot take (a power cut) */
@@ -418,7 +443,7 @@ static void test_a_failed_copy_is_made_at_the_next_start(void) {
 }
 
 static void test_a_newer_record_up_there_is_taken_without_a_copy(void) {
-    uint8_t d[STORE_DATA_SIZE], want[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE], want[STORE_SAVE_SIZE];
     old_ring();
     put_record(17, 50, 5, 0);                        /* this app saved already */
     unsigned before = g_calls_erases;
@@ -428,18 +453,18 @@ static void test_a_newer_record_up_there_is_taken_without_a_copy(void) {
 }
 
 static void test_a_version_1_record_below_is_copied_as_version_2(void) {
-    uint8_t d[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE];
     memset(g_flash, 0xFF, sizeof(g_flash));
     put_record(0, 7, 6, 1);
     CHECK(store_load(d));
-    uint8_t want[STORE_DATA_SIZE];
+    uint8_t want[STORE_SAVE_SIZE];
     data_of(want, 6);
     memset(want + 20, 0, STORE_DATA_SIZE - 20);      /* the newer fields: 0 */
     CHECK(memcmp(d, want, sizeof(d)) == 0 && newest_is(want) && newest_page() >= 0);
 }
 
 static void test_an_empty_flash_reports_no_settings_to_lose(void) {
-    uint8_t d[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE];
     memset(g_flash, 0xFF, sizeof(g_flash));          /* a fresh install: no record anywhere */
     CHECK(!store_load(d));
     CHECK(store_in_own_ring() && !store_copy_due()); /* bit 25: an image over 12 KB loses nothing */
@@ -454,7 +479,7 @@ static void test_an_empty_flash_reports_no_settings_to_lose(void) {
 
 #if SCAN_OFF
 static void test_code_below_the_scan_start_is_never_a_record(void) {
-    uint8_t d[STORE_DATA_SIZE], want[STORE_DATA_SIZE];
+    uint8_t d[STORE_SAVE_SIZE], want[STORE_SAVE_SIZE];
     memset(g_flash, 0xFF, sizeof(g_flash));
     put_record(0, 900, 7, 0);                        /* under the app's code: not settings */
     put_record(SCAN_OFF / PAGE, 30, 8, 0);
@@ -481,6 +506,7 @@ int main(void) {
     test_a_newer_record_up_there_is_taken_without_a_copy();
     test_a_version_1_record_below_is_copied_as_version_2();
     test_an_empty_flash_reports_no_settings_to_lose();
+    test_the_extension_is_saved_and_an_older_record_has_none();
 #endif
     if (g_failures) {
         printf("test_store (ring high, scan +%d): %d FAILED\n", SCAN_OFF, g_failures);
@@ -499,6 +525,7 @@ int main(void) {
     test_all_pages_worn_never_erase_the_newest();
     test_two_attempts_pass_one_worn_page();
     test_failed_page_with_a_valid_record_is_older();
+    test_the_extension_is_saved_and_an_older_record_has_none();
     if (g_failures) {
         printf("test_store: %d FAILED\n", g_failures);
         return 1;

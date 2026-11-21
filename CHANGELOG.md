@@ -16,8 +16,9 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
 - A custom dimming curve per channel (`custom`, a table of 17 points written from Zigbee2MQTT
   as `custom_curve`): for a lamp whose light the built-in curves do not spread evenly.
   `tools/custom_curve.py` measures a lamp (an illuminance sensor in Zigbee2MQTT, or a phone's
-  light meter) and writes a curve with even perceived steps. The Zigbee module keeps the
-  table and gives it to the dimmer chip after every start; until then the chip uses led_soft.
+  light meter) and writes a curve with even perceived steps. The dimmer chip saves the table
+  with its settings (a settings record now fills its flash page; an older firmware still reads
+  the settings in it, without the table).
 - A downgrade to an older release keeps every setting except a channel's saved level when its
   compensation was set: that level is taken as the maximum once.
 

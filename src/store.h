@@ -18,6 +18,11 @@
 #include <stdint.h>
 
 #define STORE_DATA_SIZE    40   /* records of 20 (version 1) are read too, rest 0 */
+/* From 2.2.8 a record fills its page: after the 40 bytes and their CRC (a ZDS2 record for every
+ * firmware, a downgrade keeps the settings) 72 more bytes with a CRC of their own, 0 when it
+ * does not match (an older firmware's record). store_load / store_save take STORE_SAVE_SIZE. */
+#define STORE_EXT_SIZE     72
+#define STORE_SAVE_SIZE    (STORE_DATA_SIZE + STORE_EXT_SIZE)
 
 /** Load the newest valid record. Returns 1 if one was found. */
 uint8_t store_load(uint8_t *data);

@@ -18,8 +18,8 @@
 #define DP_EXTRA_BASE    162   /* + 2 * k + channel, k: 0 switch mode, 1 power-cut level, */
 #define DP_EXTRA_END     174   /* 2 identify s, 3 start boost ms, 4 fast press, 5 lamp compensation */
 #define DP_CUSTOM_BASE   174   /* + 3 * channel + part: the custom curve's points 0-5, 6-11, 12-16 */
-#define DP_CUSTOM_END    180   /* (raw, 6 big-endian u16, the last part's sixth ignored; RAM only:
-                                  the module writes them again after every start) */
+#define DP_CUSTOM_END    180   /* (raw, 6 little-endian u16, the last part's sixth: none; saved,
+                                  in the dump, a write answered with the part as kept) */
 enum { EX_INPUT, EX_POWER_LEVEL, EX_IDENTIFY, EX_BOOST, EX_FAST_PRESS, EX_COMP };
 #define COUNTDOWN_MAX    86400u
 #define TRANSITION_VALID_MS 1000  /* ... if it comes this soon after (on, then level) */
@@ -66,9 +66,12 @@ typedef struct {
         uint8_t  hold_end_pct;
     } pf[DIMMER_CHANNELS];
     uint8_t reserved[4];
+    /* The record's extension (2.2.8, STORE_EXT_SIZE: 0 in an older record): the custom curves
+     * of both channels, as their DPs. */
+    uint8_t custom[2][CUSTOM_RAW];
 } saved_t;
 
-_Static_assert(sizeof(saved_t) == STORE_DATA_SIZE, "saved_t must match the store record");
+_Static_assert(sizeof(saved_t) == STORE_SAVE_SIZE, "saved_t must match the store record");
 
 static int8_t   g_last_hold_dir[DIMMER_CHANNELS];
 static uint8_t  g_holding[DIMMER_CHANNELS];
@@ -151,6 +154,7 @@ static void snapshot(saved_t *s) {
             s->on_mask |= (uint8_t)(1u << i);
         }
     }
+    memcpy(s->custom, dim_custom_raw(0), sizeof(s->custom));   /* both channels' tables */
     s->on_mask |= (uint8_t)(g_lrn_ways << 2);        /* the learnt hold ways, bits 0..5 */
     s->reserved[0] |= (uint8_t)(g_lrn_ways & 0xC0u);  /* ... and bits 6..7 */
 }
@@ -274,6 +278,7 @@ uint8_t dimmer_init(uint32_t reset_csr) {
             g_ch[i].on    = g_power_on[i] == POWER_ON_ON ||
                             (g_power_on[i] == POWER_ON_LAST && (s.on_mask & (1u << i)));
         }
+        dim_custom_load(s.custom[0]);              /* both channels' custom curves (0: none) */
     }
     snapshot(&g_saved);               /* what flash holds */
     if (store_copy_due()) {
@@ -529,6 +534,7 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         }
         dim_custom_put((uint8_t)(k / 3), (uint8_t)(k % 3 * 6), value);
         apply((uint8_t)(k / 3));
+        mark_dirty();
         return 1;
     }
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
@@ -680,9 +686,9 @@ void dimmer_report_dp(uint8_t dpid) {
         tuya_report_enum(dpid, g_power_on[dpid - DP_POWER_ON_BASE]);
         return;
     }
-    if (dpid >= DP_CUSTOM_BASE && dpid < DP_CUSTOM_END) {
-        /* the ack: whether the channel's whole table is valid now (1) or not yet (0) */
-        tuya_report_value(dpid, dim_custom_ok((uint8_t)((unsigned)(dpid - DP_CUSTOM_BASE) / 3)));
+    if (dpid >= DP_CUSTOM_BASE && dpid < DP_CUSTOM_END) {       /* the part's points, as kept */
+        uint8_t k = (uint8_t)(dpid - DP_CUSTOM_BASE);
+        tuya_report_raw(dpid, dim_custom_raw((uint8_t)(k / 3)) + 12u * (k % 3), 12);
         return;
     }
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
@@ -881,6 +887,9 @@ void dimmer_report_all(void) {
         dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_POWER_LEVEL + ch));
         dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_BOOST + ch));
         dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_COMP + ch));   /* a frame of its own */
+        for (uint8_t k = 0; k < 3; k++) {
+            dimmer_report_dp((uint8_t)(DP_CUSTOM_BASE + 3 * ch + k));     /* the custom curve */
+        }
         tuya_report_send();
     }
 }

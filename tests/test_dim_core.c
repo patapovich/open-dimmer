@@ -1356,11 +1356,11 @@ static void test_lamp_compensation(void) {
 
 /* The custom curve: three parts make the table; checked whole; per channel; led_soft until
  * a valid one came. */
-static void put_be(uint8_t ch, uint8_t first, const uint16_t *pts) {
+static void put_be(uint8_t ch, uint8_t first, const uint16_t *pts) {   /* little-endian parts */
     uint8_t b[12];
     for (int i = 0; i < 6; i++) {
-        b[2 * i] = (uint8_t)(pts[i] >> 8);
-        b[2 * i + 1] = (uint8_t)pts[i];
+        b[2 * i] = (uint8_t)pts[i];
+        b[2 * i + 1] = (uint8_t)(pts[i] >> 8);
     }
     dim_custom_put(ch, first, b);
 }

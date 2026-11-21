@@ -35,7 +35,7 @@ void            host_phase_init(void);
 void            host_halfcycle(void);
 
 /* store.c: one record. */
-extern uint8_t  g_host_flash[STORE_DATA_SIZE];
+extern uint8_t  g_host_flash[STORE_SAVE_SIZE];
 extern uint8_t  g_host_flash_valid;
 extern unsigned g_host_saves;
 extern uint8_t  g_host_save_attempts;   /* pages the last save could try */
@@ -72,9 +72,10 @@ typedef struct {
         uint8_t  hold_end_pct;
     } pf[2];
     uint8_t reserved[4];
+    uint8_t custom[2][36];       /* the record's extension (2.2.8) */
 } host_saved_t;
 extern uint8_t g_host_comp4[2];   /* phase_set_comp */
 
-_Static_assert(sizeof(host_saved_t) == STORE_DATA_SIZE, "host_saved_t must match dimmer.c saved_t");
+_Static_assert(sizeof(host_saved_t) == STORE_SAVE_SIZE, "host_saved_t must match dimmer.c saved_t");
 
 #endif

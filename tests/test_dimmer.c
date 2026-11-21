@@ -1022,15 +1022,15 @@ static void test_lamp_compensation_dp_is_saved_in_the_top_bits_of_the_level(void
     CHECK(c1()->comp4 == 0 && dimmer_channel(1)->comp4 == 0 && c1()->fade_on_ms == 1500);
 }
 
-static void test_custom_curve_dps_and_the_curve_id(void) {
+static void test_custom_curve_dps_saved_and_the_curve_id(void) {
     power_up(1);
     static const uint16_t t[18] = { 0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200, 4000,
                                     4900, 5900, 7000, 8100, 9100, 10000, 0 };
     uint8_t b[3][12];
     for (int p = 0; p < 3; p++) {
         for (int i = 0; i < 6; i++) {
-            b[p][2 * i] = (uint8_t)(t[6 * p + i] >> 8);
-            b[p][2 * i + 1] = (uint8_t)t[6 * p + i];
+            b[p][2 * i] = (uint8_t)t[6 * p + i];
+            b[p][2 * i + 1] = (uint8_t)(t[6 * p + i] >> 8);
         }
     }
     CHECK(!dimmer_write_dp(177, TUYA_DP_TYPE_RAW, b[0], 10));         /* wrong length */
@@ -1041,21 +1041,35 @@ static void test_custom_curve_dps_and_the_curve_id(void) {
         CHECK(dimmer_write_dp((uint8_t)(177 + p), TUYA_DP_TYPE_RAW, b[p], 12));   /* channel 2 */
         dimmer_report_dp((uint8_t)(177 + p));
         tuya_report_send();
-        char want[16];
-        snprintf(want, sizeof(want), "%d=%d", 177 + p, p == 2);       /* the ack: valid yet */
+        char want[40];
+        int  n = snprintf(want, sizeof(want), "%d=raw:", 177 + p);   /* the answer: the part kept */
+        for (int i = 0; i < 12; i++) {
+            n += snprintf(want + n, sizeof(want) - (size_t)n, "%02x", b[p][i]);
+        }
         CHECK(host_log_find(want) >= 0);
     }
     CHECK(dim_custom_ok(1) && !dim_custom_ok(0));
     host_write(102, TUYA_DP_TYPE_ENUM, CURVE_CUSTOM);                  /* channel 2's curve */
     CHECK(dimmer_channel(1)->curve == CURVE_CUSTOM);
     CHECK(!dimmer_write_dp(102, TUYA_DP_TYPE_ENUM, (const uint8_t *)"\x07", 1));
+    host_log_clear();
+    dimmer_report_all();                                               /* in the dump */
+    CHECK(host_log_find("177=raw:000064") >= 0 && host_log_find("174=raw:0000") >= 0);
     run_ms(3000);
+    host_saved_t s;
+    memcpy(&s, g_host_flash, sizeof(s));
+    CHECK(memcmp(s.custom[1], b, 34) == 0);                            /* saved with the settings */
+    dim_custom_put(1, 0, (const uint8_t *)"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00");
+    CHECK(!dim_custom_ok(1));                                          /* RAM spoilt ... */
     power_up(0);
-    CHECK(dimmer_channel(1)->curve == CURVE_CUSTOM);                   /* the id is saved, */
+    CHECK(dimmer_channel(1)->curve == CURVE_CUSTOM && dim_custom_ok(1));   /* ... back from flash */
+    memset(((host_saved_t *)g_host_flash)->custom, 0, sizeof(s.custom));  /* an older record */
+    power_up(0);
+    CHECK(!dim_custom_ok(1) && !dim_custom_ok(0));                     /* none: led_soft */
 }
 
 int main(void) {
-    RUN(test_custom_curve_dps_and_the_curve_id);
+    RUN(test_custom_curve_dps_saved_and_the_curve_id);
     RUN(test_lamp_compensation_dp_is_saved_in_the_top_bits_of_the_level);
     RUN(test_power_up_takes_power_on_rule);
     RUN(test_watchdog_reset_restores_live_state);

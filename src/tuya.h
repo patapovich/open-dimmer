@@ -108,6 +108,7 @@ void tuya_report_begin(uint8_t passive);
 void tuya_report_bool(uint8_t dpid, uint8_t value);
 void tuya_report_enum(uint8_t dpid, uint8_t value);
 void tuya_report_value(uint8_t dpid, uint32_t value);
+void tuya_report_raw(uint8_t dpid, const uint8_t *value, uint8_t len);
 void tuya_report_send(void);
 
 #endif
