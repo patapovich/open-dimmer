@@ -50,7 +50,10 @@ static dim_fader_t       g_fader[2];
 static volatile uint8_t  g_curve[2];
 static volatile uint16_t g_min[2] = { 10, 10 }, g_max[2] = { 1000, 1000 };
 static volatile uint8_t  g_comp4[2];      /* lamp compensation at the min, / 4 (dim_comp) */
-static uint16_t          g_peak[2];       /* the highest value since the light came on */
+static uint16_t          g_peak16[2];     /* the highest value since the light came on, x 16 (dim_comp):
+                                            follows a rise in about 1.3 s (128 half cycles), from 0 when
+                                            it comes on: a moment's rise (an on to the last level, then
+                                            the network's level) does not warm the lamp up */
 static zc_tracker_t      g_zc;
 static volatile uint16_t g_last_zc;
 
@@ -76,12 +79,16 @@ static void sim_block(void) {
 /* The next half cycle's compare of a channel: its fader, the lamp compensation, the curve. */
 static uint16_t channel_compare(uint8_t ch, uint16_t hp) {
     uint16_t v = dim_fader_tick(&g_fader[ch]);
-    if (!v || v > g_peak[ch]) {
-        g_peak[ch] = v;                 /* dark resets it: the lamp starts cold */
+    uint16_t p = g_peak16[ch];
+    if (!v) {
+        p = 0;                          /* dark resets it: the lamp starts cold */
+    } else if (v * 16u > p) {
+        p = (uint16_t)(p + ((uint32_t)(v * 16u - p) + 127u) / 128u);
     }
+    g_peak16[ch] = p;
     uint16_t lo = g_min[ch], hi = g_max[ch];
     uint16_t d  = dim_output(g_curve[ch], v, lo, hi);
-    uint16_t c  = dim_comp(v, g_peak[ch], (uint16_t)(g_comp4[ch] * 40u), lo, hi);   /* value 4 = duty 40 */
+    uint16_t c  = dim_comp(v, p >> 4, (uint16_t)(g_comp4[ch] * 40u), lo, hi);   /* value 4 = duty 40 */
     return dim_compare(hp, d > c ? (uint16_t)(d - c) : (d ? 1u : 0u));
 }
 
@@ -99,7 +106,7 @@ static void zero_cross(uint16_t now) {
         /* Lost the lock on a late edge: fade in again once relocked. */
         g_fader[0].current = 0;
         g_fader[1].current = 0;
-        g_peak[0] = g_peak[1] = 0;      /* dark for a moment: the lamp starts cold */
+        g_peak16[0] = g_peak16[1] = 0;  /* dark for a moment: the lamp starts cold */
         g_phase_dbg.lock_losses++;
     }
     if (!accepted) {

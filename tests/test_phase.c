@@ -796,7 +796,7 @@ static void test_lamp_compensation_after_coming_down(void) {
     module_start();
     phase_set_range(0, 276, 709);
     phase_set_comp(0, 8);                                    /* 32 at the min */
-    train_t tr = { .hz = 50, .jitter = 0, .halves = 2000, .seed = 5 };
+    train_t tr = { .hz = 50, .jitter = 0, .halves = 3200, .seed = 5 };
     make_train(&tr);
     g_fed     = 0;
     g_poll_at = g_now + POLL_TICKS;
@@ -819,6 +819,15 @@ static void test_lamp_compensation_after_coming_down(void) {
     phase_set(0, 1, 276);
     feed_part(t += 150000);
     CHECK(g_phase_dbg.compare[0] == dim_compare(hp, 2760));  /* dark in between: none */
+    /* on to a higher last level, the network's level 0.1 s later (Home Assistant: on, then the
+     * level): that moment's rise does not count */
+    phase_set(0, 0, 276);
+    feed_part(t += 150000);
+    phase_set(0, 1, 343);
+    feed_part(t += 5000);
+    phase_set(0, 1, 276);
+    feed_part(t += 150000);
+    CHECK(g_phase_dbg.current[0] == 276 && g_phase_dbg.compare[0] == dim_compare(hp, 2760));
     phase_set_comp(0, 0);
     phase_set(0, 1, 600);
     feed_part(t += 150000);
