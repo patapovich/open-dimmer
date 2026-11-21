@@ -32,7 +32,8 @@ Open Dimmer and keeps it up to date.
 The stock firmware dims linearly at one fixed rate, shares one power-on setting between the two
 channels and reports only on, off and level. Open Dimmer adds, per channel:
 
-- dimming curves for LED and incandescent lamps;
+- dimming curves for LED and incandescent lamps, and a custom curve measured for your lamp
+  ([docs/CUSTOM-CURVE.md](docs/CUSTOM-CURVE.md));
 - adjustable fade and hold times, and it follows Zigbee transitions;
 - wall switch gestures (single, double, triple press and hold) as Zigbee2MQTT actions, and
   three wall switch modes: normal, detached and off;
