@@ -702,7 +702,8 @@ static void test_hold_is_slow_just_above_the_min(void) {
         }
     }
     CHECK(n50 > 3 * 50 / DIM_HOLD_RATE);              /* the dimmest 50 take > 3x longer */
-    CHECK(n200 > 2 * HOLD_SPAN / DIM_HOLD_RATE);
+    /* > 1.5x the full rate's time (the ease meets the full rate smoothly at the top: about 1.7x) */
+    CHECK(n200 > 3 * HOLD_SPAN / DIM_HOLD_RATE / 2);
     CHECK(n200 < 200);                                  /* still under 2 s */
     /* down towards the min: slow there too, and stops at it */
     dim_fader_hold_start(&f, -1, 60, 1000);
@@ -998,7 +999,7 @@ static void test_hold_up_from_a_lit_level_is_not_slowed(void) {
         dim_fader_tick(&f);
         n++;
     }
-    CHECK(n > (130 + 21 * DIM_HOLD_RATE - 60) / DIM_HOLD_RATE * 2);
+    CHECK(n > (130 + 21 * DIM_HOLD_RATE - 60) * 3 / DIM_HOLD_RATE / 2);
 }
 
 /* Half cycles until the fader reaches target, ticking at half period hp. */

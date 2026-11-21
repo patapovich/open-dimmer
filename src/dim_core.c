@@ -159,12 +159,15 @@ static uint16_t take(dim_fader_t *f, uint16_t q) {
     return (uint16_t)(a / unit);
 }
 
-/* Rate q, slowing to lo_q at distance 0 from the bottom of a span. */
-static uint16_t eased_q(uint16_t q, uint16_t lo_q, uint16_t d, uint16_t span) {
+/* Rate q, slowing to lo_q at distance 0 from the bottom of a span: q - (q - lo_q) (1 - d/span)^2.
+ * The rate meets q with no kink at the top of the span (a linear ease ends its acceleration at
+ * once there: seen as a jump at the end of a hold from dark's slow start). */
+__attribute__((noinline)) static uint16_t eased_q(uint16_t q, uint16_t lo_q, uint16_t d, uint16_t span) {
     if (span == 0 || d >= span || q <= lo_q) {
         return q;
     }
-    return (uint16_t)(lo_q + (uint32_t)(q - lo_q) * d / span);
+    uint32_t e = (uint32_t)(span - d) * (span - d) / span;     /* <= span: no overflow below */
+    return (uint16_t)(q - (uint32_t)(q - lo_q) * e / span);
 }
 
 static uint16_t hold_tick(dim_fader_t *f) {
