@@ -35,6 +35,8 @@ static volatile uint16_t g_button_press_ms;   /* duration of the last button pre
 static uint8_t g_turned_on_by_press[DIMMER_CHANNELS];
 /* Gestures of the wall switches (momentary type), reported for automations. */
 static gesture_t g_gesture[DIMMER_CHANNELS];
+static uint32_t  g_tap_at[DIMMER_CHANNELS];    /* a tap's release (| 1), 0: none: a double tap */
+static uint8_t   g_double[DIMMER_CHANNELS];    /* this press began within the gap of a tap's */
 /* Switch type the press state above belongs to. */
 static uint8_t g_type[DIMMER_CHANNELS];
 /* The wall switch mode each channel was handled in (DP 162 / 163 change it under a press), and
@@ -163,7 +165,11 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
             /* From dark: on at once at the minimum, rising slowly while the
              * finger stays (a hold picks a level from the bottom, with no
              * flash to the stored level); a tap then goes quickly on to the
-             * stored level. */
+             * stored level. A press within GESTURE_GAP_MS of a tap's release
+             * that is a tap too (decided at its release, so a tap and a hold
+             * still dims): the light to full, from either state. */
+            g_double[ch] = !c->double_off && g_tap_at[ch] && g_now - g_tap_at[ch] <= GESTURE_GAP_MS;
+            g_tap_at[ch] = 0;
             g_turned_on_by_press[ch] = !c->on;
             if (!c->on) {
                 dimmer_local_set(ch, 1);
@@ -171,10 +177,15 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
             }
             break;
         case INPUT_EV_RELEASE:
-            if (g_turned_on_by_press[ch]) {
-                dimmer_hold_cancel(ch);
+            if (g_double[ch]) {
+                dimmer_local_full(ch);          /* a third tap is a plain one again */
             } else {
-                dimmer_local_set(ch, 0);
+                g_tap_at[ch] = g_now | 1u;
+                if (g_turned_on_by_press[ch]) {
+                    dimmer_hold_cancel(ch);
+                } else {
+                    dimmer_local_set(ch, 0);
+                }
             }
             break;
         case INPUT_EV_HOLD:

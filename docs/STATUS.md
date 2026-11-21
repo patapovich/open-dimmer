@@ -81,7 +81,7 @@ channel 1 / channel 2.
 | 170 / 171 | fast press | in detached mode a momentary press is reported at once |
 | 172 / 173 | lamp compensation | value units at the min, steps of 4, up to 252; 0: none (2.2.8) |
 | 174..176 / 177..179 | custom curve | raw, 6 little-endian u16 each: points 0-5, 6-11, 12-16 (a sixth: none) of 17 outputs 0..10000 at 0, 1/16 .. 1 of min..max; used when 0 first, 10000 last, never falling (else led_soft); saved with the settings (the record's extension), in the dump, a write answered with the part as kept (2.2.8) |
-| 180 / 181 | long press from off | 1: rises from the min after 0.7 s at it (the default); 0: on at its level, the hold goes on from there (2.2.8, saved) |
+| 180 | wall switch options (both channels) | bits set = off (0, all on, the default): 0 / 1 a long press from off does not rise from the min (on at its level, the hold goes on from there), 2 / 3 a double tap does not take the light to full; written as mask << 8 \| bits (2.2.8, saved, in the first dump frame) |
 
 During a hold the level is reported every 0.5 s.
 

@@ -74,6 +74,15 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
+  /* Code marked .text.hidden (rarely run: e.g. the settings dump) goes with the constants: into
+     the hidden flash with HIDDEN=1. Before .text, whose *(.text*) would take it first. */
+  .text_hidden :
+  {
+    . = ALIGN(4);
+    *(.text.hidden*)
+    . = ALIGN(4);
+  } >HIDDEN_DATA
+
   /* The program code and other data goes into FLASH */
   .text :
   {

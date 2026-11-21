@@ -1022,31 +1022,38 @@ static void test_lamp_compensation_dp_is_saved_in_the_top_bits_of_the_level(void
     CHECK(c1()->comp4 == 0 && dimmer_channel(1)->comp4 == 0 && c1()->fade_on_ms == 1500);
 }
 
-/* DP 180 / 181: whether a long press from off rises from the min (1, the default) or the light
- * comes on at its level (0). Saved in the top bit of the stored hold_end_pct: an older record
- * (bit 0) gives 1, and the slow zone it holds is kept. */
-static void test_dark_hold_dp_saved_in_the_hold_zone_byte(void) {
+/* DP 180: both channels' wall switch options, bits set = off: 0 / 1 the long press from off's
+ * rise (channel 1 / 2), 2 / 3 the double tap to full. Written as mask << 8 | bits. Saved in the
+ * top bits of the stored hold_end_pct (rise) and soft_end_pct (double tap): an older record (0)
+ * gives all on, and the slow zones it holds are kept. */
+static void test_switch_options_dp_masked_and_saved_in_the_zone_bytes(void) {
     power_up(1);
     CHECK(c1()->dark_hold_off == 0 && dimmer_channel(1)->dark_hold_off == 0);
+    CHECK(c1()->double_off == 0 && dimmer_channel(1)->double_off == 0);
     host_write(154, TUYA_DP_TYPE_VALUE, 33);                         /* hold_slow_zone ch 1 */
-    host_write(181, TUYA_DP_TYPE_VALUE, 0);
+    host_write(152, TUYA_DP_TYPE_VALUE, 21);                         /* fade_off_slow_zone ch 1 */
+    host_write(180, TUYA_DP_TYPE_VALUE, 0x0202);                     /* ch 2: no rise */
     CHECK(c1()->dark_hold_off == 0 && dimmer_channel(1)->dark_hold_off == 1);
-    CHECK(!dimmer_write_dp(180, TUYA_DP_TYPE_VALUE, (const uint8_t *)"\0\0\0\x02", 4));
-    CHECK(c1()->dark_hold_off == 0);
+    host_write(180, TUYA_DP_TYPE_VALUE, 0x0404);                     /* ch 1: no double tap */
+    CHECK(c1()->double_off == 1 && dimmer_channel(1)->dark_hold_off == 1);   /* the other kept */
+    host_write(180, TUYA_DP_TYPE_VALUE, 0x0000);                     /* no mask: nothing */
+    CHECK(c1()->double_off == 1 && dimmer_channel(1)->dark_hold_off == 1);
+    CHECK(!dimmer_write_dp(180, TUYA_DP_TYPE_VALUE, (const uint8_t *)"\0\x01\0\0", 4));   /* > 0x0F0F */
     host_log_clear();
     dimmer_report_all();
-    CHECK(host_log_find("180=1") >= 0 && host_log_find("181=0") >= 0);
+    CHECK(host_log_find("180=6") >= 0);                              /* bits 1 and 2 */
     run_ms(3000);
     host_saved_t s;
     memcpy(&s, g_host_flash, sizeof(s));
-    CHECK(s.pf[0].hold_end_pct == 34 && s.pf[1].hold_end_pct == (uint8_t)(0x80 | (dimmer_channel(1)->hold_end_pct + 1)));
+    CHECK(s.pf[0].hold_end_pct == 34 && s.pf[0].soft_end_pct == (0x80 | 22));
+    CHECK(s.pf[1].hold_end_pct == (uint8_t)(0x80 | (dimmer_channel(1)->hold_end_pct + 1)));
     power_up(0);
-    CHECK(c1()->dark_hold_off == 0 && dimmer_channel(1)->dark_hold_off == 1);
-    CHECK(c1()->hold_end_pct == 33);
-    host_write(181, TUYA_DP_TYPE_VALUE, 1);
+    CHECK(c1()->double_off == 1 && c1()->dark_hold_off == 0 && dimmer_channel(1)->dark_hold_off == 1);
+    CHECK(c1()->hold_end_pct == 33 && c1()->soft_end_pct == 21);
+    host_write(180, TUYA_DP_TYPE_VALUE, 0x0F00);                     /* all on again */
     run_ms(3000);
     power_up(0);
-    CHECK(dimmer_channel(1)->dark_hold_off == 0);
+    CHECK(c1()->double_off == 0 && dimmer_channel(1)->dark_hold_off == 0);
 }
 
 static void test_custom_curve_dps_saved_and_the_curve_id(void) {
@@ -1123,7 +1130,7 @@ int main(void) {
     RUN(test_restore_needs_valid_words);
     RUN(test_restore_keeps_min_max);
     RUN(test_dp_on_during_hold_from_dark);
-    RUN(test_dark_hold_dp_saved_in_the_hold_zone_byte);
+    RUN(test_switch_options_dp_masked_and_saved_in_the_zone_bytes);
     RUN(test_dp_off_ends_hold);
     RUN(test_local_off_ends_hold);
     RUN(test_button_off_and_on_during_hold);

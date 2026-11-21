@@ -548,14 +548,14 @@ static void test_tap_from_dark_fastest_hold(void) {
     CHECK(c1()->on == 1 && c1()->level == 600 && g_host_fader[0].current == 600);
 }
 
-/* DP 180 = 0: a long press from off does not rise from the min: the light comes on at its
+/* DP 180 bit 0 set: a long press from off does not rise from the min: the light comes on at its
  * level as for a tap, and from the hold time on the hold goes on from there (the lit rule: from
  * the top half it goes down). With 1 (the default) the hold from dark rises from the min. */
 static void test_long_press_from_off_without_the_rise(void) {
     power_up(1);
     host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, MOMENTARY);
     host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 800);
-    host_write(180, TUYA_DP_TYPE_VALUE, 0);
+    host_write(180, TUYA_DP_TYPE_VALUE, 0x0101);
     CHECK(c1()->dark_hold_off == 1);
     run_ms(3000);
     s1(1);
@@ -578,8 +578,8 @@ static void test_long_press_from_off_without_the_rise(void) {
     s1(0);
     run_ms(2000);
     CHECK(c1()->on == 1 && g_host_fader[0].current == lv);
-    /* back on (1): the rise from the min */
-    host_write(180, TUYA_DP_TYPE_VALUE, 1);
+    /* back on (bit 0 clear): the rise from the min */
+    host_write(180, TUYA_DP_TYPE_VALUE, 0x0100);
     s1(1);
     run_ms(100);
     s1(0);
@@ -590,6 +590,75 @@ static void test_long_press_from_off_without_the_rise(void) {
     CHECK(dimmer_holding(0) && g_host_fader[0].hold_dir == 1 && g_host_fader[0].current == c1()->min);
     s1(0);
     run_ms(200);
+}
+
+/* A double tap (two taps, the second begun within GESTURE_GAP_MS of the first's release) takes
+ * the light to its max, from off and from on; a tap and a hold still dim; a third tap is a plain
+ * one; DP 180 bit 2 turns it off (the old toggles). */
+static void tap(void) {
+    s1(1);
+    run_ms(100);
+    s1(0);
+}
+
+static void test_double_tap_takes_the_light_to_full(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, MOMENTARY);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 500);
+    run_ms(3000);
+    tap();                                         /* from off */
+    run_ms(150);
+    tap();
+    run_ms(2000);
+    CHECK(c1()->on == 1 && c1()->level == c1()->max && g_host_fader[0].current == c1()->max);
+    tap();                                         /* a single: off */
+    run_ms(2000);
+    CHECK(c1()->on == 0);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);      /* from on, at a level */
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 400);
+    run_ms(3000);
+    tap();
+    run_ms(150);
+    tap();
+    run_ms(2000);
+    CHECK(c1()->on == 1 && g_host_fader[0].current == c1()->max);
+    /* a triple from off: full, then the third tap off */
+    tap();
+    run_ms(2000);
+    CHECK(c1()->on == 0);
+    tap();
+    run_ms(150);
+    tap();
+    run_ms(150);
+    tap();
+    run_ms(2000);
+    CHECK(c1()->on == 0);
+}
+
+static void test_a_tap_and_a_hold_still_dim(void) {
+    momentary_lit_at(600);
+    tap();                                         /* off */
+    run_ms(150);
+    s1(1);                                         /* within the gap, held: a hold from dark */
+    run_ms(400 + 700 + 200);
+    /* a hold from dark (from where the fade-off had got to), rising: no jump to full */
+    CHECK(dimmer_holding(0) && g_host_fader[0].hold_dir == 1 && g_host_fader[0].current < c1()->max - 200);
+    s1(0);
+    run_ms(1000);
+    CHECK(c1()->on == 1 && c1()->level < c1()->max - 200);
+}
+
+static void test_double_tap_off_keeps_the_toggles(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, MOMENTARY);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 500);
+    host_write(180, TUYA_DP_TYPE_VALUE, 0x0404);
+    run_ms(3000);
+    tap();
+    run_ms(150);
+    tap();                                         /* on, then off */
+    run_ms(2000);
+    CHECK(c1()->on == 0 && c1()->level == 500);
 }
 
 /* ---- a hold's level on the way ------------------------------------------------ */
@@ -845,6 +914,9 @@ int main(void) {
     RUN(test_hold_reports_its_level_on_the_way);
     RUN(test_hold_from_dark_reports_from_its_hold_time);
     RUN(test_long_press_from_off_without_the_rise);
+    RUN(test_double_tap_takes_the_light_to_full);
+    RUN(test_a_tap_and_a_hold_still_dim);
+    RUN(test_double_tap_off_keeps_the_toggles);
     RUN(test_detached_momentary_reports_gestures_and_leaves_the_light);
     RUN(test_detached_toggle_reports_each_change_as_a_single);
     RUN(test_input_off_ignores_the_switch_and_the_mode_is_saved);

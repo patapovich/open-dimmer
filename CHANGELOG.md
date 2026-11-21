@@ -32,9 +32,12 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
   keep it as long.
 - A long press from off waits at the minimum for 0.7 s before it rises, so letting go just after
   the switch's hold time leaves the light at its lowest; before, it had already risen by then.
-- A new setting per channel (DPs 180/181, on by default): whether a long press from off rises
-  from the minimum. Off: the light comes on at its level as for a tap, and the hold goes on
-  from there.
+- A double tap of a momentary wall switch (normal mode) takes the light to its maximum, from
+  off and from on. It is decided at the second tap's release, so a tap followed by a hold still
+  dims as before, and a third tap is a plain one again.
+- Two new settings per channel (DP 180, a bit field of both channels, all on by default):
+  whether a long press from off rises from the minimum (off: the light comes on at its level as
+  for a tap, and the hold goes on from there), and whether a double tap takes the light to full.
 - With lamp compensation, a dim-down from a low level (or a hold down at the minimum) reaches
   the same lowest light as one from above; before, it took a visit up first. Switched on at the
   minimum, the light stays where it starts.

@@ -18,8 +18,11 @@
 #define DP_EXTRA_BASE    162   /* + 2 * k + channel, k: 0 switch mode, 1 power-cut level, */
 #define DP_EXTRA_END     174   /* 2 identify s, 3 start boost ms, 4 fast press, 5 lamp compensation */
 #define DP_CUSTOM_BASE   174   /* + 3 * channel + part: the custom curve's points 0-5, 6-11, 12-16 */
-#define DP_DARK_HOLD_BASE 180  /* + channel: 1 a long press from off rises from the min (the
-                                  default), 0 it comes on at its level (ours, saved) */
+#define DP_SWITCH_OPTS   180   /* both channels' wall switch options, bits set = off (0, the
+                                  default: all on): bit 0 / 1 a long press from off does not rise
+                                  from the min (channel 1 / 2), bit 2 / 3 a double tap does not
+                                  take the light to full. Written as mask << 8 | bits: only the
+                                  bits in the mask change (ours, saved; one DP: the start burst) */
 #define DP_CUSTOM_END    180   /* (raw, 6 little-endian u16, the last part's sixth: none; saved,
                                   in the dump, a write answered with the part as kept) */
 enum { EX_INPUT, EX_POWER_LEVEL, EX_IDENTIFY, EX_BOOST, EX_FAST_PRESS, EX_COMP };
@@ -147,7 +150,7 @@ static void snapshot(saved_t *s) {
         s->pf[i].fade_on_ms   = (uint16_t)(g_ch[i].fade_on_ms + 1u);
         s->pf[i].fade_off_ms  = (uint16_t)(g_ch[i].fade_off_ms + 1u);
         s->pf[i].hold_ms      = (uint16_t)(g_ch[i].hold_ms + 1u);
-        s->pf[i].soft_end_pct = (uint8_t)(g_ch[i].soft_end_pct + 1u);
+        s->pf[i].soft_end_pct = (uint8_t)((g_ch[i].soft_end_pct + 1u) | g_ch[i].double_off << 7);
         s->pf[i].hold_end_pct = (uint8_t)((g_ch[i].hold_end_pct + 1u) | g_ch[i].dark_hold_off << 7);
         s->reserved[0] |= (uint8_t)(g_ch[i].input_mode << (2 * i) | g_ch[i].fast_press << (4 + i));
         s->reserved[1] |= (uint8_t)(g_ch[i].boost50 << (4 * i));
@@ -258,6 +261,8 @@ uint8_t dimmer_init(uint32_t reset_csr) {
                 if (s.pf[i].hold_ms && s.pf[i].hold_ms <= DIM_PROFILE_MS_MAX + 1u) {
                     g_ch[i].hold_ms = (uint16_t)(s.pf[i].hold_ms - 1u);
                 }
+                g_ch[i].double_off = (uint8_t)(s.pf[i].soft_end_pct >> 7);        /* 2.2.8 */
+                s.pf[i].soft_end_pct &= 0x7Fu;
                 if (s.pf[i].soft_end_pct && s.pf[i].soft_end_pct <= 101u) {
                     g_ch[i].soft_end_pct = (uint8_t)(s.pf[i].soft_end_pct - 1u);
                 }
@@ -531,12 +536,19 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         mark_dirty();
         return 1;
     }
-    if (dpid >= DP_DARK_HOLD_BASE && dpid < DP_DARK_HOLD_BASE + DIMMER_CHANNELS) {
+    if (dpid == DP_SWITCH_OPTS) {
         uint32_t v = be32(value);
-        if (type != TUYA_DP_TYPE_VALUE || len != 4 || v > 1u) {
+        if (type != TUYA_DP_TYPE_VALUE || len != 4 || v > 0x0F0Fu) {
             return 0;
         }
-        g_ch[dpid - DP_DARK_HOLD_BASE].dark_hold_off = (uint8_t)!v;
+        for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
+            if (v >> 8 & (1u << i)) {
+                g_ch[i].dark_hold_off = (uint8_t)(v >> i & 1u);
+            }
+            if (v >> 8 & (4u << i)) {
+                g_ch[i].double_off = (uint8_t)(v >> (2 + i) & 1u);
+            }
+        }
         mark_dirty();
         return 1;
     }
@@ -702,8 +714,9 @@ void dimmer_report_dp(uint8_t dpid) {
         tuya_report_enum(dpid, g_power_on[dpid - DP_POWER_ON_BASE]);
         return;
     }
-    if (dpid >= DP_DARK_HOLD_BASE && dpid < DP_DARK_HOLD_BASE + DIMMER_CHANNELS) {
-        tuya_report_value(dpid, !g_ch[dpid - DP_DARK_HOLD_BASE].dark_hold_off);
+    if (dpid == DP_SWITCH_OPTS) {
+        tuya_report_value(dpid, (uint32_t)(g_ch[0].dark_hold_off | g_ch[1].dark_hold_off << 1 |
+                                           g_ch[0].double_off << 2 | g_ch[1].double_off << 3));
         return;
     }
     if (dpid >= DP_CUSTOM_BASE && dpid < DP_CUSTOM_END) {       /* the part's points, as kept */
@@ -758,6 +771,21 @@ void dimmer_local_set(uint8_t ch, uint8_t on) {
     apply_local(ch);
     mark_dirty();
     report_local(ch, 0, had_countdown && !g_ch[ch].on);
+}
+
+void dimmer_local_full(uint8_t ch) {
+    if (ch >= DIMMER_CHANNELS) {
+        return;
+    }
+    if (g_holding[ch]) {              /* the second press came from dark: its rise ends */
+        g_holding[ch] = 0;
+        phase_hold_cancel(ch);
+    }
+    g_ch[ch].on    = 1;
+    g_ch[ch].level = g_ch[ch].max;
+    apply_local(ch);
+    mark_dirty();
+    report_local(ch, 0, 0);
 }
 
 void dimmer_local_toggle_all(void) {
@@ -888,7 +916,8 @@ void dimmer_hold_cancel(uint8_t ch) {
     apply_local(ch);                /* target: the level it has, or dark if switched off meanwhile */
 }
 
-void dimmer_report_all(void) {
+/* In the hidden flash with HIDDEN=1 (py32f002a_app.ld .text_hidden): a dump is rare. */
+__attribute__((section(".text.hidden.dimmer_report_all"), noinline)) void dimmer_report_all(void) {
     /* DP 14 first, each channel's power-on (103 / 104) after it, so a module
      * that sets both channels from DP 14 ends with each channel's own value.
      * A module that has not identified us yet (0xA3) takes DP 14 only: the
@@ -896,6 +925,7 @@ void dimmer_report_all(void) {
      * reads the whole dump again once it knows us. */
     tuya_report_begin(1);
     dimmer_report_dp(DP_POWER_ON);
+    dimmer_report_dp(DP_SWITCH_OPTS);
     tuya_report_send();
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
         tuya_report_begin(1);
@@ -917,7 +947,6 @@ void dimmer_report_all(void) {
         for (uint8_t k = 0; k < 3; k++) {
             dimmer_report_dp((uint8_t)(DP_CUSTOM_BASE + 3 * ch + k));     /* the custom curve */
         }
-        dimmer_report_dp((uint8_t)(DP_DARK_HOLD_BASE + ch));
         tuya_report_send();
     }
 }
