@@ -5,6 +5,10 @@
 #include "gesture_core.h"
 #include "tuya.h"
 #include "py32f0xx_ll_utils.h"
+#include "dim_core.h"
+
+_Static_assert(DIM_HOLD_DARK_WAIT_MS >= INPUT_HOLD_MS + 200u,
+               "a hold from dark waits at the min past the hold time, so it can be let go there");
 
 #define IN_S1             0
 #define IN_S2             1
@@ -175,7 +179,9 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
             break;
         case INPUT_EV_HOLD:
             if (!g_turned_on_by_press[ch]) {
-                dimmer_hold_begin(ch, 0, 0);    /* from dark the rise is already running */
+                dimmer_hold_begin(ch, 0, 0);
+            } else if (!dimmer_holding(ch)) {   /* from dark the rise is already running, unless */
+                dimmer_hold_begin(ch, 0, 2);    /* the channel has it off: a hold from its level */
             } else {
                 dimmer_hold_reports(ch);
             }

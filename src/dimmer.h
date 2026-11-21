@@ -79,7 +79,15 @@ typedef struct {
     uint8_t  fast_press;     /* DP 170 / 171: detached momentary: a press reported at once (6) */
     uint8_t  comp4;          /* DP 172 / 173: lamp compensation at the min, / 4 (0..63, 0: none;
                                 saved in the top bits of the level) */
+    uint8_t  dark_hold_off;  /* DP 180 / 181 (as 1 - value): a long press from off does not rise
+                                from the min; the light comes on at its level and the hold goes
+                                on from there (saved in the top bit of hold_end_pct) */
 } dimmer_channel_t;
+
+/* 1: channel ch has a hold running (controls.c: a long press from off without the rise). */
+uint8_t dimmer_holding(uint8_t ch);
+/* dimmer_hold_begin's from_dark: 0 a lit hold, 1 a hold from dark (the rise from the min, unless
+ * the channel has it off: then nothing), 2 the hold of a long press from off without the rise. */
 
 #define DIMMER_INPUT_NORMAL    0
 #define DIMMER_INPUT_DETACHED  1

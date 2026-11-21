@@ -30,6 +30,14 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
   jump at the end of a hold from dark's slow start. The slow part is a little shorter for the same
   setting (about 1.7x the full rate's time across the zone, was 2.2x): raise the zone a little to
   keep it as long.
+- A long press from off waits at the minimum for 0.7 s before it rises, so letting go just after
+  the switch's hold time leaves the light at its lowest; before, it had already risen by then.
+- A new setting per channel (DPs 180/181, on by default): whether a long press from off rises
+  from the minimum. Off: the light comes on at its level as for a tap, and the hold goes on
+  from there.
+- With lamp compensation, a dim-down from a low level (or a hold down at the minimum) reaches
+  the same lowest light as one from above; before, it took a visit up first. Switched on at the
+  minimum, the light stays where it starts.
 - With the custom curve a wall switch hold of the lit light keeps its rate down to the minimum:
   the curve is already even, so `hold_slow_zone` only gives a hold from dark its slow start.
 - A downgrade to an older release keeps every setting except a channel's saved level when its

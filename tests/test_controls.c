@@ -548,6 +548,50 @@ static void test_tap_from_dark_fastest_hold(void) {
     CHECK(c1()->on == 1 && c1()->level == 600 && g_host_fader[0].current == 600);
 }
 
+/* DP 180 = 0: a long press from off does not rise from the min: the light comes on at its
+ * level as for a tap, and from the hold time on the hold goes on from there (the lit rule: from
+ * the top half it goes down). With 1 (the default) the hold from dark rises from the min. */
+static void test_long_press_from_off_without_the_rise(void) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, MOMENTARY);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 800);
+    host_write(180, TUYA_DP_TYPE_VALUE, 0);
+    CHECK(c1()->dark_hold_off == 1);
+    run_ms(3000);
+    s1(1);
+    run_ms(300);
+    CHECK(c1()->on == 1 && !dimmer_holding(0) && g_host_fader[0].target == 800);   /* on to 800 */
+    run_ms(100 + 300);                             /* the hold time, then 0.3 s of a hold */
+    CHECK(dimmer_holding(0) && g_host_fader[0].hold_dir == -1);   /* 800 is in the top half: down */
+    s1(0);
+    run_ms(500);
+    CHECK(c1()->on == 1 && c1()->level < 800 && c1()->level == g_host_fader[0].current);
+    /* a tap from off: on to its level as before */
+    s1(1);
+    run_ms(100);
+    s1(0);
+    run_ms(1500);
+    CHECK(c1()->on == 0);
+    uint16_t lv = c1()->level;
+    s1(1);
+    run_ms(100);
+    s1(0);
+    run_ms(2000);
+    CHECK(c1()->on == 1 && g_host_fader[0].current == lv);
+    /* back on (1): the rise from the min */
+    host_write(180, TUYA_DP_TYPE_VALUE, 1);
+    s1(1);
+    run_ms(100);
+    s1(0);
+    run_ms(1500);
+    CHECK(c1()->on == 0);
+    s1(1);
+    run_ms(200);
+    CHECK(dimmer_holding(0) && g_host_fader[0].hold_dir == 1 && g_host_fader[0].current == c1()->min);
+    s1(0);
+    run_ms(200);
+}
+
 /* ---- a hold's level on the way ------------------------------------------------ */
 
 /* The level-only reports (A[2=v]) in the log from that point on, at most max. */
@@ -800,6 +844,7 @@ int main(void) {
     RUN(test_tap_from_dark_fastest_hold);
     RUN(test_hold_reports_its_level_on_the_way);
     RUN(test_hold_from_dark_reports_from_its_hold_time);
+    RUN(test_long_press_from_off_without_the_rise);
     RUN(test_detached_momentary_reports_gestures_and_leaves_the_light);
     RUN(test_detached_toggle_reports_each_change_as_a_single);
     RUN(test_input_off_ignores_the_switch_and_the_mode_is_saved);

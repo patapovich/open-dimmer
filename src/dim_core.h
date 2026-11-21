@@ -61,6 +61,9 @@
 #define DIM_Q_PER_STEP         64     /* rates are in 1/64 steps per 10 ms             */
 #define DIM_HOLD_BOTTOM_Q      32     /* ... to 1/2 step per 10 ms at the min          */
 #define DIM_OFF_HOLD_MS        80     /* at the min before going dark                  */
+/* A hold from dark stays at the min this long before it rises: past the switch's hold time
+ * (INPUT_HOLD_MS, 400) and a moment more, so a hold let go then leaves the light at its min. */
+#define DIM_HOLD_DARK_WAIT_MS  700
 #define DIM_HALF_PERIOD_50HZ   500    /* 20 us ticks: the rates are per 10 ms half cycle */
 #define DIM_HOLD_RATE          3      /* full hold rate per 10 ms at 3300 ms           */
 #define DIM_PROFILE_MS_MAX     10000  /* longest fade / hold time a user can set       */
@@ -105,6 +108,7 @@ typedef struct {
     uint32_t      timed_left;
     uint32_t      timed_total;
     uint32_t      boost_left;  /* 20 us ticks of a start boost still to go (at full, then the target) */
+    uint16_t      hold_wait;   /* 20 us ticks a hold from dark still stays at the min */
     dim_profile_t prof;
 } dim_fader_t;
 

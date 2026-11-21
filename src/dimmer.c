@@ -18,6 +18,8 @@
 #define DP_EXTRA_BASE    162   /* + 2 * k + channel, k: 0 switch mode, 1 power-cut level, */
 #define DP_EXTRA_END     174   /* 2 identify s, 3 start boost ms, 4 fast press, 5 lamp compensation */
 #define DP_CUSTOM_BASE   174   /* + 3 * channel + part: the custom curve's points 0-5, 6-11, 12-16 */
+#define DP_DARK_HOLD_BASE 180  /* + channel: 1 a long press from off rises from the min (the
+                                  default), 0 it comes on at its level (ours, saved) */
 #define DP_CUSTOM_END    180   /* (raw, 6 little-endian u16, the last part's sixth: none; saved,
                                   in the dump, a write answered with the part as kept) */
 enum { EX_INPUT, EX_POWER_LEVEL, EX_IDENTIFY, EX_BOOST, EX_FAST_PRESS, EX_COMP };
@@ -146,7 +148,7 @@ static void snapshot(saved_t *s) {
         s->pf[i].fade_off_ms  = (uint16_t)(g_ch[i].fade_off_ms + 1u);
         s->pf[i].hold_ms      = (uint16_t)(g_ch[i].hold_ms + 1u);
         s->pf[i].soft_end_pct = (uint8_t)(g_ch[i].soft_end_pct + 1u);
-        s->pf[i].hold_end_pct = (uint8_t)(g_ch[i].hold_end_pct + 1u);
+        s->pf[i].hold_end_pct = (uint8_t)((g_ch[i].hold_end_pct + 1u) | g_ch[i].dark_hold_off << 7);
         s->reserved[0] |= (uint8_t)(g_ch[i].input_mode << (2 * i) | g_ch[i].fast_press << (4 + i));
         s->reserved[1] |= (uint8_t)(g_ch[i].boost50 << (4 * i));
         s->reserved[2 + i] = g_ch[i].power_level4;
@@ -259,6 +261,8 @@ uint8_t dimmer_init(uint32_t reset_csr) {
                 if (s.pf[i].soft_end_pct && s.pf[i].soft_end_pct <= 101u) {
                     g_ch[i].soft_end_pct = (uint8_t)(s.pf[i].soft_end_pct - 1u);
                 }
+                g_ch[i].dark_hold_off = (uint8_t)(s.pf[i].hold_end_pct >> 7);   /* 2.2.8 */
+                s.pf[i].hold_end_pct &= 0x7Fu;
                 if (s.pf[i].hold_end_pct && s.pf[i].hold_end_pct <= 101u) {
                     g_ch[i].hold_end_pct = (uint8_t)(s.pf[i].hold_end_pct - 1u);
                 }
@@ -527,6 +531,15 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         mark_dirty();
         return 1;
     }
+    if (dpid >= DP_DARK_HOLD_BASE && dpid < DP_DARK_HOLD_BASE + DIMMER_CHANNELS) {
+        uint32_t v = be32(value);
+        if (type != TUYA_DP_TYPE_VALUE || len != 4 || v > 1u) {
+            return 0;
+        }
+        g_ch[dpid - DP_DARK_HOLD_BASE].dark_hold_off = (uint8_t)!v;
+        mark_dirty();
+        return 1;
+    }
     if (dpid >= DP_CUSTOM_BASE && dpid < DP_CUSTOM_END) {
         uint8_t k = (uint8_t)(dpid - DP_CUSTOM_BASE);
         if (type != TUYA_DP_TYPE_RAW || len != 12) {
@@ -689,6 +702,10 @@ void dimmer_report_dp(uint8_t dpid) {
         tuya_report_enum(dpid, g_power_on[dpid - DP_POWER_ON_BASE]);
         return;
     }
+    if (dpid >= DP_DARK_HOLD_BASE && dpid < DP_DARK_HOLD_BASE + DIMMER_CHANNELS) {
+        tuya_report_value(dpid, !g_ch[dpid - DP_DARK_HOLD_BASE].dark_hold_off);
+        return;
+    }
     if (dpid >= DP_CUSTOM_BASE && dpid < DP_CUSTOM_END) {       /* the part's points, as kept */
         uint8_t k = (uint8_t)(dpid - DP_CUSTOM_BASE);
         tuya_report_raw(dpid, dim_custom_raw((uint8_t)(k / 3)) + 12u * (k % 3), 12);
@@ -794,11 +811,14 @@ static void learn_verdict(uint8_t ch, uint8_t turned_round) {
 }
 
 void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark) {
-    if (ch >= DIMMER_CHANNELS || !g_ch[ch].on) {
-        return;
+    if (ch >= DIMMER_CHANNELS || !g_ch[ch].on || (from_dark == 1 && g_ch[ch].dark_hold_off)) {
+        return;                       /* (no rise from the min: on at its level, a hold later) */
     }
     dimmer_channel_t *c   = &g_ch[ch];
-    uint16_t          now = phase_current(ch);
+    /* 2: a long press from off without the rise: the light may still be fading on, so its way
+     * is picked by the level it comes on to */
+    uint16_t          now = from_dark == 2 ? c->level : phase_current(ch);
+    from_dark             = from_dark == 1;
     uint8_t           seq = g_lrn_t1[ch] && g_now - g_lrn_t1[ch] <= HOLD_SEQ_MS;
 
     learn_verdict(ch, seq);
@@ -827,6 +847,10 @@ void dimmer_hold_begin(uint8_t ch, int8_t dir, uint8_t from_dark) {
     if (!from_dark) {
         dimmer_hold_reports(ch);
     }
+}
+
+uint8_t dimmer_holding(uint8_t ch) {
+    return ch < DIMMER_CHANNELS && g_holding[ch];
 }
 
 void dimmer_hold_reports(uint8_t ch) {
@@ -893,6 +917,7 @@ void dimmer_report_all(void) {
         for (uint8_t k = 0; k < 3; k++) {
             dimmer_report_dp((uint8_t)(DP_CUSTOM_BASE + 3 * ch + k));     /* the custom curve */
         }
+        dimmer_report_dp((uint8_t)(DP_DARK_HOLD_BASE + ch));
         tuya_report_send();
     }
 }

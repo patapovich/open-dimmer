@@ -54,6 +54,11 @@ static uint32_t          g_peak16[2];     /* the highest duty since the light ca
                                             follows a rise in about 1.3 s (128 half cycles), from 0 when
                                             it comes on: a moment's rise (an on to the last level, then
                                             the network's level) does not warm the lamp up */
+static uint16_t          g_last_d[2];     /* the duty of the last half cycle */
+static uint8_t           g_down[2];       /* moved down (or a hold down began) since it came on: the
+                                            peak counts as at least DIM_COMP_FALL above the min, so a
+                                            dim-down from a low level reaches the same lowest light
+                                            as one from above; an on at the min stays at it */
 static zc_tracker_t      g_zc;
 static volatile uint16_t g_last_zc;
 
@@ -83,10 +88,19 @@ static uint16_t channel_compare(uint8_t ch, uint16_t hp) {
     dim_custom_ch = ch;                 /* a custom curve: this channel's table */
     uint16_t d  = dim_output(g_curve[ch], v, lo, hi);
     uint32_t p  = g_peak16[ch];
+    uint32_t w  = d;                    /* where the peak heads (it only rises) */
+    if (d < g_last_d[ch]) {
+        g_down[ch] = 1;
+    }
+    g_last_d[ch] = d;
+    if (g_down[ch] && w < lo * 10u + DIM_COMP_FALL) {
+        w = lo * 10u + DIM_COMP_FALL;
+    }
     if (!v) {
         p = 0;                          /* dark resets it: the lamp starts cold */
-    } else if ((uint32_t)d * 16u > p) {
-        p += ((uint32_t)d * 16u - p + 127u) / 128u;
+        g_down[ch] = 0;
+    } else if (w * 16u > p) {
+        p += (w * 16u - p + 127u) / 128u;
     }
     g_peak16[ch] = p;
     /* value 4 = duty 40; the min's duty is min * 10 whatever the curve */
@@ -109,6 +123,7 @@ static void zero_cross(uint16_t now) {
         g_fader[0].current = 0;
         g_fader[1].current = 0;
         g_peak16[0] = g_peak16[1] = 0;  /* dark for a moment: the lamp starts cold */
+        g_down[0] = g_down[1] = 0;
         g_phase_dbg.lock_losses++;
     }
     if (!accepted) {
@@ -306,6 +321,9 @@ void phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi, uint8_t 
         dim_fader_hold_start_from_dark(&g_fader[ch], lo, hi);
     } else {
         dim_fader_hold_start(&g_fader[ch], dir, lo, hi);
+        if (dir < 0) {
+            g_down[ch] = 1;             /* also a hold down at the min: on to the lowest light */
+        }
         /* the custom curve is even: a hold of the lit light keeps its rate to the min (the slow
          * zone is for a hold from dark only) */
         if (g_curve[ch] == CURVE_CUSTOM) {

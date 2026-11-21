@@ -1022,6 +1022,33 @@ static void test_lamp_compensation_dp_is_saved_in_the_top_bits_of_the_level(void
     CHECK(c1()->comp4 == 0 && dimmer_channel(1)->comp4 == 0 && c1()->fade_on_ms == 1500);
 }
 
+/* DP 180 / 181: whether a long press from off rises from the min (1, the default) or the light
+ * comes on at its level (0). Saved in the top bit of the stored hold_end_pct: an older record
+ * (bit 0) gives 1, and the slow zone it holds is kept. */
+static void test_dark_hold_dp_saved_in_the_hold_zone_byte(void) {
+    power_up(1);
+    CHECK(c1()->dark_hold_off == 0 && dimmer_channel(1)->dark_hold_off == 0);
+    host_write(154, TUYA_DP_TYPE_VALUE, 33);                         /* hold_slow_zone ch 1 */
+    host_write(181, TUYA_DP_TYPE_VALUE, 0);
+    CHECK(c1()->dark_hold_off == 0 && dimmer_channel(1)->dark_hold_off == 1);
+    CHECK(!dimmer_write_dp(180, TUYA_DP_TYPE_VALUE, (const uint8_t *)"\0\0\0\x02", 4));
+    CHECK(c1()->dark_hold_off == 0);
+    host_log_clear();
+    dimmer_report_all();
+    CHECK(host_log_find("180=1") >= 0 && host_log_find("181=0") >= 0);
+    run_ms(3000);
+    host_saved_t s;
+    memcpy(&s, g_host_flash, sizeof(s));
+    CHECK(s.pf[0].hold_end_pct == 34 && s.pf[1].hold_end_pct == (uint8_t)(0x80 | (dimmer_channel(1)->hold_end_pct + 1)));
+    power_up(0);
+    CHECK(c1()->dark_hold_off == 0 && dimmer_channel(1)->dark_hold_off == 1);
+    CHECK(c1()->hold_end_pct == 33);
+    host_write(181, TUYA_DP_TYPE_VALUE, 1);
+    run_ms(3000);
+    power_up(0);
+    CHECK(dimmer_channel(1)->dark_hold_off == 0);
+}
+
 static void test_custom_curve_dps_saved_and_the_curve_id(void) {
     power_up(1);
     static const uint16_t t[18] = { 0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200, 4000,
@@ -1096,6 +1123,7 @@ int main(void) {
     RUN(test_restore_needs_valid_words);
     RUN(test_restore_keeps_min_max);
     RUN(test_dp_on_during_hold_from_dark);
+    RUN(test_dark_hold_dp_saved_in_the_hold_zone_byte);
     RUN(test_dp_off_ends_hold);
     RUN(test_local_off_ends_hold);
     RUN(test_button_off_and_on_during_hold);

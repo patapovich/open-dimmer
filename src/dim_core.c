@@ -43,6 +43,7 @@ void dim_fader_init(dim_fader_t *f) {
     f->hold_fine  = 0;
     f->timed_left = 0;
     f->boost_left = 0;
+    f->hold_wait  = 0;
     dim_profile_default(&f->prof);
 }
 
@@ -123,6 +124,7 @@ void dim_fader_hold_start(dim_fader_t *f, int8_t dir, uint16_t lo, uint16_t hi) 
     f->hold_fine  = dir < 0;        /* going down towards the min: fine there */
     f->timed_left = 0;
     f->boost_left = 0;              /* a hold picks its level from where the light is */
+    f->hold_wait  = 0;
 }
 
 void dim_fader_hold_start_from_dark(dim_fader_t *f, uint16_t lo, uint16_t hi) {
@@ -130,6 +132,7 @@ void dim_fader_hold_start_from_dark(dim_fader_t *f, uint16_t lo, uint16_t hi) {
     dim_fader_hold_start(f, +1, lo, hi);
     f->hold_fine  = 1;
     f->boost_left = boost;
+    f->hold_wait  = (uint16_t)(DIM_HOLD_DARK_WAIT_MS * 50u);   /* 50 ticks = 1 ms */
 }
 
 uint16_t dim_fader_hold_stop(dim_fader_t *f) {
@@ -177,6 +180,11 @@ static uint16_t hold_tick(dim_fader_t *f) {
         cur = f->hold_lo;                   /* coming up from dark: start at min */
     } else if (f->hold_dir < 0 && cur > f->hold_hi) {
         cur = f->hold_hi;
+    }
+    if (f->hold_wait) {                     /* a hold from dark: at the min a moment first */
+        f->hold_wait = f->hold_wait > f->half_period ? (uint16_t)(f->hold_wait - f->half_period) : 0;
+        f->current   = f->target = cur;
+        return cur;
     }
     uint16_t d    = cur > f->hold_lo ? (uint16_t)(cur - f->hold_lo) : 0;
     uint16_t q    = f->hold_fine ? eased_q(f->prof.hold_q, f->prof.hold_bottom_q, d, f->prof.hold_span)

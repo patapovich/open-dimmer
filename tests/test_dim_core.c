@@ -921,6 +921,11 @@ static void test_hold_from_dark_and_cancel(void) {
     }
     dim_fader_set(&f, 1, 700);
     dim_fader_hold_start_from_dark(&f, 60, 1000);
+    /* first at the min for DIM_HOLD_DARK_WAIT_MS (past the switch's hold time): let go then, it
+     * stays at the min */
+    for (int k = 0; k < DIM_HOLD_DARK_WAIT_MS / 10; k++) {
+        CHECK(dim_fader_tick(&f) == 60);
+    }
     for (int k = 0; k < 40; k++) {
         dim_fader_tick(&f);
     }
@@ -928,6 +933,20 @@ static void test_hold_from_dark_and_cancel(void) {
     CHECK(held > 60 && held < 60 + 40 * DIM_HOLD_RATE);   /* rising slowly from the bottom */
     CHECK(dim_fader_hold_stop(&f) == held);
     CHECK(dim_fader_tick(&f) == held);                    /* stays */
+    /* let go while it waits: the min */
+    dim_fader_set(&f, 0, 700);
+    while (f.current) {
+        dim_fader_tick(&f);
+    }
+    dim_fader_set(&f, 1, 700);
+    dim_fader_hold_start_from_dark(&f, 60, 1000);
+    for (int k = 0; k < (DIM_HOLD_DARK_WAIT_MS - 100) / 10; k++) {
+        dim_fader_tick(&f);
+    }
+    CHECK(dim_fader_hold_stop(&f) == 60);
+    for (int k = 0; k < 100; k++) {
+        CHECK(dim_fader_tick(&f) == 60);
+    }
 }
 
 static void test_fade_profile(void) {
