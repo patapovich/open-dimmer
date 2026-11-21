@@ -13,6 +13,8 @@
 void host_boot_v1(void);
 /** Boot sector of a v2 bootloader with this boot_id (version 2, features, app_max). */
 void host_boot_v2(uint8_t features, uint32_t app_max);
+/* A boot_id of any version (v3: BOOT_FEATURES_V3, BOOT_IMAGE_MAX). */
+void host_boot_id(uint8_t version, uint8_t features, uint32_t app_max);
 /** The boot word pair as a v2 bootloader leaves it: word, ~word. */
 void host_boot_word(uint32_t word);
 /** The boot word if the pair is valid, else 0xFFFFFFFF (never a valid word: tag 0xFF). */

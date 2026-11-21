@@ -89,7 +89,7 @@ enum { GATE_RAW, GATE_P1, GATE_P3 };    /* the ZTU's image check before it serve
  * fails, and only a rescan of the buffered bytes finds it. */
 enum { PREFIX_NONE, PREFIX_BADSUM, PREFIX_LONG };
 
-#define IMG_MAX  0x4000u
+#define IMG_MAX  0x7000u
 #define LED_MAX  8192u
 
 /* Shared by all boots of a scenario (MAP_SHARED): the configuration, the ZTU's state across MCU
@@ -114,6 +114,8 @@ typedef struct {
     long     cut_at_page;            /* power cut at this flash page write (counted over boots) */
     int      cut_after_program;      /* 0: after the erase, 1: after the program */
     long     bad_page;               /* this image page never verifies */
+    long     hidden_bad;             /* n > 0: hidden pages from n - 1 on never verify */
+    uint32_t hidden_writes;          /* page writes into the hidden flash */
     long     flaky_page;             /* this image page fails its first write only */
     int      button;                 /* module button held from power-up */
     uint64_t button_release_ns;      /* released at (0: never) */
@@ -241,11 +243,12 @@ static uint32_t zcrc(uint32_t c, const uint8_t *p, uint32_t n) {
     return ~c;
 }
 
-/* The harness's own image check (the rule of docs/BOOTLOADER.md section 4, "Jump checks"). */
+/* The harness's own image check (the rule of docs/BOOTLOADER.md section 4, "Jump checks"), on
+ * the image's bytes in a row. */
 static int image_ok(const uint8_t *img, uint32_t max) {
     uint32_t size = rd32le(img + 0xC4), sp = rd32le(img), rv = rd32le(img + 4);
     if (rd32le(img + 0xC0) != APP_MAGIC || size < 0xD0 || size > max || (sp >> 20) != 0x200 ||
-        rv < APP_BASE || rv >= APP_BASE + size) {
+        rv < APP_BASE || rv >= APP_BASE + (size < BOOT_APP_MAX ? size : BOOT_APP_MAX)) {
         return 0;
     }
     uint8_t z[4] = { 0 };
@@ -253,6 +256,18 @@ static int image_ok(const uint8_t *img, uint32_t max) {
     c = zcrc(c, z, 4);
     c = zcrc(c, img + 0xCC, size - 0xCC);
     return c == rd32le(img + 0xC8);
+}
+
+/* The installed image's bytes in a row (v3: from BOOT_APP_MAX on at HIDDEN_BASE), and its check. */
+static void installed_bytes(uint8_t *d) {
+    memcpy(d, FLASH_MEM + 0x1000, BOOT_APP_MAX);
+    memcpy(d + BOOT_APP_MAX, FLASH_MEM + (HIDDEN_BASE - BOOT_BASE), HIDDEN_SIZE);
+}
+
+static int installed_ok(uint32_t max) {
+    static uint8_t d[BOOT_IMAGE_MAX];
+    installed_bytes(d);
+    return image_ok(d, max);
 }
 
 /* ---- the wire: ZTU -> MCU ------------------------------------------------------------------- */
@@ -975,7 +990,7 @@ static void finish(int o) {
 void host_set_msp(uint32_t sp) {
     model_sync();
     S->sp_at_jump = sp;
-    S->jump_valid = image_ok(FLASH_MEM + 0x1000, BOOT_APP_MAX);
+    S->jump_valid = installed_ok(BOOT_IMAGE_MAX);
     uint32_t ok = 0;
     ok |= (scb.VTOR == APP_BASE) << 0;
     ok |= (systick_ctrl == 0) << 1;
@@ -1027,14 +1042,19 @@ uint32_t crc32_update(uint32_t crc, const uint8_t *p, uint32_t n) {
     return zcrc(crc, p, n);
 }
 
-/* As src/flash_drv.c, with the range of boot.ld: refuses outside the app area; a page that
- * already holds src is not erased; else ~4.5 ms. Power cuts after the erase or the program. */
+/* As src/flash_drv.c, with the range of boot.ld: refuses outside the app area and the hidden
+ * flash (never the ring between them); a page that already holds src is not erased; else
+ * ~4.5 ms. Power cuts after the erase or the program. hidden_bad: no hidden page programs. */
 uint8_t flash_write_page(uint32_t addr, const uint32_t *src) {
     uint8_t *p = (uint8_t *)(uintptr_t)addr;
     S->flash_calls++;
-    if ((addr & 127u) || addr < APP_BASE || addr + 128u > APP_BASE + BOOT_APP_MAX) {
+    if ((addr & 127u) || addr < APP_BASE || addr + 128u > HIDDEN_BASE + HIDDEN_SIZE ||
+        (addr + 128u > APP_BASE + BOOT_APP_MAX && addr < HIDDEN_BASE)) {
         violation("page write at %08x", addr);
         finish(OUT_BAD);
+    }
+    if (addr >= HIDDEN_BASE) {
+        S->hidden_writes++;
     }
     if (!memcmp(p, src, 128)) {
         return 1;
@@ -1057,10 +1077,11 @@ uint8_t flash_write_page(uint32_t addr, const uint32_t *src) {
     if (k == S->cut_at_page && !S->cut_after_program) {
         cut_now();
     }
-    if (S->bad_page >= 0 && addr == APP_BASE + 128u * (uint32_t)S->bad_page) {
+    if ((S->bad_page >= 0 && addr == IMAGE_ADDR(128u * (uint32_t)S->bad_page)) ||
+        (S->hidden_bad && addr >= HIDDEN_BASE + 128u * (uint32_t)(S->hidden_bad - 1))) {
         return 0;                     /* erased, never programs */
     }
-    if (S->flaky_page >= 0 && addr == APP_BASE + 128u * (uint32_t)S->flaky_page) {
+    if (S->flaky_page >= 0 && addr == IMAGE_ADDR(128u * (uint32_t)S->flaky_page)) {
         S->flaky_page = -1;
         return 0;                     /* erased, not programmed this once */
     }
@@ -1232,9 +1253,14 @@ static uint32_t img_crc(const char *name) {
 }
 
 static void flash_set(const char *name) {
-    memset(FLASH_MEM + 0x1000, 0xFF, 0x3800);
+    memset(FLASH_MEM + 0x1000, 0xFF, BOOT_APP_MAX);
+    memset(FLASH_MEM + (HIDDEN_BASE - BOOT_BASE), 0xFF, HIDDEN_SIZE);
     if (name) {
-        memcpy(FLASH_MEM + 0x1000, img(name)->d, img(name)->n);
+        const img_t *m = img(name);
+        memcpy(FLASH_MEM + 0x1000, m->d, m->n < BOOT_APP_MAX ? m->n : BOOT_APP_MAX);
+        if (m->n > BOOT_APP_MAX) {
+            memcpy(FLASH_MEM + (HIDDEN_BASE - BOOT_BASE), m->d + BOOT_APP_MAX, m->n - BOOT_APP_MAX);
+        }
     }
 }
 
@@ -1243,8 +1269,10 @@ static void flash_erase_app(void) {
 }
 
 static int flash_is(const char *name) {
-    const img_t *m = img(name);
-    return !memcmp(FLASH_MEM + 0x1000, m->d, m->n);
+    const img_t   *m = img(name);
+    static uint8_t d[BOOT_IMAGE_MAX];
+    installed_bytes(d);
+    return !memcmp(d, m->d, m->n);
 }
 
 static unsigned flash_build(void) {
@@ -1716,7 +1744,12 @@ SCENARIO sc_probe(void) {
         { "n300", "max304", 300, 1, 1, "exactly 12 KB over a 12 KB-ring app" },
         { "n300", "over305", 300, 1, 0, "12 KB + 4 over a 12 KB-ring app" },
         { "n303r", "max406r", 300, 1, 1, "exactly 14 KB over a RING_HIGH app" },
-        { "n303r", "over407r", 300, 1, 0, "14 KB + 4 over a RING_HIGH app" },
+        { "n303r", "over407r", 300, 1, 1, "14 KB + 4 over a RING_HIGH app (v3: hidden)" },
+        { "n303r", "hid408r", 300, 1, 1, "18 KB over a RING_HIGH app" },
+        { "n303r", "hmax411r", 300, 1, 1, "exactly 26 KB over a RING_HIGH app" },
+        { "n303r", "hover412r", 300, 1, 0, "26 KB + 4 over a RING_HIGH app" },
+        { "n300", "hid408r", 300, 1, 0, "18 KB over a 12 KB-ring app" },
+        { "hid408r", "hid409r", 300, 1, 1, "18 KB over 18 KB (hidden pages proven)" },
         { "diag305", "n301", 300, 1, 0, "installed DIAG build: no probe" },
         { "measure308", "n301", 300, 1, 0, "installed MEASURE build: no probe" },
         { "sim306", "n301", 300, 1, 0, "installed SIM build: no probe" },
@@ -2609,8 +2642,8 @@ SCENARIO sc_modes(void) {
 }
 
 /* The request frame byte for byte, built as docs/BOOTLOADER.md section 5 builds its example
- * (55 AA 02 00 00 A1 00 10 | 00 00 00 C0 00 10 02 03 <installed header bytes 8..15> | sum), for
- * the installed image of this run. */
+ * (55 AA 02 00 00 A1 00 10 | 00 00 00 C0 00 10 03 03 <installed header bytes 8..15> | sum), for
+ * the installed image of this run (byte 14: the bootloader version, 3 since v3). */
 SCENARIO sc_request_bytes(void) {
     const char *inst[] = { "n300", "v2_1_12", "n303r" };
     for (int k = 0; k < 3; k++) {
@@ -2621,7 +2654,7 @@ SCENARIO sc_request_bytes(void) {
         cold();
         boot_once();
         uint8_t want[OTA_REQ_LEN + 9] = { 0x55, 0xAA, 0x02, 0x00, 0x00, OTA_CMD_BLOCK, 0x00, 0x10,
-                                          0x00, 0x00, 0x00, 0xC0, 0x00, 0x10, 0x02, 0x03 };
+                                          0x00, 0x00, 0x00, 0xC0, 0x00, 0x10, BOOT_VERSION, 0x03 };
         memcpy(want + 16, img(inst[k])->d + 0xC8, 8);
         for (int i = 0; i < 24; i++) {
             want[24] = (uint8_t)(want[24] + want[i]);
@@ -2941,6 +2974,124 @@ SCENARIO sc_ztu_gates(void) {
     }
 }
 
+/* v3 (section 17): an image over 14 KB continues in the hidden flash at 0x08005000, past the
+ * settings ring (boot_once() checks the ring and sector 0 after every boot). */
+SCENARIO sc_hidden(void) {
+    fresh();
+    flash_set("n303r");
+    carry("hid408r");
+    cold();
+    app_ran(1);
+    app_accepts();
+    int o = boot_once();
+    printf("asked update 11 KB -> 18 KB: %s after %.2f s, hidden page writes %u (32 tested twice, 32 written)\n",
+           oname(o), secs(), S->hidden_writes);
+    EXPECT(o == OUT_RESET && S->res[0] == 1, "taken\n");
+#ifndef REAL_FLASH_DRV
+    EXPECT(S->hidden_writes == 96, "tested, then written\n");
+#endif
+    EXPECT(boot_once() == OUT_JUMP && flash_is("hid408r"), "18 KB runs\n");
+
+    fresh();                          /* 18 KB installed, 22 KB carried: only pages 32..63 tested */
+    flash_set("hid408r");
+    carry("hid410r");
+    cold();
+    app_ran(1);
+    app_accepts();
+    o = boot_once();
+    printf("asked update 18 KB -> 22 KB: %s, hidden page writes %u (32 past the installed tested twice, 64 "
+           "written)\n", oname(o), S->hidden_writes);
+    EXPECT(o == OUT_RESET && S->res[0] == 1, "taken\n");
+#ifndef REAL_FLASH_DRV
+    EXPECT(S->hidden_writes == 128, "the installed app's pages kept\n");
+#endif
+    EXPECT(boot_once() == OUT_JUMP && flash_is("hid410r"), "22 KB runs\n");
+
+    fresh();                          /* back to an image inside the app area */
+    flash_set("hid410r");
+    carry("n301");
+    cold();
+    app_ran(1);
+    app_accepts();
+    o = boot_once();
+    EXPECT(o == OUT_RESET, "11 KB over 22 KB: taken\n");
+#ifndef REAL_FLASH_DRV
+    EXPECT(S->hidden_writes == 0, "no hidden write\n");
+#endif
+    EXPECT(boot_once() == OUT_JUMP && flash_is("n301"), "11 KB runs\n");
+
+#ifndef REAL_FLASH_DRV
+    fresh();                          /* a chip whose hidden flash never programs */
+    flash_set("n303r");
+    carry("hid408r");
+    S->hidden_bad = 1;
+    cold();
+    app_ran(1);
+    app_accepts();
+    o = boot_once();
+    printf("hidden flash that never programs, asked: %s after %.2f s, FLASH results %u, hidden page writes %u\n",
+           oname(o), secs(), S->results_flash, S->hidden_writes);
+    EXPECT(o == OUT_JUMP && S->results_flash == 1 && S->hidden_writes == 1 && flash_is("n303r"),
+           "refused at the first hidden page, the app untouched, not tried again\n");
+
+    fresh();
+    flash_set("n303r");
+    carry("hid408r");
+    S->hidden_bad = 1;
+    cold();
+    o = boot_once();
+    printf("hidden flash that never programs, probe: %s after %.2f s\n", oname(o), secs());
+    EXPECT(o == OUT_JUMP && secs() < 1.0 && flash_is("n303r"), "the probe ends, the app starts\n");
+
+    fresh();                          /* 18 KB installed, its pages work, the next ones do not */
+    flash_set("hid408r");
+    carry("hid410r");
+    S->hidden_bad = 1 + 32;
+    cold();
+    app_ran(1);
+    app_accepts();
+    o = boot_once();
+    EXPECT(o == OUT_JUMP && S->results_flash == 1 && flash_is("hid408r"),
+           "22 KB refused at hidden page 32, the 18 KB app intact\n");
+
+    fresh();                          /* a power cut while the hidden part is written */
+    flash_set("n303r");
+    carry("hid408r");
+    cold();
+    app_ran(1);
+    app_accepts();
+    boot_once();
+    long whole = S->pages_total;
+    fresh();
+    flash_set("n303r");
+    carry("hid408r");
+    S->cut_at_page = whole - 8;
+    cold();
+    app_ran(1);
+    app_accepts();
+    o = boot_once();
+    EXPECT(o == OUT_CUT, "cut at page write %ld of %ld\n", whole - 8, whole);
+    cold();
+    o = boot_once();
+    printf("power cut at hidden page write %ld of %ld, then: %s after %.2f s, modes %x\n", whole - 8, whole,
+           oname(o), secs(), modes());
+    EXPECT(o == OUT_RESET && modes() == 1u << OTA_MODE_NO_APP, "no app: taken again\n");
+    EXPECT(boot_once() == OUT_JUMP && flash_is("hid408r"), "18 KB runs\n");
+
+    fresh();                          /* no app and a failing hidden flash: refused again and again */
+    flash_erase_app();
+    carry("hid408r");
+    S->hidden_bad = 1;
+    S->limit_ns = 35 * S_;
+    cold();
+    o = boot_once();
+    printf("no app, hidden flash that never programs: %s after %.0f s, FLASH results %u\n", oname(o), secs(),
+           S->results_flash);
+    EXPECT(o == OUT_TIMEOUT && S->results_flash >= 2 && S->pages <= 2u * (uint32_t)S->results_flash,
+           "never more than the tested page\n");
+#endif
+}
+
 SCENARIO sc_swd(void) {
     fresh();
     S->ztu = ZTU_SWD;
@@ -2974,10 +3125,10 @@ SCENARIO sc_regs(void) {
            S->trace_ok, S->wd_reload_ns / 1e6);
     EXPECT(o == OUT_JUMP && S->requests == 0 && S->wd_reload_ns > 0 && S->wd_reload_ns < 2 * MS,
            "the reload with the new period comes from watchdog_start()\n");
-    EXPECT(k_boot_id.magic == BOOT_ID_MAGIC && k_boot_id.version == 2 && k_boot_id.features == BOOT_FEATURES_V2 &&
-           k_boot_id.reserved == 0xFFFFu && k_boot_id.app_max == 0x3800u && k_boot_id.mailbox == 0x20000BE0u,
+    EXPECT(k_boot_id.magic == BOOT_ID_MAGIC && k_boot_id.version == 3 && k_boot_id.features == BOOT_FEATURES_V3 &&
+           k_boot_id.reserved == 0xFFFFu && k_boot_id.app_max == 0x6800u && k_boot_id.mailbox == 0x20000BE0u,
            "boot_id\n");
-    EXPECT(BOOT_FEATURES_V2 == 0x0Fu, "features: tries, probe, button, link\n");
+    EXPECT(BOOT_FEATURES_V2 == 0x0Fu && BOOT_FEATURES_V3 == 0x1Fu, "features: tries, probe, button, link, hidden\n");
 }
 
 SCENARIO sc_lsi(void) {
@@ -3086,7 +3237,9 @@ SCENARIO sc_drv_guard(void) {
         memset(page, 0xA5, sizeof page);
         int r = 0;
         r |= flash_write_page(0x08000F80u, page) << 0;     /* sector 0 */
-        r |= flash_write_page(0x08004800u, page) << 1;     /* above the app area */
+        r |= flash_write_page(0x08004800u, page) << 1;     /* the ring, above the app area */
+        r |= flash_write_page(0x08004F80u, page) << 6;     /* the ring's last page */
+        r |= flash_write_page(0x08008000u, page) << 7;     /* above the hidden flash */
         r |= flash_write_page(0x08001004u, page) << 2;     /* misaligned */
         r |= flash_write_page(0xFFFFFF80u, page) << 3;
         uint32_t e0, p0, u0, l0;
@@ -3094,11 +3247,14 @@ SCENARIO sc_drv_guard(void) {
         drv_model_stats(&e0, &p0, &u0, &l0);
         r |= (e0 != 0 || u0 != 0) << 4;
         r |= (flash_write_page(0x08004780u, page) != 1) << 5;   /* the last page of the area */
+        r |= (flash_write_page(0x08005000u, page) != 1) << 8;   /* the first hidden page */
+        r |= (flash_write_page(0x08007F80u, page) != 1) << 9;   /* the last hidden page */
         _exit(r);
     }
     int st;
     waitpid(pid, &st, 0);
-    printf("real driver's write-range guard (boot.ld 0x08001000..0x08004800): result %d\n", WEXITSTATUS(st));
+    printf("real driver's write-range guard (boot.ld 0x08001000..0x08008000, not the ring): result %d\n",
+           WEXITSTATUS(st));
     EXPECT(WIFEXITED(st) && WEXITSTATUS(st) == 0, "guard\n");
     flash_set("n300");
 }
@@ -3118,6 +3274,7 @@ static const scen_t k_scen[] = {
     { "button", sc_button, 0 },
     { "link", sc_link, 0 },
     { "regs", sc_regs, 0 },
+    { "hidden", sc_hidden, 0 },
 #else
     { "asked", sc_asked, 0 },
     { "cuts-erase", sc_cuts_erase, 1 },
@@ -3163,6 +3320,7 @@ static const scen_t k_scen[] = {
     { "swd", sc_swd, 0 },
     { "regs", sc_regs, 0 },
     { "lsi", sc_lsi, 0 },
+    { "hidden", sc_hidden, 0 },
 #endif
 };
 
@@ -3179,7 +3337,7 @@ static void *map_at(uintptr_t a, size_t n, int shared) {
 /* One scenario in a worker process of its own: its own chip-address mappings, so workers run in
  * parallel. Returns the number of failed checks. */
 static int run_scenario(const scen_t *sc, uint64_t *worst) {
-    FLASH_MEM = map_at(0x08000000u, 0x5000, 1);
+    FLASH_MEM = map_at(0x08000000u, 0x8000, 1);
     RAM_MEM   = map_at(0x20000000u, 0x1000, 1);
     TRIM_MEM  = map_at(0x1FFF0000u, 0x1000, 0);
     S = mmap(NULL, sizeof *S, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -3196,6 +3354,7 @@ static int run_scenario(const scen_t *sc, uint64_t *worst) {
     }
     memcpy(FLASH_MEM, boot_sector, sizeof boot_sector);
     memcpy(FLASH_MEM + 0x4800, settings_top, sizeof settings_top);
+    memset(FLASH_MEM + (HIDDEN_BASE - BOOT_BASE), 0xFF, HIDDEN_SIZE);   /* the hidden flash: erased */
     /* factory words: HSI trim, flash timing for 24 MHz */
     uint32_t trim = 0x00001A5Bu, tw[5] = { 0x00AB12CDu, 0x07FF00EEu, 0x0001FFFFu, 0x00012345u, 0x3FFFABCDu };
     memcpy(TRIM_MEM + 0xF10, &trim, 4);

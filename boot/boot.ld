@@ -21,10 +21,11 @@ ENTRY(Reset_Handler)
 _settings_start = ORIGIN(SETTINGS);
 _settings_end   = ORIGIN(SETTINGS) + LENGTH(SETTINGS);
 
-/* What src/flash_drv.c lets the bootloader write: the app area up to BOOT_APP_MAX (14 KB,
- * src/ota_proto.h), never sector 0 and never the top 2 KB of the settings ring. */
+/* What src/flash_drv.c lets the bootloader write: the app area up to BOOT_APP_MAX (14 KB) and
+ * the hidden flash after it (v3, src/ota_proto.h), never sector 0 and never the settings ring
+ * between them (FLASH_HOLE_START..FLASH_HOLE_END, the bootloader's build flags). */
 _flash_write_start = 0x08001000;
-_flash_write_end   = 0x08004800;
+_flash_write_end   = 0x08008000;
 
 /* Highest address of the user mode stack */
 _estack = ORIGIN(RAM) + LENGTH(RAM);    /* end of RAM */
@@ -180,5 +181,5 @@ SECTIONS
 
 ASSERT(ADDR(.boot_id) == 0x08000010 && SIZEOF(.boot_id) == 16 && k_boot_id == 0x08000010,
        "boot_id_t must sit right after the 4-word vector table")
-ASSERT(_flash_write_start == ORIGIN(FLASH) + LENGTH(FLASH) && _flash_write_end == 0x08001000 + 0x3800,
-       "the bootloader writes the app area 0x08001000..0x08004800 only")
+ASSERT(_flash_write_start == ORIGIN(FLASH) + LENGTH(FLASH) && _flash_write_end == 0x08005000 + 0x3000,
+       "the bootloader writes the app area 0x08001000..0x08004800 and the hidden flash to 0x08008000 only")

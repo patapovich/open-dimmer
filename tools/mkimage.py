@@ -2,10 +2,12 @@
 """Fill size and CRC into the app header (ota_proto.h app_header_t at +0xC0) and check the image
 against the rules of docs/BOOTLOADER.md (sections 1, 2 and 11).
 
-    mkimage.py app.bin app.img [--test N]
+    mkimage.py app.bin app.img [--test N] [--hidden]
         app image, as written at 0x08001000. --test N (1..99, make FW_TEST=N): a spare test
         build, whose build number must be the release build + N (with make FW_PREV=1: the
-        previous release build + N)
+        previous release build + N). --hidden (make HIDDEN=1): the binary also spans the hidden
+        flash from 0x08005000; the image is its 14 KB app area followed by the hidden bytes (a
+        v3 bootloader puts them back there, docs/BOOTLOADER.md section 17)
     mkimage.py app.img --full boot.bin out.bin
         boot padded to 4 KB + app: the whole flash image for an SWD install. The bootloader
         must have its boot_id at 0x10 (a v1 bootloader is refused). The app must
@@ -18,7 +20,7 @@ them; 0x08 CONFIRMS; 0x10 RING_HIGH; 0x20..0x80 reserved, refused), build (u16).
 
 Refused for an image this makes: build 0, 1..255 or 0xFFFF; 0xFFFE unless SIM, SIM without
 0xFFFE; a build without CONFIRMS; a build that is not a release build (a multiple of 100) or,
-with --test N, not the release build + N; CRC 0; over 12 KB without RING_HIGH, over 14 KB;
+with --test N, not the release build + N; CRC 0; over 12 KB without RING_HIGH, over 26 KB;
 reserved flags; version byte 0xFF, 0xBF unless SIM, below 0x80 (major < 2 is the stock
 firmware's); vectors other than the ZTU's image_info takes (initial SP exactly 0x20000BE0,
 so that the stack stays below the mailbox; an odd reset vector inside the image). --full
@@ -92,8 +94,21 @@ def summary(h, size: int) -> str:
             + (", DIAGNOSTICS BUILD: takes no update (back over SWD)" if flags & fw.FLAG_DIAG else ""))
 
 
-def make_app(data: bytes, test: int = 0) -> bytes:
-    data = bytearray(data)
+def join_hidden(data: bytes) -> bytes:
+    """objcopy's binary of an app linked with the hidden region (make HIDDEN=1, --gap-fill 0xff)
+    spans 0x08001000..the end of its hidden part, the 2 KB settings ring between them as a gap:
+    the image is the app area's 14 KB followed by the hidden bytes (IMAGE_ADDR, section 17)."""
+    gap = fw.HIDDEN_BASE - fw.APP_BASE                 # 0x4000: the binary's offset of HIDDEN_BASE
+    if len(data) <= gap:
+        return data                                    # nothing in the hidden region
+    if any(b != 0xFF for b in data[fw.BOOT_APP_MAX:gap]):
+        refuse("the binary has bytes in the settings ring (0x08004800..0x08004FFF): not an app "
+               "linked with the hidden region, or objcopy without --gap-fill 0xff")
+    return data[:fw.BOOT_APP_MAX] + data[gap:]
+
+
+def make_app(data: bytes, test: int = 0, hidden: bool = False) -> bytes:
+    data = bytearray(join_hidden(data) if hidden else data)
     while len(data) % 4:
         data.append(0xFF)
     if len(data) < fw.APP_SIZE_MIN:
@@ -127,6 +142,9 @@ def make_full(app: bytes, boot: bytes) -> bytes:
     h = fw.finished(app)
     print(summary(h, len(app)), file=sys.stderr)
     check_app(app, h, test=None)
+    if len(app) > fw.BOOT_APP_MAX:
+        refuse(f"app of {len(app)} bytes: its bytes past 14 KB go into the hidden flash past the "
+               "settings ring, which no full image can hold (tools/swd/install_hidden.sh)")
     if len(app) > bid["app_max"]:
         refuse(f"app of {len(app)} bytes, the bootloader takes {bid['app_max']}")
     print(f"bootloader: {kind}, {len(boot)} bytes; boot sector CRC-32 0x{crc:08X} (DP 136)",
@@ -144,7 +162,7 @@ def parse(argv):
             opts[a] = argv[i + 1]
             i += 2
             continue
-        if a == "--stocklike":
+        if a in ("--stocklike", "--hidden"):
             opts[a] = True
         elif a.startswith("--"):
             sys.exit(f"unknown option {a}\n{__doc__}")
@@ -168,7 +186,7 @@ def main(argv):
                     refuse(f"--test {opts['--test']}: a test build takes 1..99")
                 test = int(opts["--test"])
             with open(args[0], "rb") as f:
-                img = make_app(f.read(), test)   # before the output exists: a refusal
+                img = make_app(f.read(), test, "--hidden" in opts)   # before the output exists: a refusal
             with open(args[1], "wb") as f:       # leaves no empty image
                 f.write(img)
         elif len(args) == 2 and "--full" in opts and "--test" not in opts:

@@ -428,9 +428,15 @@ static void test_offer_build_rule(void) {
     check_declined();
 }
 
-/* app_limit = min(_settings_start - APP_BASE, boot_id ? app_max : 12 KB). */
+/* app_limit = min(_settings_start - APP_BASE, boot_id ? app_max : 12 KB); a v3 bootloader
+ * (BOOT_FEAT_HIDDEN) with the ring at 0x08004800: its app_max. v2: 2 (v2), 3 (v3), 0 (v1). */
 static void limit_case(uint32_t settings_start, int v2, uint32_t app_max, uint32_t want) {
-    if (v2) {
+    if (v2 == 3) {
+        host_boot_id(3u, BOOT_FEATURES_V3, app_max);
+        g_host_settings_start = settings_start;
+        host_boot_word(WORD_AT_START);
+        bootif_init();
+    } else if (v2) {
         boot_v2(settings_start, app_max);
     } else {
         host_boot_v1();
@@ -452,6 +458,8 @@ static void test_offer_app_limit(void) {
     limit_case(SETTINGS_BASE_HIGH, 1, BOOT_APP_MAX, BOOT_APP_MAX);         /* release M on v2 */
     limit_case(SETTINGS_BASE_HIGH, 0, 0, APP_LIMIT_LEGACY);                /* ... on v1: 12 KB */
     limit_case(SETTINGS_BASE_LEGACY, 1, 0x2000u, 0x2000u);                 /* the smaller wins */
+    limit_case(SETTINGS_BASE_HIGH, 3, BOOT_IMAGE_MAX, BOOT_IMAGE_MAX);     /* v3: past the ring, 26 KB */
+    limit_case(SETTINGS_BASE_LEGACY, 3, BOOT_IMAGE_MAX, APP_LIMIT_LEGACY); /* v3 under a 12 KB-ring app */
 }
 
 /* ---- identity, version ------------------------------------------------------ */
@@ -483,11 +491,14 @@ static void check_ident(uint8_t boot_version) {
 }
 
 static void test_ident_and_version_answers(void) {
-    check_ident(BOOT_VERSION);                   /* v2: boot_id.version */
+    check_ident(2u);                             /* v2: boot_id.version */
+    host_boot_id(3u, BOOT_FEATURES_V3, BOOT_IMAGE_MAX);
+    bootif_init();
+    check_ident(3u);                             /* v3 */
     host_boot_v1();
     bootif_init();
     check_ident(OTA_BOOT_VERSION_V1);            /* v1: no boot_id */
-    CHECK(OTA_BOOT_VERSION_V1 == 1u && BOOT_VERSION == 2u);
+    CHECK(OTA_BOOT_VERSION_V1 == 1u && BOOT_VERSION == 3u);
 }
 
 /* The build this image carries (header, identity): the release build, + FW_TEST for a spare
@@ -512,7 +523,7 @@ static void test_boot_info(void) {
     host_boot_v2(BOOT_FEATURES_V2, BOOT_APP_MAX);
     host_boot_word(BOOT_WORD_FRESH | (1234u << BOOT_PROBE_MS_SHIFT) | BOOT_INFO_WRITTEN | 1u);
     bootif_init();
-    CHECK(g_boot_info.version == BOOT_VERSION && g_boot_info.features == BOOT_FEATURES_V2);
+    CHECK(g_boot_info.version == 2u && g_boot_info.features == BOOT_FEATURES_V2);
     CHECK(g_boot_info.word == ((1234u << BOOT_PROBE_MS_SHIFT) | BOOT_INFO_WRITTEN | 1u));
     CHECK(g_boot_info.sector_crc == 0x3A7485B6u);              /* zlib.crc32 of that sector */
     CHECK(g_boot_info.sector_crc == host_boot_sector_crc());

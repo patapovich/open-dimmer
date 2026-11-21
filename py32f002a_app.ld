@@ -44,7 +44,16 @@ MEMORY
   FLASH (rx)     : ORIGIN = 0x08001000, LENGTH = 12K   /* after the 4 KB bootloader */
   /* Last 4 KB sector: settings ring (src/store.c), never code. */
   SETTINGS (r)   : ORIGIN = 0x08004000, LENGTH = 4K
+  /* The hidden flash past the 20 KB (a v3 bootloader, docs/BOOTLOADER.md section 17): used only
+     when the build points HIDDEN_DATA at it (make HIDDEN=1). */
+  FLASH_HI (rx)  : ORIGIN = 0x08005000, LENGTH = 12K
 }
+
+/* Where the constant data goes: the app area, or the hidden flash (HIDDEN=1). Constants only,
+   written once per update: the settings ring stays in the guaranteed flash. More (main(), 4.9 KB
+   with LTO) would fit there, but the image's app area is padded to 14 KB before the hidden bytes
+   and the ZTU carries the padding too: first a ZTU that stores the image without it. */
+REGION_ALIAS("HIDDEN_DATA", FLASH);
 
 /* Define output sections */
 SECTIONS
@@ -89,7 +98,7 @@ SECTIONS
     *(.rodata)         /* .rodata sections (constants, strings, etc.) */
     *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */
     . = ALIGN(4);
-  } >FLASH
+  } >HIDDEN_DATA
 
   .ARM.extab   : { *(.ARM.extab* .gnu.linkonce.armextab.*) } >FLASH
   .ARM : {

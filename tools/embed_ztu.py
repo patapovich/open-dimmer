@@ -8,7 +8,7 @@ and updates the MCU with it (tuya_mcu_ota.c).
 Only an image the phase-3 ZTU's image_info takes and the bootloader would install
 (docs/BOOTLOADER.md sections 2, 10 and 11): a finished image (magic, size, CRC), no
 bench flag (SIM, MEASURE, DIAG), SP 0x20000BE0, an odd reset vector inside the image,
-at most 14 KB and over 12 KB only with RING_HIGH, a build 256..0xFFFD with CONFIRMS
+at most 26 KB (over 14 KB: a v3 bootloader's hidden flash) and over 12 KB only with RING_HIGH, a build 256..0xFFFD with CONFIRMS
 (no build 0: a 2.1.x app is not carried).
 Every check is a sys.exit, so python3 -O cannot skip one.
 """

@@ -3,7 +3,8 @@
 
     check_elf.py boot build-boot/boot.elf build-boot/boot.bin
         k_boot_id at 0x08000010, 16 bytes; the flash write guard _flash_write_start/_end exactly
-        0x08001000/0x08004800 (the app area); boot.bin at most 4096 bytes (a warning above 3584);
+        0x08001000/0x08008000 (the app area and the hidden flash; the bootloader's build keeps it
+        out of the settings ring between them, FLASH_HOLE_*); boot.bin at most 4096 bytes (a warning above 3584);
         _ebss + 512 bytes of stack at most 0x20000BE0 (the mailbox stays outside)
     check_elf.py app build/zdms16_py32.elf build/zdms16_py32.img
         RING_HIGH set exactly when _settings_start is 0x08004800 (and the ring is at 0x08004000
@@ -42,7 +43,7 @@ def check_boot(syms, bin_size):
         errors.append("boot.elf has no k_boot_id (boot_id_t)")
     elif bid != (fw.BOOT_BASE + fw.BOOT_ID_OFFSET, 16):
         errors.append(f"k_boot_id at 0x{bid[0]:08X}, {bid[1]} bytes: must be at 0x08000010, 16 bytes")
-    for name, want in (("_flash_write_start", fw.APP_BASE), ("_flash_write_end", fw.APP_BASE + fw.BOOT_APP_MAX)):
+    for name, want in (("_flash_write_start", fw.APP_BASE), ("_flash_write_end", fw.HIDDEN_BASE + fw.HIDDEN_SIZE)):
         s = syms.get(name)
         if s is None:
             errors.append(f"boot.elf has no {name} (the flash driver's write guard)")

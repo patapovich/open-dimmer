@@ -93,7 +93,7 @@ fi
 python3 tools/release/release_check.py --image "$TMP/build/zdms16_py32.img" --tag "$TAG" --gh-repo "$PY32" --ztu-ota "$ota" ${ACCEPT_HEADROOM:+--accept-headroom "$ACCEPT_HEADROOM"} ||
     die "release rules: see above"
 # The bootloader every module installed with this release keeps for good: record its boot sector CRC.
-python3 tools/fwimage.py notes build-boot/boot.bin "$TMP/build/zdms16_py32_full.bin" > "$TMP/bootline" ||
+python3 tools/fwimage.py notes build-boot/boot.bin $([ -f "$TMP/build/zdms16_py32_full.bin" ] && echo "$TMP/build/zdms16_py32_full.bin") > "$TMP/bootline" ||
     die "the bootloader of the release build: see above"
 sed 's/^/  /' "$TMP/bootline"
 limit=$(( VB < 0xBF ? 0xBF : 0xFF ))

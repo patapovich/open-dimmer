@@ -103,7 +103,11 @@ static void test_values(void) {
     CHECK(OTA_BUILD_FIRST == 300u && OTA_BUILD_FIRST % OTA_BUILD_STEP == 0u && OTA_BUILD_FIRST >= OTA_BUILD_MIN);
     CHECK(OTA_VERSION_SIM == 0xBFu && OTA_VERSION_NEVER == 0xFFu && OTA_VERSION_OURS_MIN == 0x80u);
     /* bootloader identity */
-    CHECK(BOOT_VERSION == 2u && BOOT_FEATURES_V2 == 0x0Fu && BOOT_FEAT_LINK == 0x08u);
+    CHECK(BOOT_VERSION == 3u && BOOT_FEATURES_V2 == 0x0Fu && BOOT_FEAT_LINK == 0x08u);
+    CHECK(BOOT_FEAT_HIDDEN == 0x10u && BOOT_FEATURES_V3 == 0x1Fu && BOOT_IMAGE_MAX == 0x6800u &&
+          HIDDEN_BASE == 0x08005000u && HIDDEN_SIZE == 0x3000u);
+    CHECK(IMAGE_ADDR(0) == APP_BASE && IMAGE_ADDR(0x37FFu) == 0x080047FFu && IMAGE_ADDR(0x3800u) == 0x08005000u &&
+          IMAGE_ADDR(BOOT_IMAGE_MAX - 1u) == 0x08007FFFu);
     CHECK(OTA_BOOT_VERSION_V1 == 1u);
     /* frame lengths: v2 = v1 + the appended fields; v1 offsets unchanged */
     CHECK(OTA_REQ_LEN_V1 == 6u && OTA_REQ_LEN == OTA_REQ_AT_INSTALLED + 8u && OTA_REQ_LEN == 16u);
@@ -177,7 +181,7 @@ static void test_frames(void) {
     put_be32(d + OTA_REQ_AT_OFFSET, APP_HEADER_OFFSET);
     d[OTA_REQ_AT_MAX_LEN]     = 0;
     d[OTA_REQ_AT_MAX_LEN + 1] = (uint8_t)sizeof(app_header_t);
-    d[OTA_REQ_AT_BOOT]        = BOOT_VERSION;
+    d[OTA_REQ_AT_BOOT]        = 2u;            /* section 5's example: a v2 bootloader */
     d[OTA_REQ_AT_MODE]        = OTA_MODE_PROBE;
     memcpy(d + OTA_REQ_AT_INSTALLED, (const uint8_t *)&inst + 8, 8);   /* as in flash (LE host) */
     static const uint8_t req[] = { 0x55, 0xAA, 0x02, 0x00, 0x00, 0xA1, 0x00, 0x10, 0x00, 0x00, 0x00,

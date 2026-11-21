@@ -142,7 +142,18 @@ RING_HIGH ?= $(if $(and $(filter 1,$(FW_PREV)),$(filter 400,$(RELEASE_BUILD))),0
 ifneq ($(filter-out 0 1,$(RING_HIGH)),)
   $(error RING_HIGH=$(RING_HIGH): 0 or 1)
 endif
-LDSCRIPT := $(if $(filter 1,$(RING_HIGH)),$(BUILD)/app_ring_high.ld,py32f002a_app.ld)
+# The hidden flash (docs/BOOTLOADER.md section 17): HIDDEN=1 links the constants at 0x08005000,
+# past the settings ring, and makes an image over 14 KB that only a v3 bootloader takes. Needs
+# RING_HIGH (the ring at 0x08004800). HIDDEN=0: everything in the app area, as up to 2.2.7: the
+# bench builds (SIM, DIAG, MEASURE), which go on over SWD only, keep that and their full image.
+HIDDEN ?= $(if $(filter 1,$(SIM) $(DIAG) $(MEASURE)),0,$(RING_HIGH))
+ifneq ($(filter-out 0 1,$(HIDDEN)),)
+  $(error HIDDEN=$(HIDDEN): 0 or 1)
+endif
+ifeq ($(HIDDEN)$(RING_HIGH),10)
+  $(error HIDDEN=1 needs RING_HIGH=1 (the settings ring at 0x08004800))
+endif
+LDSCRIPT := $(if $(filter 1,$(HIDDEN)),$(BUILD)/app_hidden.ld,$(if $(filter 1,$(RING_HIGH)),$(BUILD)/app_ring_high.ld,py32f002a_app.ld))
 
 INCLUDES := -Isrc -I$(SDK)/CMSIS/Core/Include -I$(SDK)/CMSIS/Device/PY32F0xx/Include \
             -I$(SDK)/PY32F0xx_LL_Driver/Inc
@@ -178,7 +189,8 @@ OBJS     := $(addprefix $(BUILD)/,$(notdir $(SRCS:.c=.o))) $(addprefix $(BUILD)/
 BOOT_BUILD := build-boot
 BOOT_SRCS  := boot/boot.c src/flash_drv.c
 BOOT_OBJS  := $(addprefix $(BOOT_BUILD)/,$(notdir $(BOOT_SRCS:.c=.o)))
-BOOT_CFLAGS := $(CFLAGS) -Werror -fno-data-sections -ffreestanding -fno-tree-loop-distribute-patterns
+BOOT_CFLAGS := $(CFLAGS) -Werror -fno-data-sections -ffreestanding -fno-tree-loop-distribute-patterns \
+               -DFLASH_HOLE_START=0x08004800u -DFLASH_HOLE_END=0x08005000u
 BOOT_LDFLAGS := $(ARCH) -Tboot/boot.ld -Wl,--gc-sections -Wl,-Map=$(BOOT_BUILD)/boot.map -nostdlib -lgcc
 
 vpath %.c $(sort $(dir $(SRCS) $(BOOT_SRCS)))
@@ -186,7 +198,8 @@ vpath %.s $(sort $(dir $(ASRCS)))
 
 # App image (what the Zigbee module carries and sends), bootloader, and the
 # whole flash for the first SWD flashing.
-all: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin $(BUILD)/$(PROJECT)_full.bin
+# (no full image of a HIDDEN app: its hidden part cannot sit in one file with the ring between)
+all: $(BUILD)/$(PROJECT).img $(BOOT_BUILD)/boot.bin $(if $(filter 0,$(HIDDEN)),$(BUILD)/$(PROJECT)_full.bin)
 
 $(BUILD) $(BOOT_BUILD):
 	mkdir -p $@
@@ -208,9 +221,13 @@ $(BUILD)/app_ring_high.ld: py32f002a_app.ld | $(BUILD)
 	    -e 's/^\(  SETTINGS (r)   : ORIGIN = \)0x08004000, LENGTH = 4K/\10x08004800, LENGTH = 2K/' $< > $@
 	grep -q 'LENGTH = 14K' $@ && grep -q 'ORIGIN = 0x08004800, LENGTH = 2K' $@
 
+$(BUILD)/app_hidden.ld: $(BUILD)/app_ring_high.ld
+	sed -e 's/^REGION_ALIAS("HIDDEN_DATA", FLASH);/REGION_ALIAS("HIDDEN_DATA", FLASH_HI);/' $< > $@
+	grep -q 'REGION_ALIAS("HIDDEN_DATA", FLASH_HI);' $@
+
 # A flip of RING_HIGH in the same build dir rebuilds everything (the flag is in the objects and
 # the layout in the link): a stamp per value.
-RING_STAMP := $(BUILD)/.ring_high_$(RING_HIGH)
+RING_STAMP := $(BUILD)/.ring_high_$(RING_HIGH)_hidden_$(HIDDEN)
 $(RING_STAMP): | $(BUILD)
 	rm -f $(BUILD)/.ring_high_*
 	touch $@
@@ -221,10 +238,11 @@ $(BUILD)/$(PROJECT).elf: $(OBJS) $(LDSCRIPT)
 	$(SIZE) $@
 
 $(BUILD)/$(PROJECT).bin: $(BUILD)/$(PROJECT).elf
-	$(OBJCOPY) -O binary $< $@
+	$(OBJCOPY) -O binary $(if $(filter 1,$(HIDDEN)),--gap-fill 0xff) $< $@
 
 $(BUILD)/$(PROJECT).img: $(BUILD)/$(PROJECT).bin tools/mkimage.py tools/fwimage.py
-	python3 tools/mkimage.py $< $@ $(if $(FW_TEST),--test $(FW_TEST)) $(if $(filter 1,$(STOCKLIKE_TEST)),--stocklike)
+	python3 tools/mkimage.py $< $@ $(if $(FW_TEST),--test $(FW_TEST)) $(if $(filter 1,$(STOCKLIKE_TEST)),--stocklike) \
+	    $(if $(filter 1,$(HIDDEN)),--hidden)
 
 # The bootloader's flash bytes (text + data) from the ELF: a warning above 3584 (512 bytes left
 # of its 4 KB sector; CI warns the same, tools/check_elf.py).
@@ -385,7 +403,7 @@ test:
 # addresses need Linux >= 4.17 (MAP_FIXED_NOREPLACE) and absolute symbols a non-PIE link.
 BOOT_HOST      := $(BUILD)/host/boot
 BOOT_HOST_CC   := cc -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -fno-pie -O1 -g
-BOOT_RANGE     := -Wl,--defsym,_flash_write_start=0x08001000 -Wl,--defsym,_flash_write_end=0x08004800
+BOOT_RANGE     := -Wl,--defsym,_flash_write_start=0x08001000 -Wl,--defsym,_flash_write_end=0x08008000
 test-boot:
 	mkdir -p $(BOOT_HOST)
 	python3 tests/boot/mkimages.py $(BOOT_HOST)/img
@@ -394,7 +412,8 @@ test-boot:
 	$(BOOT_HOST_CC) -no-pie $(BOOT_HOST)/harness.o $(BOOT_HOST)/boot.o -o $(BOOT_HOST)/harness
 	$(BOOT_HOST_CC) -Itests/boot/fake -Isrc -DREAL_FLASH_DRV -c tests/boot/harness.c -o $(BOOT_HOST)/harness_drv.o
 	c++ -std=c++11 -Wall -Wextra -Werror -Wno-attributes -Wno-int-to-pointer-cast -fno-pie -O1 -g -Itests/host \
-	   -Isrc -Dcrc32_update=drv_crc32_update -x c++ -c src/flash_drv.c -o $(BOOT_HOST)/flash_drv.o
+	   -Isrc -Dcrc32_update=drv_crc32_update -DFLASH_HOLE_START=0x08004800u -DFLASH_HOLE_END=0x08005000u \
+	   -x c++ -c src/flash_drv.c -o $(BOOT_HOST)/flash_drv.o
 	c++ -std=c++11 -Wall -Wextra -Werror -fno-pie -O1 -g -Itests/host -Isrc -c tests/boot/drv_model.cpp \
 	   -o $(BOOT_HOST)/drv_model.o
 	c++ -no-pie $(BOOT_HOST)/harness_drv.o $(BOOT_HOST)/boot.o $(BOOT_HOST)/flash_drv.o \

@@ -150,25 +150,29 @@ jobs:
           # Below this many free bytes a build gets a warning: room for the next fix is short.
           HEADROOM_WARN_BYTES: 512
         run: |
-          # The app's room: 12 KB, or 14 KB with RING_HIGH (settings ring at 0x08004800)
+          # The app's room: 12 KB, or 14 KB with RING_HIGH (settings ring at 0x08004800); an image
+          # over 14 KB (HIDDEN=1) also has its hidden part (12 KB from 0x08005000, section 17).
+          # "free" is the app area's: its bytes up to the last one that is not padding.
           room() { python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); print(14336 if d[0xCD] & 0x10 else 12288)" "$1"; }
+          used() { python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); print(len(d[:14336].rstrip(b'\xff')) if len(d) > 14336 else len(d))" "$1"; }
+          hidden() { python3 -c "import sys; print(max(0, len(open(sys.argv[1], 'rb').read()) - 14336))" "$1"; }
           {
-            echo "| build | app bytes | free of |"
-            echo "|---|---|---|"
+            echo "| build | image bytes | app area free of | hidden bytes of 12288 |"
+            echo "|---|---|---|---|"
             for d in build build-diag build-measure build-sim; do
               n=$(stat -c %s "$d/zdms16_py32.img")
               r=$(room "$d/zdms16_py32.img")
-              echo "| $d | $n | $((r - n)) of $r |"
+              echo "| $d | $n | $((r - $(used "$d/zdms16_py32.img"))) of $r | $(hidden "$d/zdms16_py32.img") |"
             done
             echo
             echo "bootloader: $(stat -c %s build-boot/boot.bin) of 4096 bytes"
-            python3 tools/fwimage.py notes build-boot/boot.bin build/zdms16_py32_full.bin
+            python3 tools/fwimage.py notes build-boot/boot.bin $([ -f build/zdms16_py32_full.bin ] && echo build/zdms16_py32_full.bin)
           } | tee -a "$GITHUB_STEP_SUMMARY"
           for d in build build-diag build-measure build-sim; do
             r=$(room "$d/zdms16_py32.img")
-            free=$((r - $(stat -c %s "$d/zdms16_py32.img")))
+            free=$((r - $(used "$d/zdms16_py32.img")))
             if [ "$free" -lt "$HEADROOM_WARN_BYTES" ]; then
-              echo "::warning title=Flash headroom::$d has only $free of $r bytes free (warning below $HEADROOM_WARN_BYTES)"
+              echo "::warning title=Flash headroom::$d has only $free of $r bytes free in the app area (warning below $HEADROOM_WARN_BYTES)"
             fi
           done
           free=$((4096 - $(stat -c %s build-boot/boot.bin)))
@@ -179,7 +183,7 @@ jobs:
       - name: Bootloader and app ELF checks (boot_id, flash write guard, RAM, ring layout)
         run: |
           set -e
-          # k_boot_id at 0x08000010 (16 bytes); _flash_write_start/_end = 0x08001000/0x08004800;
+          # k_boot_id at 0x08000010 (16 bytes); _flash_write_start/_end = 0x08001000/0x08008000;
           # boot.bin <= 4096 (warning above 3584); _ebss + 512 bytes of stack <= 0x20000BE0
           python3 tools/check_elf.py boot build-boot/boot.elf build-boot/boot.bin
           # RING_HIGH exactly when _settings_start is 0x08004800, in every build
@@ -225,7 +229,9 @@ jobs:
 
       - name: Release files (flat, named as attached to a release, so sha256sum -c works on a download)
         run: |
-          cp build/zdms16_py32.img build/zdms16_py32_full.bin build-boot/boot.bin dist/
+          # (no full image of a HIDDEN app: docs/BOOTLOADER.md section 17)
+          cp build/zdms16_py32.img build-boot/boot.bin dist/
+          if [ -f build/zdms16_py32_full.bin ]; then cp build/zdms16_py32_full.bin dist/; fi
           cd dist
           sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS"
           mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
@@ -236,7 +242,6 @@ jobs:
           name: open-dimmer-${{ github.sha }}
           path: |
             build/zdms16_py32.img
-            build/zdms16_py32_full.bin
             build/zdms16_py32.elf
             build-boot/boot.bin
             build-diag/zdms16_py32_full.bin
@@ -293,7 +298,7 @@ jobs:
             echo "::error::the image's build $build is not a release build"; exit 1; }
           # The bootloader every module installed from this release keeps for good: its size and
           # the boot sector CRC (DP 136), also checked against the full image.
-          { echo; echo "Build $build."; python3 ../tools/fwimage.py notes boot.bin zdms16_py32_full.bin; } >> ../notes.md || {
+          { echo; echo "Build $build."; python3 ../tools/fwimage.py notes boot.bin $([ -f zdms16_py32_full.bin ] && echo zdms16_py32_full.bin); } >> ../notes.md || {
             echo "::error::the bootloader line of the release notes"; exit 1; }
           gh release create "$GITHUB_REF_NAME" --verify-tag --notes-file ../notes.md --generate-notes \
               --title "$GITHUB_REF_NAME" *

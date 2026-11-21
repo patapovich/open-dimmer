@@ -22,10 +22,14 @@ void host_boot_v1(void) {
     memcpy((uint8_t *)g_host_boot_sector + (BOOT_ID_ADDR - BOOT_BASE), code, sizeof(code));
 }
 
-void host_boot_v2(uint8_t features, uint32_t app_max) {
-    boot_id_t id = { BOOT_ID_MAGIC, BOOT_VERSION, features, 0xFFFF, app_max, OTA_MAILBOX_RAM };
+void host_boot_id(uint8_t version, uint8_t features, uint32_t app_max) {
+    boot_id_t id = { BOOT_ID_MAGIC, version, features, 0xFFFF, app_max, OTA_MAILBOX_RAM };
     memset(g_host_boot_sector, 0xFF, sizeof(g_host_boot_sector));
     memcpy((uint8_t *)g_host_boot_sector + (BOOT_ID_ADDR - BOOT_BASE), &id, sizeof(id));
+}
+
+void host_boot_v2(uint8_t features, uint32_t app_max) {
+    host_boot_id(2u, features, app_max);
 }
 
 void host_boot_word(uint32_t word) {

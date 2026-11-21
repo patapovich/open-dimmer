@@ -45,6 +45,18 @@
 #define SETTINGS_BASE_LEGACY  (APP_BASE + APP_LIMIT_LEGACY)   /* 0x08004000: ring of 32 pages */
 #define SETTINGS_BASE_HIGH    (APP_BASE + BOOT_APP_MAX)       /* 0x08004800: ring of 16 pages (APP_FLAG_RING_HIGH) */
 #define FLASH_TOP             0x08005000u   /* end of the 20 KB flash */
+/* The hidden flash (v3 bootloader; docs/BOOTLOADER.md section 17): the PY32F002A is a PY32F030x6
+ * die with 32 KB, of which Puya guarantees the first 20 KB. An image's bytes from BOOT_APP_MAX on
+ * go to HIDDEN_BASE, past the settings ring, so the ring never moves and only code (written once
+ * per update) sits in the unguaranteed part; the bootloader tests each hidden page it will write
+ * before it erases anything. */
+#define HIDDEN_BASE           FLASH_TOP     /* 0x08005000 */
+#define HIDDEN_SIZE           0x3000u       /* 12 KB, to 0x08008000 */
+#define BOOT_IMAGE_MAX        (BOOT_APP_MAX + HIDDEN_SIZE)   /* 26 KB: the v3 bootloader's ceiling */
+/* Flash address of image offset off (a v3 bootloader, the ZTU's SWD installer, the tools): the
+ * first BOOT_APP_MAX bytes at APP_BASE, the rest at HIDDEN_BASE. */
+#define IMAGE_ADDR(off)       ((uint32_t)(off) < BOOT_APP_MAX ? APP_BASE + (uint32_t)(off) \
+                                                              : HIDDEN_BASE + ((uint32_t)(off) - BOOT_APP_MAX))
 
 /* ---- app header (16 bytes at image offset 0xC0, flash 0x080010C0) ---------------------------- */
 
@@ -92,7 +104,7 @@ typedef struct {
 /* ---- bootloader identity (16 bytes at BOOT_ID_ADDR; v2 boot only) ---------------------------- */
 
 #define BOOT_ID_MAGIC         0x4C42444Fu   /* "ODBL". The v1 boot has code there (80 22 03 4b): no match */
-#define BOOT_VERSION          2u
+#define BOOT_VERSION          3u      /* 2: up to 14 KB; 3: up to 26 KB (BOOT_FEAT_HIDDEN) */
 
 typedef struct {
     uint32_t magic;      /* BOOT_ID_MAGIC. Read by: v2 app (app_limit, 0xA3 byte 9, link watchdog),
@@ -100,7 +112,7 @@ typedef struct {
     uint8_t  version;    /* BOOT_VERSION */
     uint8_t  features;   /* BOOT_FEAT_* */
     uint16_t reserved;   /* 0xFFFF */
-    uint32_t app_max;    /* BOOT_APP_MAX */
+    uint32_t app_max;    /* the largest image: BOOT_APP_MAX (v2), BOOT_IMAGE_MAX (v3) */
     uint32_t mailbox;    /* OTA_MAILBOX_RAM */
 } boot_id_t;
 
@@ -108,7 +120,9 @@ typedef struct {
 #define BOOT_FEAT_PROBE       0x02u   /* power-on probe */
 #define BOOT_FEAT_BUTTON      0x04u   /* button rescue */
 #define BOOT_FEAT_LINK        0x08u   /* honours BOOT_PROBE_REQ (the app's link watchdog) */
+#define BOOT_FEAT_HIDDEN      0x10u   /* v3: an image over BOOT_APP_MAX continues at HIDDEN_BASE */
 #define BOOT_FEATURES_V2      (BOOT_FEAT_TRIES | BOOT_FEAT_PROBE | BOOT_FEAT_BUTTON | BOOT_FEAT_LINK)
+#define BOOT_FEATURES_V3      (BOOT_FEATURES_V2 | BOOT_FEAT_HIDDEN)
 #define OTA_BOOT_VERSION_V1   1u      /* what the app reports (0xA3 byte 9) without a valid boot_id */
 
 /* ---- frozen ZTU contract (docs/BOOTLOADER.md section 10; ZTU side: fork tuya_mcu_ota.h) -------
@@ -327,6 +341,9 @@ _Static_assert((BOOT_WORD_FRESH & ~0xFF000000u) == 0u && (BOOT_PROBE_MS_MASK & 0
                (BOOT_TRIES_MAX <= BOOT_TRIES_MASK), "boot word fields");
 _Static_assert(APP_BASE + BOOT_APP_MAX <= FLASH_TOP - 0x800u && SETTINGS_BASE_LEGACY == 0x08004000u &&
                SETTINGS_BASE_HIGH == 0x08004800u && APP_BASE == BOOT_BASE + BOOT_SIZE, "flash layout");
+_Static_assert(HIDDEN_BASE == SETTINGS_BASE_HIGH + 0x800u && HIDDEN_BASE + HIDDEN_SIZE == 0x08008000u &&
+               BOOT_APP_MAX % 128u == 0u && IMAGE_ADDR(BOOT_APP_MAX) == HIDDEN_BASE &&
+               IMAGE_ADDR(BOOT_APP_MAX - 1u) == SETTINGS_BASE_HIGH - 1u, "hidden flash: past the ring");
 _Static_assert(OTA_BLOCK_HEAD == OTA_BLOCK_AT_DATA && OTA_HEADER_ANSWER_LEN == 29u, "block answer");
 
 #ifdef HOST_TEST

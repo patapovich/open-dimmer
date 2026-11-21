@@ -85,6 +85,11 @@ uint8_t flash_write_page(uint32_t addr, const uint32_t *src) {
         addr > (uint32_t)(uintptr_t)_flash_write_end - FLASH_PAGE_BYTES) {
         return 0;                   /* (written so that no sum can wrap) */
     }
+#ifdef FLASH_HOLE_START
+    if (addr >= FLASH_HOLE_START && addr < FLASH_HOLE_END) {
+        return 0;                   /* the bootloader: never the settings ring between its areas */
+    }
+#endif
     for (i = 0; i < FLASH_PAGE_BYTES / 4u && now[i] == src[i]; i++) {
     }
     if (i == FLASH_PAGE_BYTES / 4u) {

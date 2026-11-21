@@ -153,7 +153,7 @@ def carried(ota):
         start = pos - fw.APP_HEADER_OFFSET
         if start >= 0 and start + fw.APP_SIZE_MIN <= len(ota):
             size = fw.header(ota[start:start + fw.APP_SIZE_MIN]).size
-            if fw.APP_SIZE_MIN <= size <= fw.BOOT_APP_MAX and start + size <= len(ota):
+            if fw.APP_SIZE_MIN <= size <= fw.BOOT_IMAGE_MAX and start + size <= len(ota):
                 try:
                     found.append((start, fw.finished(ota[start:start + size])))
                 except fw.Refused:
@@ -170,8 +170,14 @@ def budget(image, ota=None, ota_name="", accept=None):
     checked); accept: the free bytes the user accepted below HEADROOM_MIN, or None."""
     h = fw.finished(image)
     room = fw.BOOT_APP_MAX if h.flags & fw.FLAG_RING_HIGH else fw.APP_LIMIT_LEGACY
-    free = room - h.size
-    lines = [f"app headroom: {h.size} of {room} bytes, {free} free (at least {HEADROOM_MIN})"]
+    # an image over 14 KB (v3, section 17): the app area's free bytes are its padding, and the
+    # hidden flash has its own room
+    used = len(bytes(image[:fw.BOOT_APP_MAX]).rstrip(b"\xff")) if h.size > fw.BOOT_APP_MAX else h.size
+    free = room - used
+    where = " in the app area" if h.size > fw.BOOT_APP_MAX else ""
+    lines = [f"app headroom: {used} of {room} bytes{where}, {free} free (at least {HEADROOM_MIN})"]
+    if h.size > fw.BOOT_APP_MAX:
+        lines.append(f"hidden flash: {h.size - fw.BOOT_APP_MAX} of {fw.HIDDEN_SIZE} bytes (a v3 bootloader only)")
     warnings = []
     if free < HEADROOM_MIN:
         if accept != free:
@@ -201,7 +207,7 @@ def budget(image, ota=None, ota_name="", accept=None):
         raise Refused(f"the ZTU OTA file would be ~{with_this} bytes, {where} the 0x{ZTU_OTA_MAX:X} limit: the "
                       "Zigbee firmware could not carry this app (free room in the ZTU build first)")
     grow = fw.BOOT_APP_MAX - h.size
-    if margin < grow:
+    if grow > 0 and margin < grow:
         warnings.append(f"ZTU OTA margin {margin} bytes: a 14 KB app (after the ring move, section 1) needs "
                         f"{grow} more, {grow - margin} short; the ZTU build must free room before such an app")
     return lines, warnings

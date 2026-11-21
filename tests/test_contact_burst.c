@@ -49,7 +49,7 @@ uint32_t uart_dropped(void) {
 }
 void NVIC_SystemReset(void) {
 }
-boot_info_t g_boot_info = { 0, 0, APP_LIMIT_LEGACY, BOOT_VERSION, BOOT_FEATURES_V2 };
+boot_info_t g_boot_info = { 0, 0, APP_LIMIT_LEGACY, 2u, BOOT_FEATURES_V2 };
 void bootif_restart(volatile uint32_t *pair, uint32_t value) {
     (void)pair;
     (void)value;

@@ -42,8 +42,11 @@ void bootif_init(void) {
         g_boot_info.features = id->features;
     }
     /* app_limit() = min(_settings_start - APP_BASE, the bootloader's): an image never reaches
-     * the ring this app writes, nor past what the bootloader runs. */
-    if (limit > SETTINGS_START - APP_BASE) {
+     * the ring this app writes, nor past what the bootloader runs. A v3 bootloader puts an
+     * image's bytes from BOOT_APP_MAX on past the ring at 0x08004800 (section 17): with that
+     * ring its own ceiling holds. */
+    if (limit > SETTINGS_START - APP_BASE &&
+        !((g_boot_info.features & BOOT_FEAT_HIDDEN) && SETTINGS_START == SETTINGS_BASE_HIGH)) {
         limit = SETTINGS_START - APP_BASE;
     }
     g_boot_info.app_limit  = limit;

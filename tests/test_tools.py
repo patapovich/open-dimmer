@@ -176,13 +176,15 @@ class SharedNumbers(unittest.TestCase):
                  "OTA_BUILD_NEVER": fw.BUILD_NEVER, "OTA_BUILD_FIRST": fw.BUILD_FIRST,
                  "OTA_BUILD_STEP": fw.BUILD_STEP, "OTA_MAILBOX_RAM": fw.MAILBOX_RAM,
                  "BOOT_FEAT_TRIES": 0x01, "BOOT_FEAT_PROBE": 0x02, "BOOT_FEAT_BUTTON": 0x04,
-                 "BOOT_FEAT_LINK": 0x08}
+                 "BOOT_FEAT_LINK": 0x08, "BOOT_FEAT_HIDDEN": fw.BOOT_FEAT_HIDDEN,
+                 "HIDDEN_SIZE": fw.HIDDEN_SIZE}
         for name, value in pairs.items():
             self.assertIn(name, defs, name)
             self.assertEqual(defs[name], value, name)
         self.assertEqual(re.search(r"#define\s+BOOT_ID_ADDR\s+\(BOOT_BASE \+ 0x10u\)", text) is not None, True)
         self.assertEqual(fw.BOOT_ID_OFFSET, 0x10)
-        self.assertEqual(dict(fw.BOOT_FEAT_NAMES), {0x01: "tries", 0x02: "probe", 0x04: "button", 0x08: "link"})
+        self.assertEqual(dict(fw.BOOT_FEAT_NAMES), {0x01: "tries", 0x02: "probe", 0x04: "button", 0x08: "link",
+                                                    0x10: "hidden"})
 
     def test_boot_sector_crc_is_the_padded_sector(self):
         b = boot_v1()
@@ -281,9 +283,36 @@ class MkImage(ToolRun):
         self.assertEqual(rc, 0, out)
         rc, out, _ = self.mkimage(size=12 * KB)
         self.assertEqual(rc, 0, out)
-        self.assert_refused(self.mkimage(0x9D, CONFIRMS | RING_HIGH, 300, size=14 * KB + 4), "max 14336")
         rc, out, _ = self.mkimage(0x9D, CONFIRMS | RING_HIGH, 300, size=14 * KB)
         self.assertEqual(rc, 0, out)
+        # v3 (section 17): past 14 KB into the hidden flash, up to 26 KB
+        rc, out, _ = self.mkimage(0x9D, CONFIRMS | RING_HIGH, 300, size=14 * KB + 4)
+        self.assertEqual(rc, 0, out)
+        rc, out, _ = self.mkimage(0x9D, CONFIRMS | RING_HIGH, 300, size=26 * KB)
+        self.assertEqual(rc, 0, out)
+        self.assert_refused(self.mkimage(0x9D, CONFIRMS | RING_HIGH, 300, size=26 * KB + 4), "max 26624")
+
+    def test_hidden_binary_is_joined_past_the_ring(self):
+        """make HIDDEN=1: objcopy's binary spans the ring as a 0xFF gap; the image is the 14 KB
+        app area followed by the bytes from 0x08005000 (IMAGE_ADDR)."""
+        app = bytearray(app_bin(0x9D, CONFIRMS | RING_HIGH, 300))
+        app += b"\xff" * (0x4000 - len(app))               # the app area's rest, then the ring gap
+        app += bytes(range(256)) * 2                        # 512 bytes in the hidden flash
+        src, out = self.path("h.bin"), self.path("h.img")
+        with open(src, "wb") as f:
+            f.write(app)
+        rc, text = self.run_py("mkimage.py", src, out, "--hidden")
+        self.assertEqual(rc, 0, text)
+        img = self.read("h.img")
+        self.assertEqual(len(img), 0x3800 + 512)
+        self.assertEqual(img[:0xC0], bytes(app[:0xC0]))
+        self.assertEqual(img[0x3800:], bytes(range(256)) * 2)
+        app[0x3900] = 0                                     # a byte in the ring: not ours
+        with open(src, "wb") as f:
+            f.write(app)
+        rc, text = self.run_py("mkimage.py", src, out, "--hidden")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("bytes in the settings ring", text)
 
     def test_refuses_reserved_flags(self):
         for f in (0x20, 0x40, 0x80):
@@ -483,7 +512,9 @@ class EmbedZtu(ToolRun):
         self.assert_refused(self.embed(finished_img(size=12 * KB + 4)), "only with RING_HIGH")
         rc, out, _ = self.embed(finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=13 * KB))
         self.assertEqual(rc, 0, out)
-        self.assert_refused(self.embed(finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=14 * KB + 4)), "max 14336")
+        rc, out, _ = self.embed(finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=14 * KB + 4))   # v3: hidden
+        self.assertEqual(rc, 0, out)
+        self.assert_refused(self.embed(finished_img(0x9D, CONFIRMS | RING_HIGH, 300, size=26 * KB + 4)), "max 26624")
         for f in (0x20, 0x80):
             self.assert_refused(self.embed(finished_img(0x9D, CONFIRMS | f, 300)), "reserved")
 
@@ -887,7 +918,7 @@ ce = load("check_elf", os.path.join(TOOLS, "check_elf.py"))
 
 
 class ElfChecks(unittest.TestCase):
-    BOOT_NM = ("08000010 00000010 r k_boot_id\n08001000 A _flash_write_start\n08004800 A _flash_write_end\n"
+    BOOT_NM = ("08000010 00000010 r k_boot_id\n08001000 A _flash_write_start\n08008000 A _flash_write_end\n"
                "20000418 B _ebss\n")
 
     def test_boot_ok(self):
@@ -897,7 +928,7 @@ class ElfChecks(unittest.TestCase):
     def test_boot_errors(self):
         nm = self.BOOT_NM.replace("08000010 00000010", "08000014 00000010")
         self.assertIn("must be at 0x08000010", ce.check_boot(ce.symbols(nm), 3252)[0][0])
-        nm = self.BOOT_NM.replace("08004800 A _flash_write_end", "08004000 A _flash_write_end")
+        nm = self.BOOT_NM.replace("08008000 A _flash_write_end", "08004800 A _flash_write_end")   # v2's range
         self.assertIn("_flash_write_end", ce.check_boot(ce.symbols(nm), 3252)[0][0])
         nm = self.BOOT_NM.replace("20000418 B _ebss", "20000A00 B _ebss")
         self.assertIn("reach past the mailbox", ce.check_boot(ce.symbols(nm), 3252)[0][0])
@@ -927,7 +958,7 @@ class ElfChecks(unittest.TestCase):
         self.assertIn("python3 tools/check_elf.py boot build-boot/boot.elf build-boot/boot.bin", ci)
         self.assertIn('python3 tools/check_elf.py app "$d/zdms16_py32.elf" "$d/zdms16_py32.img"', ci)
         self.assertIn("run: make test", ci)
-        self.assertIn("fwimage.py notes boot.bin zdms16_py32_full.bin", ci)
+        self.assertIn("fwimage.py notes boot.bin $([ -f zdms16_py32_full.bin ] && echo zdms16_py32_full.bin)", ci)
         self.assertIn("tools/fwimage.py", ci.split("sparse-checkout: |", 1)[1].split("sparse-checkout-cone-mode", 1)[0])
 
 

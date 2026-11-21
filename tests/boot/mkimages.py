@@ -102,7 +102,13 @@ def main():
         "max304": image(0x3000, 0xA4, CONFIRMS, 304),             # exactly 12 KB
         "over305": image(0x3004, 0xA5, CONFIRMS, 305),            # 12 KB + 4
         "max406r": image(0x3800, 0xA6, CONFIRMS | RING_HIGH, 406),  # exactly 14 KB
-        "over407r": image(0x3804, 0xA7, CONFIRMS | RING_HIGH, 407),  # 14 KB + 4: never
+        "over407r": image(0x3804, 0xA7, CONFIRMS | RING_HIGH, 407),  # 14 KB + 4: v3, 4 bytes hidden
+        # v3 (hidden flash): bytes from 14 KB on at 0x08005000; 408..410 share a base
+        "hid408r": image(0x4800, 0xA8, CONFIRMS | RING_HIGH, 408, base="hid", changed=[1]),   # 18 KB
+        "hid409r": image(0x4800, 0xA9, CONFIRMS | RING_HIGH, 409, base="hid", changed=[1, 2, 120, 140]),
+        "hid410r": image(0x5800, 0xAA, CONFIRMS | RING_HIGH, 410, base="hid", changed=[1, 150, 175]),  # 22 KB
+        "hmax411r": image(0x6800, 0xAB, CONFIRMS | RING_HIGH, 411),   # exactly 26 KB
+        "hover412r": image(0x6804, 0xAC, CONFIRMS | RING_HIGH, 412),  # 26 KB + 4: never
         # 2.1.x: no build, no CONFIRMS
         "v2_1_10": image(11628, 0x9A, 0, 0, base="v2110"),
         "v2_1_11": image(11628, 0x9B, 0, 0, base="v2111"),

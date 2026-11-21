@@ -1,4 +1,4 @@
-/* Bootloader v2 of Open Dimmer, the ZDMS16-2 PY32 firmware: sector 0, 4 KB at 0x08000000.
+/* Bootloader v3 of Open Dimmer, the ZDMS16-2 PY32 firmware: sector 0, 4 KB at 0x08000000.
  *
  * FROZEN once installed: it is replaced only over SWD (mains off), so it carries every escape
  * path that does not depend on the app, and leaves every policy that may still change (version
@@ -25,7 +25,11 @@
  *    layout. It then fetches the image from offset 0, checks page 0's vectors before the first
  *    write, writes page by page, checks the whole image, reports (0xA2) and restarts.
  * Nothing is erased before an image is pinned and its page 0 checked, so a ZTU that does not
- * answer leaves the installed app as it was. Once a page is written without a finished image
+ * answer leaves the installed app as it was.
+ *  - v3 (section 17): an image over BOOT_APP_MAX (14 KB) continues in the hidden flash at
+ *    HIDDEN_BASE, past the settings ring (IMAGE_ADDR). Before such an image is pinned, every
+ *    hidden page it needs and the installed app does not already prove is erased, programmed
+ *    and checked; a chip whose hidden flash fails refuses the image and keeps its app. Once a page is written without a finished image
  * there is no valid app, and the bootloader asks until it gets one: no half app ever runs.
  *
  * The gate pins are driven low in pins_safe() and never touched again: the light is dark in
@@ -97,8 +101,8 @@ static uint16_t g_fill;
 /* The bootloader's identity, at 0x08000010 (boot.ld): the app reads it for its image limit,
  * identity byte 9 and the link watchdog. */
 __attribute__((section(".boot_id"), used))
-const boot_id_t k_boot_id = { BOOT_ID_MAGIC, BOOT_VERSION, BOOT_FEATURES_V2, 0xFFFFu,
-                              BOOT_APP_MAX, OTA_MAILBOX_RAM };
+const boot_id_t k_boot_id = { BOOT_ID_MAGIC, BOOT_VERSION, BOOT_FEATURES_V3, 0xFFFFu,
+                              BOOT_IMAGE_MAX, OTA_MAILBOX_RAM };
 
 /* ---- hardware -------------------------------------------------------------------------------- */
 
@@ -281,18 +285,25 @@ static uint32_t build_of(const uint8_t *h) {
     return (uint32_t)h[offsetof(app_header_t, build)] | ((uint32_t)h[offsetof(app_header_t, build) + 1u] << 8);
 }
 
-/* app_valid()'s vector rule, also applied to a fetched page 0 before anything is written: the
- * initial SP in RAM, the reset vector inside the image. Stricter checks (SP exactly the top of
- * RAM, an odd reset vector) stay in the tools and the ZTU, which change over the air. */
-static uint8_t vec_ok(const uint32_t *v, uint32_t size) {
-    return (v[0] >> 20) == 0x200u && v[1] >= APP_BASE && v[1] < APP_BASE + size;
+/* The image's bytes in the app area: all of it, or the first BOOT_APP_MAX (the rest is hidden). */
+static uint32_t main_part(uint32_t size) {
+    return size < BOOT_APP_MAX ? size : BOOT_APP_MAX;
 }
 
-/* The installed app: magic, 0xD0 <= size <= BOOT_APP_MAX, vectors, CRC (~43 ms for 11.6 KB). */
+/* app_valid()'s vector rule, also applied to a fetched page 0 before anything is written: the
+ * initial SP in RAM, the reset vector inside the image's app-area part. Stricter checks (SP
+ * exactly the top of RAM, an odd reset vector) stay in the tools and the ZTU, which change over
+ * the air. */
+static uint8_t vec_ok(const uint32_t *v, uint32_t size) {
+    return (v[0] >> 20) == 0x200u && v[1] >= APP_BASE && v[1] < APP_BASE + main_part(size);
+}
+
+/* The installed app: magic, 0xD0 <= size <= BOOT_IMAGE_MAX, vectors, CRC over both parts (~43 ms
+ * for 11.6 KB). */
 static uint8_t app_valid(void) {
     const app_header_t *h = HDR;
 
-    if (h->magic != APP_MAGIC || h->size < APP_SIZE_MIN || h->size > BOOT_APP_MAX ||
+    if (h->magic != APP_MAGIC || h->size < APP_SIZE_MIN || h->size > BOOT_IMAGE_MAX ||
         !vec_ok((const uint32_t *)APP_BASE, h->size)) {
         return 0;
     }
@@ -301,8 +312,33 @@ static uint8_t app_valid(void) {
     const uint8_t  z[4] = { 0, 0, 0, 0 };
     uint32_t       crc  = crc32_update(0, img, at);
     crc = crc32_update(crc, z, 4);
-    crc = crc32_update(crc, img + at + 4, h->size - at - 4);
+    crc = crc32_update(crc, img + at + 4, main_part(h->size) - at - 4);
+    crc = crc32_update(crc, (const uint8_t *)HIDDEN_BASE, h->size - main_part(h->size));
     return crc == h->crc;
+}
+
+/* The hidden pages an image of size needs, from the first one the installed app does not prove
+ * (a valid app's CRC covers its own: they work, and testing them would erase its code): each is
+ * programmed with a pattern, checked, then erased and checked (flash_write_page reads every write
+ * back). 1 when all of them work. Up to 96 pages, ~1 s: the watchdog between pages. */
+static uint8_t hidden_ok(uint32_t size) {
+    uint32_t from = g_intact ? HDR->size : 0;
+    for (uint32_t off = from < BOOT_APP_MAX ? BOOT_APP_MAX : (from + FLASH_PAGE_BYTES - 1u) & ~(FLASH_PAGE_BYTES - 1u);
+         off < size; off += FLASH_PAGE_BYTES) {
+        uint32_t addr = IMAGE_ADDR(off);
+        for (uint32_t i = 0; i < FLASH_PAGE_BYTES / 4u; i++) {
+            g_page[i] = (addr + 4u * i) ^ 0x5AA5C33Cu;
+        }
+        tick();
+        if (!flash_write_page(addr, g_page)) {
+            return 0;
+        }
+        fill((uint8_t *)g_page, 0xFF, FLASH_PAGE_BYTES);
+        if (!flash_write_page(addr, g_page)) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 /* A counted app: one that confirms its runs, and no bench build (section 7). */
@@ -380,10 +416,16 @@ static uint8_t pick(const uint8_t *d, uint16_t n) {
         (g_mode == OTA_MODE_PROBE && (build <= had || build > OTA_BUILD_MAX))) {
         return PICK_REFUSE;
     }
-    g_boot.size    = size;
-    g_boot.crc     = crc;
     g_boot.version = h[offsetof(app_header_t, version)];
     g_boot.build   = (uint16_t)build;
+    if (size > BOOT_APP_MAX && !hidden_ok(size)) {
+        result(OTA_RESULT_FLASH);      /* this chip's hidden flash fails: nothing of the app was
+                                          touched, and the image is not asked for again here */
+        g_bad = crc;
+        return PICK_REFUSE;
+    }
+    g_boot.size    = size;
+    g_boot.crc     = crc;
     g_boot.expect  = 0;
     g_fill         = 0;
     return PICK_TAKE;
@@ -418,7 +460,7 @@ static uint8_t on_block(const uint8_t *d, uint16_t n) {
 
     if (g_fill == FLASH_PAGE_BYTES || g_boot.expect == size) {
         fill((uint8_t *)g_page + g_fill, 0xFF, FLASH_PAGE_BYTES - g_fill);
-        uint32_t addr = APP_BASE + g_boot.expect - g_fill;
+        uint32_t addr = IMAGE_ADDR(g_boot.expect - g_fill);
         g_fill        = 0;
         if (addr == APP_BASE && !vec_ok(g_page, size)) {
             result(OTA_RESULT_BAD_IMAGE);                            /* nothing written: refused */
@@ -566,7 +608,7 @@ int main(void) {
     const app_header_t *h = HDR;
     g_intact         = app_valid();
     g_boot.app_valid = g_intact;
-    g_limit          = (h->flags & APP_FLAG_RING_HIGH) ? BOOT_APP_MAX : APP_LIMIT_LEGACY;
+    g_limit          = (h->flags & APP_FLAG_RING_HIGH) ? BOOT_IMAGE_MAX : APP_LIMIT_LEGACY;
     g_req[OTA_REQ_AT_BOOT] = BOOT_VERSION;
     copy(g_req + OTA_REQ_AT_INSTALLED, (const uint8_t *)h + offsetof(app_header_t, crc), 8);
 
@@ -577,7 +619,7 @@ int main(void) {
             g_mode = OTA_MODE_ASKED;
         } else {
             g_mode  = OTA_MODE_NO_APP;
-            g_limit = BOOT_APP_MAX;    /* layout unknown: recovery comes before settings */
+            g_limit = BOOT_IMAGE_MAX;  /* layout unknown: recovery comes before settings */
         }
     } else if (button || (counted() && (g_word & BOOT_TRIES_MASK) >= BOOT_TRIES_MAX)) {
         g_skip = h->crc;
@@ -612,7 +654,7 @@ int main(void) {
          * 10 s windows from now on. */
         g_mode = g_req[OTA_REQ_AT_MODE] = OTA_MODE_NO_APP;
         g_expect = g_skip = g_bad = g_boot.crc = 0;
-        g_limit  = BOOT_APP_MAX;
+        g_limit  = BOOT_IMAGE_MAX;
         window   = GIVE_UP_MS;
     }
     if (counted() && (g_word & BOOT_TRIES_MASK) < BOOT_TRIES_MAX) {

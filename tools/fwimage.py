@@ -26,14 +26,30 @@ BOOT_BASE, BOOT_SIZE, BOOT_ID_OFFSET = 0x08000000, 0x1000, 0x10
 APP_BASE, APP_HEADER_OFFSET, APP_SIZE_MIN = 0x08001000, 0xC0, 0xD0
 BOOT_APP_MAX, APP_LIMIT_LEGACY = 0x3800, 0x3000          # 14 KB (v2 boot, RING_HIGH), 12 KB
 FLASH_SIZE = 0x5000
-APP_MAGIC, BOOT_ID_MAGIC, BOOT_VERSION = 0x5A445041, 0x4C42444F, 2
+HIDDEN_BASE, HIDDEN_SIZE = 0x08005000, 0x3000             # v3: the hidden flash (section 17)
+BOOT_IMAGE_MAX = BOOT_APP_MAX + HIDDEN_SIZE                # 26 KB: the v3 bootloader's ceiling
+APP_MAGIC, BOOT_ID_MAGIC, BOOT_VERSION = 0x5A445041, 0x4C42444F, 3
+BOOT_VERSION_MIN = 2                                       # the oldest boot_id a full image takes
 FLAG_SIM, FLAG_MEASURE, FLAG_DIAG, FLAGS_BENCH = 0x01, 0x02, 0x04, 0x07
 FLAG_CONFIRMS, FLAG_RING_HIGH, FLAGS_RESERVED = 0x08, 0x10, 0xE0
 VERSION_OURS_MIN, VERSION_SIM, VERSION_NEVER = 0x80, 0xBF, 0xFF
 BUILD_NONE, BUILD_MIN, BUILD_MAX, BUILD_SIM, BUILD_NEVER = 0, 256, 0xFFFD, 0xFFFE, 0xFFFF
 BUILD_FIRST, BUILD_STEP = 300, 100
 MAILBOX_RAM = 0x20000BE0                                   # also the app's initial SP
-BOOT_FEAT_NAMES = ((0x01, "tries"), (0x02, "probe"), (0x04, "button"), (0x08, "link"))
+BOOT_FEAT_HIDDEN = 0x10
+BOOT_FEAT_NAMES = ((0x01, "tries"), (0x02, "probe"), (0x04, "button"), (0x08, "link"),
+                   (BOOT_FEAT_HIDDEN, "hidden"))
+
+
+def image_addr(off):
+    """Flash address of image offset off (IMAGE_ADDR of src/ota_proto.h): the first
+    BOOT_APP_MAX bytes at APP_BASE, the rest at HIDDEN_BASE past the settings ring."""
+    return APP_BASE + off if off < BOOT_APP_MAX else HIDDEN_BASE + off - BOOT_APP_MAX
+
+
+def main_part(size):
+    """The image's bytes in the app area (the rest is hidden)."""
+    return min(size, BOOT_APP_MAX)
 
 Header = collections.namedtuple("Header", "magic size crc version flags build")
 
@@ -87,11 +103,12 @@ def finished(img):
 
 
 def layout_problem(size, flags):
-    """The settings layouts (section 1): 12 KB, or 14 KB with RING_HIGH."""
+    """The settings layouts (section 1): 12 KB, or with RING_HIGH 14 KB, and up to 26 KB under a
+    v3 bootloader (the bytes past 14 KB in the hidden flash, section 17)."""
     if size < APP_SIZE_MIN:
         return f"app of {size} bytes: shorter than its header"
-    if size > BOOT_APP_MAX:
-        return f"app is {size} bytes, max {BOOT_APP_MAX} (14 KB, BOOT_APP_MAX)"
+    if size > BOOT_IMAGE_MAX:
+        return f"app is {size} bytes, max {BOOT_IMAGE_MAX} (26 KB, BOOT_IMAGE_MAX)"
     if size > APP_LIMIT_LEGACY and not flags & FLAG_RING_HIGH:
         return (f"app is {size} bytes: over {APP_LIMIT_LEGACY} (12 KB) only with RING_HIGH "
                 "(settings ring at 0x08004800, the ring-move release first)")
@@ -106,9 +123,9 @@ def vector_problem(img, size, exact_sp):
         return f"initial SP 0x{sp:08X}, not 0x{MAILBOX_RAM:08X} (end of RAM below the mailbox)"
     if (sp >> 20) != 0x200:
         return f"initial SP 0x{sp:08X} is not in RAM"
-    if not APP_BASE <= reset < APP_BASE + size:
-        return (f"reset vector 0x{reset:08X} outside the image "
-                f"(0x{APP_BASE:08X}..0x{APP_BASE + size:08X}): not linked for the app at 0x08001000")
+    if not APP_BASE <= reset < APP_BASE + main_part(size):
+        return (f"reset vector 0x{reset:08X} outside the image's app-area part "
+                f"(0x{APP_BASE:08X}..0x{APP_BASE + main_part(size):08X}): not linked for the app at 0x08001000")
     if exact_sp and not reset & 1:
         return f"reset vector 0x{reset:08X} is even (not Thumb)"
     return None
@@ -170,11 +187,12 @@ def boot_id(boot):
 
 
 def boot_id_problem(bid):
-    if bid["version"] < BOOT_VERSION:
+    if bid["version"] < BOOT_VERSION_MIN:
         return f"boot_id version {bid['version']}"
     if bid["mailbox"] != MAILBOX_RAM:
         return f"boot_id mailbox 0x{bid['mailbox']:08X}, not 0x{MAILBOX_RAM:08X}"
-    if not APP_LIMIT_LEGACY <= bid["app_max"] <= FLASH_SIZE - BOOT_SIZE - 0x800:
+    top = BOOT_IMAGE_MAX if bid["features"] & BOOT_FEAT_HIDDEN else FLASH_SIZE - BOOT_SIZE - 0x800
+    if not APP_LIMIT_LEGACY <= bid["app_max"] <= top:
         return f"boot_id app_max 0x{bid['app_max']:X}"
     return None
 
@@ -244,6 +262,10 @@ def check_full(full, erase_settings=False, lines=None, keep_settings=False):
     p = app_problem(app, h)                               # the last gate before a permanent install
     if p:
         raise Refused(f"app: {p}")
+    if h.size > BOOT_APP_MAX:
+        raise Refused(f"app of {h.size} bytes: its last {h.size - BOOT_APP_MAX} go into the hidden flash "
+                      "past the settings ring, which no full image can hold; install it with "
+                      "tools/swd/install_hidden.sh (or the bootloader, over the UART)")
     if h.flags & FLAG_MEASURE:
         lines.append("MEASUREMENT build: outputs off, takes no update (back over SWD)")
     if h.flags & FLAG_DIAG:
