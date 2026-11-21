@@ -3,6 +3,15 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
+## 2.2.7 (unreleased)
+
+- The wall switch, the module button and the auto-off never take a transition time from the
+  network. A level command with a time (Adaptive Lighting's 45 s, for one) left its time
+  usable for a second: a switch pressed in that second turned the light off or on over the
+  whole time.
+- A hold from dark let go during the start boost leaves the light at its minimum. With a boost
+  longer than about 0.4 s it was left at full brightness.
+
 ## 2.2.6 (2026-11-20)
 
 - Smaller app, nothing else changed: 264 bytes freed (13 676 of 14 336 bytes) by building the app
