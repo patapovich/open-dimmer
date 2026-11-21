@@ -462,6 +462,9 @@ def main():
         print(f"written: custom_curve_{ch} {got[0]}, dimming_curve_{ch} {got[1]}")
         if got[1] != "custom" or not got[0]:
             sys.exit("the dimmer did not take it (Open Dimmer 2.2.8 and its converter?)")
+        zone = lamp.get(f"hold_slow_zone_{ch}")
+        if zone:
+            print(f"tip: hold_slow_zone_{ch} is {zone}: with a custom curve 0 gives an even hold speed")
 
 
 if __name__ == "__main__":

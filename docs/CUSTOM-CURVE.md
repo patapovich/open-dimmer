@@ -44,6 +44,14 @@ HA_TOKEN=... python3 tools/custom_curve.py --ha http://homeassistant.local:8123 
     --device bedroom-dimmer --channel l1 --manual --hold 6 --apply
 ```
 
+## The hold speed
+
+The wall switch's hold slows down near the minimum by `hold_slow_zone` (a share of the range):
+made for the built-in curves, whose bottom changes fast. With a custom curve every step is
+already the same step of brightness, so set `hold_slow_zone` to **0** for an even speed over
+the whole hold. `hold_time` is the time for the whole scale 0..100 %, not for your min..max: with
+a narrow range raise it (up to 10 s) for a slower hold.
+
 ## A sensor that is not linear
 
 Many cheap sensors do not report real lux: the reading grows more slowly than the light (it
