@@ -63,8 +63,9 @@ minimum, at a few levels and at full, and give them as a JSON list:
 
 17 outputs from 0 to 10000 at 0, 1/16, 2/16 .. 1 of the channel's min..max range: 0 is the
 minimum's conduction, 10000 the maximum's. You can also type one in Zigbee2MQTT (`custom_curve`,
-comma-separated); it is refused unless it starts at 0, ends at 10000 and never falls. The Zigbee
-module keeps it and gives it to the dimmer chip after every start; until then (a second or so
-after power-up) the chip dims with `led_soft`. An empty `custom_curve` removes it.
+comma-separated); it is refused unless it starts at 0, ends at 10000 and never falls. The
+dimmer chip saves it with its settings (an update keeps it; after a downgrade to a release before
+2.2.8 the curve is linear). Selected without a valid table, `custom` dims like `led_soft`. An
+empty `custom_curve` removes it.
 
 `python3 tools/custom_curve.py --self-test` checks the maths on a made-up lamp.
