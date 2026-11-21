@@ -314,18 +314,14 @@ __attribute__((noinline)) uint16_t dim_output(uint8_t curve, uint16_t value, uin
     return (uint16_t)(duty < 1 ? 1 : duty);
 }
 
-__attribute__((noinline)) uint16_t dim_comp(uint16_t value, uint16_t peak, uint16_t amount, uint16_t min,
-                                            uint16_t max) {
-    uint32_t span = max > min ? (uint32_t)(max - min) : 0u;
-    uint32_t low  = span * 2u / 5u;                  /* none from min + low on */
-    uint32_t sat  = span / 10u;                      /* all of it after a fall this far */
-    uint32_t den  = low * sat;
-    if (!amount || !den || value < min || value >= min + low || peak <= value) {
+__attribute__((noinline)) uint16_t dim_comp(uint16_t duty, uint16_t peak, uint16_t amount, uint16_t min_duty) {
+    if (!amount || duty < min_duty || duty >= min_duty + DIM_COMP_SPAN || peak <= duty) {
         return 0;
     }
-    uint32_t fall = (uint32_t)(peak - value);
-    /* amount * (min + low - value) / low, times fall / sat up to sat: one division */
-    return (uint16_t)((uint32_t)amount * (min + low - value) * (fall < sat ? fall : sat) / den);
+    uint32_t fall = (uint32_t)(peak - duty);
+    /* amount * (min_duty + SPAN - duty) / SPAN, times fall / FALL up to FALL: one division */
+    return (uint16_t)((uint32_t)amount * (uint32_t)(min_duty + DIM_COMP_SPAN - duty) *
+                      (fall < DIM_COMP_FALL ? fall : DIM_COMP_FALL) / (DIM_COMP_SPAN * DIM_COMP_FALL));
 }
 
 uint16_t dim_compare(uint16_t half_period, uint16_t duty) {

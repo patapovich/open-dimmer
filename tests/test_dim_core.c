@@ -1329,25 +1329,24 @@ static void test_no_boost_from_lit_or_when_off_and_a_timed_on_after_it(void) {
 
 /* Lamp compensation: the duty to take off after the light came down, never while it rises. */
 static void test_lamp_compensation(void) {
-    const uint16_t lo = 276, hi = 709;              /* span 433: none from 449, all after a fall of 43 */
-    CHECK(dim_comp(276, 276, 320, lo, hi) == 0);     /* on from dark / rising: none */
-    CHECK(dim_comp(300, 300, 320, lo, hi) == 0);
-    CHECK(dim_comp(276, 600, 320, lo, hi) == 320);   /* came down from 600: all of it at the min */
-    CHECK(dim_comp(330, 600, 320, lo, hi) == 220);   /* 320 * 119 / 173 */
-    CHECK(dim_comp(449, 600, 320, lo, hi) == 0);     /* 40 % up: none */
-    CHECK(dim_comp(448, 600, 320, lo, hi) == 1);
-    CHECK(dim_comp(600, 700, 320, lo, hi) == 0);
-    CHECK(dim_comp(276, 296, 320, lo, hi) == 148);   /* a fall of 20 of 43: 320 * 20 / 43 */
-    CHECK(dim_comp(276, 600, 0, lo, hi) == 0);       /* 0: none */
-    CHECK(dim_comp(0, 600, 320, lo, hi) == 0);       /* dark */
-    CHECK(dim_comp(200, 600, 320, lo, hi) == 0);     /* below the min (fading in or out): none */
-    CHECK(dim_comp(276, 600, 320, 300, 300) == 0);   /* no range */
-    CHECK(dim_comp(10, 1000, 2520, 10, 1000) == 2520);   /* the largest: no overflow */
-    /* continuous: every step down by one moves it by at most 15 (2520 / 173) */
-    uint16_t prev = dim_comp(448, 600, 2520, lo, hi);
-    for (uint16_t v = 447; v >= lo; v--) {
-        uint16_t c = dim_comp(v, 600, 2520, lo, hi);
-        CHECK(c > prev && c - prev <= 15);
+    const uint16_t lo = 2760;                         /* the min's duty: none from 3760 */
+    CHECK(dim_comp(2760, 2760, 320, lo) == 0);        /* on from dark / rising: none */
+    CHECK(dim_comp(3000, 3000, 320, lo) == 0);
+    CHECK(dim_comp(2760, 6000, 320, lo) == 320);      /* came down from far: all of it at the min */
+    CHECK(dim_comp(3260, 6000, 320, lo) == 160);      /* half way up its span */
+    CHECK(dim_comp(3700, 6000, 320, lo) == 19);       /* 320 * 60 / 1000 */
+    CHECK(dim_comp(3760, 6000, 320, lo) == 0);        /* a tenth of the half cycle up: none */
+    CHECK(dim_comp(5000, 7000, 320, lo) == 0);
+    CHECK(dim_comp(2760, 2810, 320, lo) == 160);      /* a fall of 50 of 100 */
+    CHECK(dim_comp(2760, 6000, 0, lo) == 0);          /* 0: none */
+    CHECK(dim_comp(0, 6000, 320, lo) == 0);           /* dark */
+    CHECK(dim_comp(2000, 6000, 320, lo) == 0);        /* below the min (fading in or out): none */
+    CHECK(dim_comp(100, 10000, 2520, 100) == 2520);   /* the largest: no overflow */
+    /* continuous: every step down by one moves it by at most 3 (2520 / 1000) */
+    uint16_t prev = dim_comp(3759, 9000, 2520, lo);
+    for (uint16_t d = 3758; d >= lo; d--) {
+        uint16_t c = dim_comp(d, 9000, 2520, lo);
+        CHECK(c >= prev && c - prev <= 3);
         prev = c;
     }
 }

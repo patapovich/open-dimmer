@@ -158,13 +158,15 @@ uint16_t dim_curve(uint8_t curve, uint16_t value);
 uint16_t dim_output(uint8_t curve, uint16_t value, uint16_t min, uint16_t max);
 /* Lamp compensation (2.2.8). Some LED lamps give more light at the same conduction after they
  * have been brighter (their driver keeps a state): coming down to a level they are brighter
- * than when they came up to it or on from dark. The duty (dim_output) is lowered by up to
- * `amount` at the min, linearly less higher up and none from 40 % of min..max on (a lamp needs
- * about the same conduction less over the bottom of the range, so after the curve, not before
- * it: a soft curve's flat bottom would swallow a value offset); all of it once the light came
- * down a tenth of min..max from the highest value since it came on (`peak`), less after a
- * smaller fall, none while it rises. 0: none. Returns the duty to take off (0..amount). */
-uint16_t dim_comp(uint16_t value, uint16_t peak, uint16_t amount, uint16_t min, uint16_t max);
+ * than when they came up to it or on from dark. All in duty (dim_output, after the curve: a
+ * soft curve's flat bottom would swallow a value offset), and in the lamp's own terms, not the
+ * user's min..max: the duty is lowered by up to `amount` at the min's duty, linearly less up
+ * to DIM_COMP_SPAN above it, none from there; all of it once the duty came down DIM_COMP_FALL
+ * from `peak` (the highest duty since the light came on, followed slowly: phase.c), less after
+ * a smaller fall, none while it rises. 0: none. Returns the duty to take off (0..amount). */
+#define DIM_COMP_SPAN   1000   /* duty above the min's: a tenth of the half cycle (a measured lamp) */
+#define DIM_COMP_FALL   100    /* duty fallen from the peak for all of it */
+uint16_t dim_comp(uint16_t duty, uint16_t peak, uint16_t amount, uint16_t min_duty);
 
 /** TIM1 compare (2 us ticks) for a duty, half_period in 20 us ticks. */
 uint16_t dim_compare(uint16_t half_period, uint16_t duty);

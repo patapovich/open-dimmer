@@ -50,7 +50,7 @@ static dim_fader_t       g_fader[2];
 static volatile uint8_t  g_curve[2];
 static volatile uint16_t g_min[2] = { 10, 10 }, g_max[2] = { 1000, 1000 };
 static volatile uint8_t  g_comp4[2];      /* lamp compensation at the min, / 4 (dim_comp) */
-static uint16_t          g_peak16[2];     /* the highest value since the light came on, x 16 (dim_comp):
+static uint32_t          g_peak16[2];     /* the highest duty since the light came on, x 16 (dim_comp):
                                             follows a rise in about 1.3 s (128 half cycles), from 0 when
                                             it comes on: a moment's rise (an on to the last level, then
                                             the network's level) does not warm the lamp up */
@@ -78,17 +78,18 @@ static void sim_block(void) {
 
 /* The next half cycle's compare of a channel: its fader, the lamp compensation, the curve. */
 static uint16_t channel_compare(uint8_t ch, uint16_t hp) {
-    uint16_t v = dim_fader_tick(&g_fader[ch]);
-    uint16_t p = g_peak16[ch];
-    if (!v) {
-        p = 0;                          /* dark resets it: the lamp starts cold */
-    } else if (v * 16u > p) {
-        p = (uint16_t)(p + ((uint32_t)(v * 16u - p) + 127u) / 128u);
-    }
-    g_peak16[ch] = p;
+    uint16_t v  = dim_fader_tick(&g_fader[ch]);
     uint16_t lo = g_min[ch], hi = g_max[ch];
     uint16_t d  = dim_output(g_curve[ch], v, lo, hi);
-    uint16_t c  = dim_comp(v, p >> 4, (uint16_t)(g_comp4[ch] * 40u), lo, hi);   /* value 4 = duty 40 */
+    uint32_t p  = g_peak16[ch];
+    if (!v) {
+        p = 0;                          /* dark resets it: the lamp starts cold */
+    } else if ((uint32_t)d * 16u > p) {
+        p += ((uint32_t)d * 16u - p + 127u) / 128u;
+    }
+    g_peak16[ch] = p;
+    /* value 4 = duty 40; the min's duty is min * 10 whatever the curve */
+    uint16_t c = dim_comp(d, (uint16_t)(p >> 4), (uint16_t)(g_comp4[ch] * 40u), (uint16_t)(lo * 10u));
     return dim_compare(hp, d > c ? (uint16_t)(d - c) : (d ? 1u : 0u));
 }
 
