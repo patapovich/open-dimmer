@@ -173,10 +173,18 @@ static void apply(uint8_t ch) {
     phase_set_range(ch, g_ch[ch].min, g_ch[ch].max);
     phase_set_curve(ch, g_ch[ch].curve);
     /* A transition time from the module applies to the changes in the second after it (the
-     * network's on and its level; a wall switch in that second would take it too, harmless). */
+     * network's on and its level). */
     uint16_t ms = g_now - g_trans_at[ch] < TRANSITION_VALID_MS ? g_trans_ms[ch] : 0;
     phase_set_timed(ch, g_ch[ch].on, g_ch[ch].level, ms);
     mailbox_keep();
+}
+
+/* A change made at the module itself (wall switch, button, auto-off): at the fade settings. A
+ * transition time written just before is not for it, nor for what the module writes on top of it
+ * (its on level after a wall switch on). */
+static void apply_local(uint8_t ch) {
+    g_trans_ms[ch] = 0;
+    apply(ch);
 }
 
 /* A hold in progress ends without taking its level (the network or a setting
@@ -693,7 +701,7 @@ void dimmer_local_set(uint8_t ch, uint8_t on) {
     }
     uint8_t had_countdown = g_ch[ch].countdown != 0;
     g_ch[ch].on = on ? 1 : 0;
-    apply(ch);
+    apply_local(ch);
     mark_dirty();
     report_local(ch, 0, had_countdown && !g_ch[ch].on);
 }
@@ -805,7 +813,7 @@ void dimmer_hold_end(uint8_t ch) {
         return;
     }
     g_ch[ch].level = in_range(&g_ch[ch], v);
-    apply(ch);
+    apply_local(ch);
     mark_dirty();                   /* a level picked by hand is kept (the stock MCU does too) */
     report_local(ch, 1, 0);
 }
@@ -816,7 +824,7 @@ void dimmer_hold_cancel(uint8_t ch) {
     }
     g_holding[ch] = 0;
     phase_hold_cancel(ch);
-    apply(ch);                      /* target: the level it has, or dark if switched off meanwhile */
+    apply_local(ch);                /* target: the level it has, or dark if switched off meanwhile */
 }
 
 void dimmer_report_all(void) {

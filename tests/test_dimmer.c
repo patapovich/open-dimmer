@@ -794,6 +794,40 @@ static void test_transition_is_for_the_next_second_only(void) {
     CHECK(g_host_fader[0].timed_left == 0);
 }
 
+static void test_transition_is_not_for_the_wall_switch(void) {
+    lit_at(700);
+    host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 45000);
+    host_write(CH1_ON, TUYA_DP_TYPE_BOOL, 1);            /* the network: slowly to 600 */
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 600);
+    CHECK(g_host_fader[0].timed_left != 0);
+    run_ms(300);
+    dimmer_local_set(0, 0);                              /* the wall switch in that second: off */
+    CHECK(g_host_fader[0].timed_left == 0);
+    uint32_t t = ms_to(0, 5000);
+    CHECK(t > 0 && t <= 3000);                           /* at the fade settings, not in 45 s */
+
+    host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 45000);
+    run_ms(200);
+    dimmer_local_set(0, 1);                              /* a tap on from dark in that second ... */
+    dimmer_hold_begin(0, +1, 1);
+    run_ms(50);
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 500);      /* ... the module's on level on top of it */
+    run_ms(50);
+    dimmer_hold_cancel(0);
+    CHECK(g_host_fader[0].timed_left == 0);
+    t = ms_to(500, 5000);
+    CHECK(t > 0 && t <= 3000);
+
+    host_write(CH1_TRANSITION, TUYA_DP_TYPE_VALUE, 45000);
+    run_ms(200);
+    dimmer_local_set(0, 0);                              /* off at the wall and on again, both in */
+    dimmer_local_set(0, 1);                              /* that second ...                       */
+    host_write(CH1_LEVEL, TUYA_DP_TYPE_VALUE, 300);      /* ... the module's on level: no time either */
+    CHECK(g_host_fader[0].timed_left == 0);
+    t = ms_to(300, 5000);
+    CHECK(t > 0 && t <= 3000);
+}
+
 static void test_transition_is_neither_saved_nor_in_the_dump(void) {
     lit_at(500);
     run_ms(3000);
@@ -985,6 +1019,7 @@ int main(void) {
     RUN(test_transition_level_takes_the_time);
     RUN(test_transition_on_from_dark_and_off);
     RUN(test_transition_is_for_the_next_second_only);
+    RUN(test_transition_is_not_for_the_wall_switch);
     RUN(test_transition_is_neither_saved_nor_in_the_dump);
     RUN(test_countdown_turns_off_after_its_time);
     RUN(test_no_start_boost_after_a_warm_reset);
