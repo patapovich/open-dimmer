@@ -1049,12 +1049,27 @@ static void test_custom_curve_dps_saved_and_the_curve_id(void) {
         CHECK(host_log_find(want) >= 0);
     }
     CHECK(dim_custom_ok(1) && !dim_custom_ok(0));
+    run_ms(3000);
+    unsigned saves = g_host_saves;
+    uint8_t  c[3][12];
+    memcpy(c, b, sizeof(c));
+    c[0][2] = 90;                                                      /* point 1: 100 -> 90 */
+    c[2][2] = 0xFF;                                                    /* point 13: 7000 -> 7167 */
+    c[2][3] = 0x1B;
+    CHECK(dimmer_write_dp(177, TUYA_DP_TYPE_RAW, c[0], 12));          /* parts 0 and 1 alone ... */
+    CHECK(dimmer_write_dp(178, TUYA_DP_TYPE_RAW, c[1], 12));
+    run_ms(3000);
+    CHECK(g_host_saves == saves);                                      /* ... are not saved */
+    CHECK(dimmer_write_dp(179, TUYA_DP_TYPE_RAW, c[2], 12));
+    run_ms(3000);
+    CHECK(g_host_saves == saves + 1);                                  /* the last part saves */
+    memcpy(b, c, sizeof(c));                                           /* the table from here */
     host_write(102, TUYA_DP_TYPE_ENUM, CURVE_CUSTOM);                  /* channel 2's curve */
     CHECK(dimmer_channel(1)->curve == CURVE_CUSTOM);
     CHECK(!dimmer_write_dp(102, TUYA_DP_TYPE_ENUM, (const uint8_t *)"\x07", 1));
     host_log_clear();
     dimmer_report_all();                                               /* in the dump */
-    CHECK(host_log_find("177=raw:000064") >= 0 && host_log_find("174=raw:0000") >= 0);
+    CHECK(host_log_find("177=raw:00005a00") >= 0 && host_log_find("174=raw:0000") >= 0);   /* LE: 0, 90 */
     run_ms(3000);
     host_saved_t s;
     memcpy(&s, g_host_flash, sizeof(s));

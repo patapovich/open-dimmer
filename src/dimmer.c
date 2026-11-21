@@ -534,7 +534,10 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         }
         dim_custom_put((uint8_t)(k / 3), (uint8_t)(k % 3 * 6), value);
         apply((uint8_t)(k / 3));
-        mark_dirty();
+        if (k % 3 == 2) {
+            mark_dirty();     /* saved with the last part: a power cut between parts keeps the
+                                 old table in flash, never a mix of the two */
+        }
         return 1;
     }
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
