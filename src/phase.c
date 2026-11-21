@@ -80,6 +80,7 @@ static void sim_block(void) {
 static uint16_t channel_compare(uint8_t ch, uint16_t hp) {
     uint16_t v  = dim_fader_tick(&g_fader[ch]);
     uint16_t lo = g_min[ch], hi = g_max[ch];
+    dim_custom_ch = ch;                 /* a custom curve: this channel's table */
     uint16_t d  = dim_output(g_curve[ch], v, lo, hi);
     uint32_t p  = g_peak16[ch];
     if (!v) {

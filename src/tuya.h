@@ -18,6 +18,7 @@
 #define TUYA_CMD_QUERY_NETWORK   0x20   /* MCU -> module: network state? */
 #define TUYA_CMD_QUERY_ALL       0x28   /* module -> MCU: report every DP */
 
+#define TUYA_DP_TYPE_RAW         0x00
 #define TUYA_DP_TYPE_BOOL        0x01
 #define TUYA_DP_TYPE_VALUE       0x02
 #define TUYA_DP_TYPE_ENUM        0x04

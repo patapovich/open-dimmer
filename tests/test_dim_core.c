@@ -123,8 +123,11 @@ static uint16_t curve_signed(uint8_t curve, uint16_t value) {
     if (value >= DIM_VALUE_MAX) {
         return DIM_DUTY_MAX;
     }
-    if (curve == CURVE_LINEAR || curve >= CURVE_COUNT) {
+    if (curve == CURVE_LINEAR || curve > CURVE_CUSTOM) {
         return (uint16_t)(value * 10u);                /* linear: computed, as dim_output does */
+    }
+    if (curve == CURVE_CUSTOM) {
+        curve = CURVE_LED_SOFT;                        /* no valid table (test_custom_curve left none) */
     }
     const uint16_t *k    = k_curves[curve - 1];
     uint32_t        pos  = (uint32_t)value * (CURVE_POINTS - 1);
@@ -1351,7 +1354,50 @@ static void test_lamp_compensation(void) {
     }
 }
 
+/* The custom curve: three parts make the table; checked whole; per channel; led_soft until
+ * a valid one came. */
+static void put_be(uint8_t ch, uint8_t first, const uint16_t *pts) {
+    uint8_t b[12];
+    for (int i = 0; i < 6; i++) {
+        b[2 * i] = (uint8_t)(pts[i] >> 8);
+        b[2 * i + 1] = (uint8_t)pts[i];
+    }
+    dim_custom_put(ch, first, b);
+}
+
+static void test_custom_curve(void) {
+    static const uint16_t t[18] = { 0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200, 4000,
+                                    4900, 5900, 7000, 8100, 9100, 10000, 77 };   /* 18th: ignored */
+    dim_custom_ch = 0;
+    CHECK(!dim_custom_ok(0) && dim_curve(CURVE_CUSTOM, 500) == dim_curve(CURVE_LED_SOFT, 500));
+    put_be(0, 0, t);
+    put_be(0, 6, t + 6);
+    CHECK(!dim_custom_ok(0));                         /* two parts of three: not yet */
+    CHECK(dim_curve(CURVE_CUSTOM, 500) == dim_curve(CURVE_LED_SOFT, 500));
+    put_be(0, 12, t + 12);
+    CHECK(dim_custom_ok(0) && !dim_custom_ok(1));
+    CHECK(dim_curve(CURVE_CUSTOM, 500) == 2500);      /* point 8 of 16 */
+    CHECK(dim_curve(CURVE_CUSTOM, 1000) == 10000);
+    CHECK(dim_curve(CURVE_CUSTOM, 31) == 50);         /* half way to point 1: 100 / 2 (31.25) */
+    CHECK(dim_curve(CURVE_CUSTOM, 1) >= 1);           /* on is never fully dark */
+    dim_custom_ch = 1;                                 /* the other channel: none yet */
+    CHECK(dim_curve(CURVE_CUSTOM, 500) == dim_curve(CURVE_LED_SOFT, 500));
+    dim_custom_ch = 0;
+    CHECK(dim_output(CURVE_CUSTOM, 276, 276, 709) == 2760);    /* the min's duty, as every curve */
+    CHECK(dim_output(CURVE_CUSTOM, 709, 276, 709) == 7090);
+    static const uint16_t bad[6] = { 0, 100, 90, 450, 700, 1000 };   /* falls */
+    put_be(0, 0, bad);
+    CHECK(!dim_custom_ok(0) && dim_curve(CURVE_CUSTOM, 500) == dim_curve(CURVE_LED_SOFT, 500));
+    put_be(0, 0, t);
+    CHECK(dim_custom_ok(0));
+    static const uint16_t no_end[6] = { 5900, 7000, 8100, 9100, 9999, 0 };    /* not 10000 at the end */
+    put_be(0, 12, no_end);
+    CHECK(!dim_custom_ok(0));
+    CHECK(dim_curve(CURVE_CUSTOM + 1, 500) == 500 * 10);   /* an unknown curve: linear */
+}
+
 int main(void) {
+    test_custom_curve();
     test_lamp_compensation();
     test_fade_up_takes_two_seconds();
     test_fade_lands_exactly_on_target();

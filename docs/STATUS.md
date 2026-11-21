@@ -69,7 +69,7 @@ channel 1 / channel 2.
 | 4 / 10 | switch type | 0 toggle, 1 state, 2 momentary |
 | 5 / 11 | max | as min |
 | 6 / 12 | countdown | auto-off in s, up to a day; not saved; 0 when an off ends it |
-| 101 / 102 | dimming curve | incandescent, led, led_deep, led_deeper, led_soft (default), linear |
+| 101 / 102 | dimming curve | incandescent, led, led_deep, led_deeper, led_soft (default), linear; custom (6, 2.2.8: the table of DPs 174.., led_soft until it came) |
 | 103 / 104 | power-on | – |
 | 105 / 106 | wall switch gesture (report) | 1 single, 2 double, 3 triple, 4 hold, 5 release, 6 press (fast press) |
 | 150..154 / 155..159 | fade and hold | fade on ms, fade off ms, fade-off slow zone %, hold ms, hold slow zone % |
@@ -80,6 +80,7 @@ channel 1 / channel 2.
 | 168 / 169 | start boost | ms, steps of 50, up to 750 |
 | 170 / 171 | fast press | in detached mode a momentary press is reported at once |
 | 172 / 173 | lamp compensation | value units at the min, steps of 4, up to 252; 0: none (2.2.8) |
+| 174..176 / 177..179 | custom curve | raw, 6 big-endian u16 each: points 0-5, 6-11, 12-16 (a sixth ignored) of 17 outputs 0..10000 at 0, 1/16 .. 1 of min..max; 0 first, 10000 last, never falling; RAM only (the module writes them after every start); answered with 1 once the whole table is valid (2.2.8) |
 
 During a hold the level is reported every 0.5 s.
 

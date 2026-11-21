@@ -263,6 +263,29 @@ __attribute__((noinline)) uint16_t dim_fader_tick(dim_fader_t *f) {
     return cur;
 }
 
+_Static_assert(CURVE_CUSTOM == CURVE_COUNT, "the custom curve comes after the generated ones");
+static uint16_t g_custom[2][CUSTOM_POINTS];
+static uint8_t  g_custom_ok[2];
+uint8_t         dim_custom_ch;
+
+void dim_custom_put(uint8_t ch, uint8_t first, const uint8_t *be16) {
+    uint16_t *t = g_custom[ch & 1u];
+    for (uint8_t i = first; i < first + 6u && i < CUSTOM_POINTS; i++, be16 += 2) {
+        t[i] = (uint16_t)(be16[0] << 8 | be16[1]);   /* the third part's sixth point: none */
+    }
+    uint8_t ok = t[0] == 0 && t[CUSTOM_POINTS - 1] == CURVE_OUT_MAX;
+    for (uint8_t i = 1; i < CUSTOM_POINTS; i++) {
+        if (t[i] < t[i - 1]) {
+            ok = 0;
+        }
+    }
+    g_custom_ok[ch & 1u] = ok;
+}
+
+uint8_t dim_custom_ok(uint8_t ch) {
+    return ch < 2 && g_custom_ok[ch];
+}
+
 uint16_t dim_curve(uint8_t curve, uint16_t value) {
     if (value == 0) {
         return 0;
@@ -271,11 +294,23 @@ uint16_t dim_curve(uint8_t curve, uint16_t value) {
         return DIM_DUTY_MAX;
     }
     _Static_assert(CURVE_LINEAR == 0, "the tables start at the curve after linear");
-    if (curve == CURVE_LINEAR || curve >= CURVE_COUNT) {     /* linear (also unknown): no table */
+    if (curve == CURVE_LINEAR || curve > CURVE_CUSTOM) {      /* linear (also unknown): no table */
         return (uint16_t)(value * (DIM_DUTY_MAX / DIM_VALUE_MAX));
     }
-    const uint16_t *k   = k_curves[curve - 1];
-    uint32_t        pos = (uint32_t)value * (CURVE_POINTS - 1);   /* in 1/1000 of a segment */
+    const uint16_t *k = 0;
+    uint32_t        n = CURVE_POINTS;
+    if (curve == CURVE_CUSTOM) {                              /* the channel's custom table */
+        if (g_custom_ok[dim_custom_ch & 1u]) {
+            k = g_custom[dim_custom_ch & 1u];
+            n = CUSTOM_POINTS;
+        } else {
+            curve = CURVE_LED_SOFT;                           /* none yet: the default */
+        }
+    }
+    if (!k) {
+        k = k_curves[curve - 1];
+    }
+    uint32_t        pos = (uint32_t)value * (n - 1);          /* in 1/1000 of a segment */
     uint32_t        seg = pos / DIM_VALUE_MAX;
     uint32_t        frac = pos % DIM_VALUE_MAX;
     uint32_t        a = k[seg], b = k[seg + 1];   /* b >= a: the tables never fall (gen_curves.py) */
@@ -300,7 +335,7 @@ __attribute__((noinline)) uint16_t dim_output(uint8_t curve, uint16_t value, uin
     if (value > max) {
         value = max;
     }
-    if (curve == CURVE_LINEAR || curve >= CURVE_COUNT) {
+    if (curve == CURVE_LINEAR || curve > CURVE_CUSTOM) {
         return (uint16_t)(value * (DIM_DUTY_MAX / DIM_VALUE_MAX));   /* min + (v - min): exact */
     }
     uint32_t span = (uint32_t)(max - min);

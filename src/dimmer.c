@@ -17,6 +17,9 @@
 #define DP_TRANSITION_BASE 160 /* + channel: ms the next network change takes (ours, not saved) */
 #define DP_EXTRA_BASE    162   /* + 2 * k + channel, k: 0 switch mode, 1 power-cut level, */
 #define DP_EXTRA_END     174   /* 2 identify s, 3 start boost ms, 4 fast press, 5 lamp compensation */
+#define DP_CUSTOM_BASE   174   /* + 3 * channel + part: the custom curve's points 0-5, 6-11, 12-16 */
+#define DP_CUSTOM_END    180   /* (raw, 6 big-endian u16, the last part's sixth ignored; RAM only:
+                                  the module writes them again after every start) */
 enum { EX_INPUT, EX_POWER_LEVEL, EX_IDENTIFY, EX_BOOST, EX_FAST_PRESS, EX_COMP };
 #define COUNTDOWN_MAX    86400u
 #define TRANSITION_VALID_MS 1000  /* ... if it comes this soon after (on, then level) */
@@ -238,7 +241,7 @@ uint8_t dimmer_init(uint32_t reset_csr) {
             g_ch[i].min         = clamp_level(s.ch[i].min);
             g_ch[i].max         = clamp_level(s.ch[i].max);
             g_ch[i].switch_type = s.ch[i].switch_type <= 2 ? s.ch[i].switch_type : 0;
-            g_ch[i].curve       = s.ch[i].curve < CURVE_COUNT ? s.ch[i].curve : 0;
+            g_ch[i].curve       = s.ch[i].curve <= CURVE_CUSTOM ? s.ch[i].curve : 0;
             if (s.format >= 3) {              /* stored + 1; 0 = default */
                 if (s.pf[i].fade_on_ms && s.pf[i].fade_on_ms <= DIM_PROFILE_MS_MAX + 1u) {
                     g_ch[i].fade_on_ms = (uint16_t)(s.pf[i].fade_on_ms - 1u);
@@ -519,8 +522,17 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         mark_dirty();
         return 1;
     }
+    if (dpid >= DP_CUSTOM_BASE && dpid < DP_CUSTOM_END) {
+        uint8_t k = (uint8_t)(dpid - DP_CUSTOM_BASE);
+        if (type != TUYA_DP_TYPE_RAW || len != 12) {
+            return 0;
+        }
+        dim_custom_put((uint8_t)(k / 3), (uint8_t)(k % 3 * 6), value);
+        apply((uint8_t)(k / 3));
+        return 1;
+    }
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
-        if (type != TUYA_DP_TYPE_ENUM || len != 1 || value[0] >= CURVE_COUNT) {
+        if (type != TUYA_DP_TYPE_ENUM || len != 1 || value[0] > CURVE_CUSTOM) {
             return 0;
         }
         ch               = (uint8_t)(dpid - DP_CURVE_BASE);
@@ -666,6 +678,11 @@ void dimmer_report_dp(uint8_t dpid) {
     }
     if (dpid >= DP_POWER_ON_BASE && dpid < DP_POWER_ON_BASE + DIMMER_CHANNELS) {
         tuya_report_enum(dpid, g_power_on[dpid - DP_POWER_ON_BASE]);
+        return;
+    }
+    if (dpid >= DP_CUSTOM_BASE && dpid < DP_CUSTOM_END) {
+        /* the ack: whether the channel's whole table is valid now (1) or not yet (0) */
+        tuya_report_value(dpid, dim_custom_ok((uint8_t)((unsigned)(dpid - DP_CUSTOM_BASE) / 3)));
         return;
     }
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
