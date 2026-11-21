@@ -7,7 +7,7 @@ against the rules of docs/BOOTLOADER.md (sections 1, 2 and 11).
         build, whose build number must be the release build + N (with make FW_PREV=1: the
         previous release build + N). --hidden (make HIDDEN=1): the binary also spans the hidden
         flash from 0x08005000; the image is its 14 KB app area followed by the hidden bytes (a
-        v3 bootloader puts them back there, docs/BOOTLOADER.md section 17)
+        v3 bootloader puts them back there, docs/BOOTLOADER.md section 18)
     mkimage.py app.img --full boot.bin out.bin
         boot padded to 4 KB + app: the whole flash image for an SWD install. The bootloader
         must have its boot_id at 0x10 (a v1 bootloader is refused). The app must
@@ -97,7 +97,7 @@ def summary(h, size: int) -> str:
 def join_hidden(data: bytes) -> bytes:
     """objcopy's binary of an app linked with the hidden region (make HIDDEN=1, --gap-fill 0xff)
     spans 0x08001000..the end of its hidden part, the 2 KB settings ring between them as a gap:
-    the image is the app area's 14 KB followed by the hidden bytes (IMAGE_ADDR, section 17)."""
+    the image is the app area's 14 KB followed by the hidden bytes (IMAGE_ADDR, section 18)."""
     gap = fw.HIDDEN_BASE - fw.APP_BASE                 # 0x4000: the binary's offset of HIDDEN_BASE
     if len(data) <= gap:
         return data                                    # nothing in the hidden region

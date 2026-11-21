@@ -64,7 +64,8 @@ Numbers marked *measured* come from throwaway experiments that are not in the re
 ## 1. Flash layout and constants
 
 PY32F002A: 20 KB flash, 128-byte pages (the erase unit used here), 4 KB sectors (the
-write-protection unit and pyOCD's erase unit), 3 KB RAM.
+write-protection unit and pyOCD's erase unit), 3 KB RAM. (Bootloader v3 also uses the 12 KB of hidden flash
+above the 20 KB for the part of an image past 14 KB: section 18.)
 
 | Region | Address | Size | Content | Written by |
 |---|---|---|---|---|
@@ -1913,3 +1914,92 @@ version space (item 31); build 300. Its headroom was recovered before the tag (s
 11 632 bytes, 656 free), with the register values unchanged: `clock_init()` writes what
 `LL_RCC_HSI_SetCalibFreq()` and `LL_Init1msTick()` wrote, and the UART's BRR is 208 from
 constants (a compile-time check). The release gate then needs no acceptance.
+
+---
+
+## 18. The hidden flash (bootloader v3)
+
+The PY32F002A is a PY32F030x6 die: 32 KB of flash and 4 KB of RAM, of which Puya guarantees
+20 KB and 3 KB. Many users of the EEVblog PY32F002A thread report the rest working, and a bench
+test on a spare module (2026-11-21, board off the mains, powered by the SWD probe) passed: every
+128-byte page of 0x08005000..0x08007FFF erased, programmed with a pattern and its inverse and read
+back (96 of 96), and 0x20000C00..0x20000FFF read back a pattern. Nothing is known about its
+endurance or retention. Two things follow: only data written once per update goes there, and
+every chip proves each page before the bootloader relies on it.
+
+On that bench the flash had to be written by the CPU (a small routine in RAM): an erase started by
+a debugger write over the AHB-AP stalls the debug port and the write fails, inside the 20 KB too.
+The bootloader writes with the CPU anyway.
+
+### Layout
+
+| Region | Address | Size | Content | Written by |
+|---|---|---|---|---|
+| Sector 0 | 0x08000000-0x08000FFF | 4 KB | Bootloader v3 | SWD only |
+| App area | 0x08001000-0x080047FF | 14 KB | Image bytes 0..0x37FF: vectors, header, code | Bootloader |
+| Settings | 0x08004800-0x08004FFF | 2 KB | The ring of section 1 (RING_HIGH), unchanged | App |
+| Hidden | 0x08005000-0x08007FFF | 12 KB | Image bytes 0x3800..0x67FF | Bootloader |
+
+`IMAGE_ADDR(off)` (src/ota_proto.h) maps an image offset to its address: the first `BOOT_APP_MAX`
+bytes at `APP_BASE`, the rest at `HIDDEN_BASE`. The image is still one file with one header, one
+size and one CRC over its bytes in a row; the ZTU serves it by offset as before and does not need
+to know where a byte goes. `BOOT_IMAGE_MAX` = 26 KB. The settings ring never moves, so no
+release has to move it and a downgrade finds it where it was.
+
+### Bootloader v3
+
+- `boot_id`: version 3, features `BOOT_FEATURES_V2 | BOOT_FEAT_HIDDEN` (0x1F), `app_max` 26 KB.
+- Writes: page addresses from `IMAGE_ADDR`; the write guard covers 0x08001000..0x08007FFF and
+  refuses the ring between (`FLASH_HOLE_START`/`END`, set in the bootloader's build only).
+- `app_valid()`: magic, 0xD0 <= size <= 26 KB, the reset vector inside the app-area part, the CRC
+  over the app area and then the hidden part.
+- Limits: with an installed RING_HIGH app and with no valid app, up to 26 KB; under a 12 KB-ring
+  app 12 KB as before.
+- Before an image over 14 KB is pinned (`pick()`, after every other rule), `hidden_ok()` programs
+  each hidden page the image needs with a pattern, checks it, erases it and checks it again
+  (`flash_write_page()` reads every write back). Pages the installed app already covers are
+  skipped: its CRC proved them at this boot, and testing them would erase its code. The
+  watchdog is fed between pages (96 pages take about 1 s). If a page fails, the image is refused
+  before anything of the app was touched: `OTA_RESULT_FLASH` with its version and build, and
+  `g_bad` keeps it from being asked again in this run. In the probe that ends the probe; asked,
+  it ends at the give-up with the app intact; with no app the bootloader keeps asking (any image
+  beats none) and tests again in each window.
+- Size: 3628 of 4096 bytes (+264).
+
+### App
+
+- `bootif.c`: offers are taken up to the bootloader's `app_max` when it has `BOOT_FEAT_HIDDEN` and
+  the ring is at 0x08004800; under a v2 bootloader the limit stays 14 KB, so a module that has
+  not got v3 declines a larger image and keeps its app.
+- `make HIDDEN=1` (the default for normal builds, needs RING_HIGH): the constants (`.rodata`, the
+  curve tables) are linked at 0x08005000 (`REGION_ALIAS("HIDDEN_DATA", FLASH_HI)` in the
+  generated linker script); objcopy fills the ring's addresses with 0xFF and `mkimage.py --hidden`
+  joins the app area (padded to 14 KB) and the hidden bytes into the image. The bench builds
+  (SIM, DIAG, MEASURE) stay `HIDDEN=0` and keep their full images.
+- More could go to the hidden flash (main() alone is 4.9 KB with LTO), but the app area is padded
+  to 14 KB in the image and the ZTU carries the padding: that waits for a ZTU that stores the
+  image without it.
+- There is no full image of a HIDDEN app (the ring sits between its parts): an SWD install
+  writes the bootloader and the app area and lets the bootloader take the image from the ZTU, or
+  uses `tools/swd/install_hidden.sh`.
+
+### ZTU
+
+- `IMAGE_MAX` (the largest image the ZTU carries and offers) 26 KB.
+- It carries bootloader v3 for the SWD job `update_bootloader`, which only runs when asked.
+- The SWD installer (`install`) writes an image over 14 KB with `IMAGE_ADDR` and, like the
+  bootloader, tests the hidden pages first; a chip that fails is not installed.
+- The ZTU OTA file carries the MCU image: its margin to the 0x34000 limit bounds the image.
+
+### Who gets it
+
+A module whose bootloader was written over SWD before v3 keeps v2 until it gets v3 over SWD: the
+ZTU's `update_bootloader` job where the ZTU is wired to the MCU's SWD pins (the probe-free
+install), a probe otherwise. Until then it stays on the last app of at most 14 KB.
+
+### Tests
+
+`make test-boot`, scenario `hidden` and the probe table: both parts written and run, the ring
+unchanged after every boot, the pages an installed app proves kept, a hidden flash that never
+programs refused with the app intact (asked, probe, no app), a power cut in the hidden part, 26 KB
+taken and 26 KB + 4 refused; the real driver's guard (the ring, the hidden pages, 0x08008000).

@@ -26,7 +26,7 @@
  *    write, writes page by page, checks the whole image, reports (0xA2) and restarts.
  * Nothing is erased before an image is pinned and its page 0 checked, so a ZTU that does not
  * answer leaves the installed app as it was.
- *  - v3 (section 17): an image over BOOT_APP_MAX (14 KB) continues in the hidden flash at
+ *  - v3 (section 18): an image over BOOT_APP_MAX (14 KB) continues in the hidden flash at
  *    HIDDEN_BASE, past the settings ring (IMAGE_ADDR). Before such an image is pinned, every
  *    hidden page it needs and the installed app does not already prove is erased, programmed
  *    and checked; a chip whose hidden flash fails refuses the image and keeps its app. Once a page is written without a finished image

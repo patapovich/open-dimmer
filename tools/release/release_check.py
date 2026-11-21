@@ -170,7 +170,7 @@ def budget(image, ota=None, ota_name="", accept=None):
     checked); accept: the free bytes the user accepted below HEADROOM_MIN, or None."""
     h = fw.finished(image)
     room = fw.BOOT_APP_MAX if h.flags & fw.FLAG_RING_HIGH else fw.APP_LIMIT_LEGACY
-    # an image over 14 KB (v3, section 17): the app area's free bytes are its padding, and the
+    # an image over 14 KB (v3, section 18): the app area's free bytes are its padding, and the
     # hidden flash has its own room
     used = len(bytes(image[:fw.BOOT_APP_MAX]).rstrip(b"\xff")) if h.size > fw.BOOT_APP_MAX else h.size
     free = room - used

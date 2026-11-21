@@ -151,7 +151,7 @@ jobs:
           HEADROOM_WARN_BYTES: 512
         run: |
           # The app's room: 12 KB, or 14 KB with RING_HIGH (settings ring at 0x08004800); an image
-          # over 14 KB (HIDDEN=1) also has its hidden part (12 KB from 0x08005000, section 17).
+          # over 14 KB (HIDDEN=1) also has its hidden part (12 KB from 0x08005000, section 18).
           # "free" is the app area's: its bytes up to the last one that is not padding.
           room() { python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); print(14336 if d[0xCD] & 0x10 else 12288)" "$1"; }
           used() { python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); print(len(d[:14336].rstrip(b'\xff')) if len(d) > 14336 else len(d))" "$1"; }
@@ -229,7 +229,7 @@ jobs:
 
       - name: Release files (flat, named as attached to a release, so sha256sum -c works on a download)
         run: |
-          # (no full image of a HIDDEN app: docs/BOOTLOADER.md section 17)
+          # (no full image of a HIDDEN app: docs/BOOTLOADER.md section 18)
           cp build/zdms16_py32.img build-boot/boot.bin dist/
           if [ -f build/zdms16_py32_full.bin ]; then cp build/zdms16_py32_full.bin dist/; fi
           cd dist

@@ -5,6 +5,12 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
 
 ## 2.2.8 (unreleased)
 
+- Bootloader v3 and the hidden flash: the PY32F002A has 12 KB of flash above its 20 KB that
+  Puya does not guarantee. Bootloader v3 takes images up to 26 KB and puts their part past 14 KB
+  there, past the settings ring, after it has tested each of those pages on that chip; a chip
+  whose hidden flash fails keeps its app. The app's constants now live there. A module needs v3
+  (written over SWD: the module's own SWD job where its Zigbee chip is wired to the MCU, a
+  programmer otherwise) for this and later releases; with v2 it stays on 2.2.7.
 - Lamp compensation (a setting per channel, off by default). Some LED lamps give more light
   at the same output after they have been brighter: dimmed down to a level they are brighter
   than when switched on at it, so the bottom of a dim-down never gets as dim as a start from

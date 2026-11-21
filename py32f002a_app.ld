@@ -44,7 +44,7 @@ MEMORY
   FLASH (rx)     : ORIGIN = 0x08001000, LENGTH = 12K   /* after the 4 KB bootloader */
   /* Last 4 KB sector: settings ring (src/store.c), never code. */
   SETTINGS (r)   : ORIGIN = 0x08004000, LENGTH = 4K
-  /* The hidden flash past the 20 KB (a v3 bootloader, docs/BOOTLOADER.md section 17): used only
+  /* The hidden flash past the 20 KB (a v3 bootloader, docs/BOOTLOADER.md section 18): used only
      when the build points HIDDEN_DATA at it (make HIDDEN=1). */
   FLASH_HI (rx)  : ORIGIN = 0x08005000, LENGTH = 12K
 }

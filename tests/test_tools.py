@@ -285,7 +285,7 @@ class MkImage(ToolRun):
         self.assertEqual(rc, 0, out)
         rc, out, _ = self.mkimage(0x9D, CONFIRMS | RING_HIGH, 300, size=14 * KB)
         self.assertEqual(rc, 0, out)
-        # v3 (section 17): past 14 KB into the hidden flash, up to 26 KB
+        # v3 (section 18): past 14 KB into the hidden flash, up to 26 KB
         rc, out, _ = self.mkimage(0x9D, CONFIRMS | RING_HIGH, 300, size=14 * KB + 4)
         self.assertEqual(rc, 0, out)
         rc, out, _ = self.mkimage(0x9D, CONFIRMS | RING_HIGH, 300, size=26 * KB)

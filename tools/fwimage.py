@@ -26,7 +26,7 @@ BOOT_BASE, BOOT_SIZE, BOOT_ID_OFFSET = 0x08000000, 0x1000, 0x10
 APP_BASE, APP_HEADER_OFFSET, APP_SIZE_MIN = 0x08001000, 0xC0, 0xD0
 BOOT_APP_MAX, APP_LIMIT_LEGACY = 0x3800, 0x3000          # 14 KB (v2 boot, RING_HIGH), 12 KB
 FLASH_SIZE = 0x5000
-HIDDEN_BASE, HIDDEN_SIZE = 0x08005000, 0x3000             # v3: the hidden flash (section 17)
+HIDDEN_BASE, HIDDEN_SIZE = 0x08005000, 0x3000             # v3: the hidden flash (section 18)
 BOOT_IMAGE_MAX = BOOT_APP_MAX + HIDDEN_SIZE                # 26 KB: the v3 bootloader's ceiling
 APP_MAGIC, BOOT_ID_MAGIC, BOOT_VERSION = 0x5A445041, 0x4C42444F, 3
 BOOT_VERSION_MIN = 2                                       # the oldest boot_id a full image takes
@@ -104,7 +104,7 @@ def finished(img):
 
 def layout_problem(size, flags):
     """The settings layouts (section 1): 12 KB, or with RING_HIGH 14 KB, and up to 26 KB under a
-    v3 bootloader (the bytes past 14 KB in the hidden flash, section 17)."""
+    v3 bootloader (the bytes past 14 KB in the hidden flash, section 18)."""
     if size < APP_SIZE_MIN:
         return f"app of {size} bytes: shorter than its header"
     if size > BOOT_IMAGE_MAX:

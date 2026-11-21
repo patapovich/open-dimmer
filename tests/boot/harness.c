@@ -2974,7 +2974,7 @@ SCENARIO sc_ztu_gates(void) {
     }
 }
 
-/* v3 (section 17): an image over 14 KB continues in the hidden flash at 0x08005000, past the
+/* v3 (section 18): an image over 14 KB continues in the hidden flash at 0x08005000, past the
  * settings ring (boot_once() checks the ring and sector 0 after every boot). */
 SCENARIO sc_hidden(void) {
     fresh();

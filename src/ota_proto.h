@@ -45,7 +45,7 @@
 #define SETTINGS_BASE_LEGACY  (APP_BASE + APP_LIMIT_LEGACY)   /* 0x08004000: ring of 32 pages */
 #define SETTINGS_BASE_HIGH    (APP_BASE + BOOT_APP_MAX)       /* 0x08004800: ring of 16 pages (APP_FLAG_RING_HIGH) */
 #define FLASH_TOP             0x08005000u   /* end of the 20 KB flash */
-/* The hidden flash (v3 bootloader; docs/BOOTLOADER.md section 17): the PY32F002A is a PY32F030x6
+/* The hidden flash (v3 bootloader; docs/BOOTLOADER.md section 18): the PY32F002A is a PY32F030x6
  * die with 32 KB, of which Puya guarantees the first 20 KB. An image's bytes from BOOT_APP_MAX on
  * go to HIDDEN_BASE, past the settings ring, so the ring never moves and only code (written once
  * per update) sits in the unguaranteed part; the bootloader tests each hidden page it will write

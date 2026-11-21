@@ -142,7 +142,7 @@ RING_HIGH ?= $(if $(and $(filter 1,$(FW_PREV)),$(filter 400,$(RELEASE_BUILD))),0
 ifneq ($(filter-out 0 1,$(RING_HIGH)),)
   $(error RING_HIGH=$(RING_HIGH): 0 or 1)
 endif
-# The hidden flash (docs/BOOTLOADER.md section 17): HIDDEN=1 links the constants at 0x08005000,
+# The hidden flash (docs/BOOTLOADER.md section 18): HIDDEN=1 links the constants at 0x08005000,
 # past the settings ring, and makes an image over 14 KB that only a v3 bootloader takes. Needs
 # RING_HIGH (the ring at 0x08004800). HIDDEN=0: everything in the app area, as up to 2.2.7: the
 # bench builds (SIM, DIAG, MEASURE), which go on over SWD only, keep that and their full image.
