@@ -280,7 +280,8 @@ void phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi, uint8_t 
     __enable_irq();
 }
 
-uint16_t phase_hold_stop(uint8_t ch) {
+/* (One copy: inlined into its two callers it costs 56 bytes.) */
+__attribute__((noinline)) uint16_t phase_hold_stop(uint8_t ch) {
     if (ch >= 2) {
         return 0;
     }

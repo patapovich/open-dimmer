@@ -1274,6 +1274,26 @@ static void test_boost_goes_on_through_the_level_after_on_and_ends_with_off_or_a
     CHECK(f.current >= 100 && f.current < 120);      /* the hold rises from the min */
 }
 
+static void test_a_hold_from_dark_let_go_during_the_boost_stays_at_the_min(void) {
+    dim_fader_t f;
+    boosted(&f, 600);                            /* longer than the 400 ms a hold takes */
+    dim_fader_set(&f, 1, 400);
+    dim_fader_hold_start_from_dark(&f, 100, 1000);
+    for (int i = 0; i < 45; i++) {
+        CHECK(dim_fader_tick(&f) == DIM_VALUE_MAX);      /* 450 ms: the boost still runs */
+    }
+    CHECK(dim_fader_hold_stop(&f) == 100);       /* the hold's level: its min, not the boost's full */
+    CHECK(f.hold_dir == 0 && f.target == 100);
+    int n = 0;
+    while (f.boost_left && n < 100) {
+        CHECK(dim_fader_tick(&f) == DIM_VALUE_MAX || !f.boost_left);
+        n++;
+    }
+    CHECK(n >= 14 && n <= 16);                   /* the kick runs on to its end (150 ms more) */
+    CHECK(f.current == 100);                     /* then the min */
+    CHECK(dim_fader_tick(&f) == 100);            /* and it stays there */
+}
+
 static void test_a_boost_does_not_lengthen_a_timed_on(void) {
     dim_fader_t f;
     boosted(&f, 300);
@@ -1366,6 +1386,7 @@ int main(void) {
     test_boost_at_full_then_straight_to_the_level();
     test_boost_goes_on_through_the_level_after_on_and_ends_with_off_or_a_hold();
     test_no_boost_from_lit_or_when_off_and_a_timed_on_after_it();
+    test_a_hold_from_dark_let_go_during_the_boost_stays_at_the_min();
     test_a_boost_does_not_lengthen_a_timed_on();
     if (g_failed) {
         printf("%d check(s) failed\n", g_failed);

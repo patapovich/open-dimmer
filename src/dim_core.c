@@ -134,7 +134,10 @@ void dim_fader_hold_start_from_dark(dim_fader_t *f, uint16_t lo, uint16_t hi) {
 uint16_t dim_fader_hold_stop(dim_fader_t *f) {
     if (f->hold_dir) {              /* an off may have ended the hold already: */
         f->hold_dir = 0;            /* then it keeps fading to its target      */
-        f->target   = f->current;
+        if (f->boost_left) {
+            f->current = f->hold_lo;    /* let go during the start boost (at full): still at its min */
+        }
+        f->target = f->current;
     }
     return f->current;
 }
