@@ -26,7 +26,7 @@ Connection, one of:
 Examples:
   HA_TOKEN=... python3 tools/custom_curve.py --ha http://homeassistant.local:8123 \\
       --device bedroom-dimmer --channel l1 --sensor bedroom-presence --apply
-  python3 tools/custom_curve.py --mqtt 192.168.1.10 --username z2m --device bedroom-dimmer \\
+  python3 tools/custom_curve.py --mqtt mqtt.local --username z2m --device bedroom-dimmer \\
       --manual --save lamp.json
   python3 tools/custom_curve.py --load lamp.json            # the curve again, from a saved run
   python3 tools/custom_curve.py --self-test
