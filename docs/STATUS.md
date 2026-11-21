@@ -25,8 +25,8 @@ Last updated: 2026-11-20.
 
 | | |
 |---|---|
-| Release | **2.2.6**, build 1100 |
-| Size | app 13 676 of 14 336 bytes; bootloader 3 364 of 4 096 bytes |
+| Release | **2.2.7**, build 1200 |
+| Size | app 13 728 of 14 336 bytes; bootloader 3 364 of 4 096 bytes |
 | Bootloader checksum | CRC-32 `0x7D215316` (health DP 136) |
 | Zigbee firmware | fork [`patapovich/tuya-zigbee-switch`](https://github.com/patapovich/tuya-zigbee-switch), branch `home-dimmer`; CI builds the OTA images on `home-dimmer_build` for every change |
 
@@ -87,7 +87,7 @@ During a hold the level is reported every 0.5 s.
 | DP | What | Values |
 |---|---|---|
 | 14 | power-on, both channels | written: both; reported: channel 1's |
-| 130..135 | health, every 2 min | uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, settings saves, UART receive losses |
+| 130..135 | health, 3 s after the module asked who we are (its start or ours), then every 2 min | uptime min, reset cause (RCC_CSR >> 24), lock losses, ignored edges, settings saves, UART receive losses |
 | 136 | bootloader checksum | CRC-32 of the boot sector |
 | 137 | boot word at start | tries, probe answer time, rescue / button / link flags; bits 24 / 25 settings ring layout ([BOOTLOADER.md](BOOTLOADER.md) section 9) |
 | 138 | die temperature | °C, about ±10 °C absolute |
@@ -195,8 +195,8 @@ Before deploying a changed Zigbee2MQTT converter:
 | 10 | Zigbee firmware: right after a restart it reported the light off before it knew the dimmer chip's state | fixed in the Zigbee firmware (reports wait until every dimmer knows its state), tested on hardware |
 | 11 | Download counts: hubs fetched the OTA images as raw files, which GitHub does not count | done: each build's OTA images are release assets of the fork and the OTA index points to them (download counts per asset) |
 | 12 | Zigbee firmware: an Open Dimmer update made the light go off and on (the bootloader keeps it dark while it writes) | fixed in the Zigbee firmware: updates wait for the light to be off (a minute after the off, a day at most), tested on hardware |
-| 13 | A wall switch, the module button or the auto-off used within a second of a transition time from the network took that time (the light went off or came on over e.g. 45 s) | fixed for the next release (branch `review-fixes`, host tests); hardware test open |
-| 14 | A hold from dark let go during a start boost longer than 0.4 s left the light at full | fixed for the next release (branch `review-fixes`, host tests); hardware test open |
-| 15 | Zigbee firmware: the update wait did not run for a light that was off when the module started, a transition to off could outlast it, and an offer could go to a chip in its bootloader | fixed for the next build (fork branch `review-fixes`, stub tests): 70 s after the off or the start, offers only to a running app |
-| 16 | Zigbee firmware: a level command during a wall switch hold held the hold's level back for 3 s; Stop did not stop a transition and Move / Step started from its end; an auto-off countdown was lost when the dimmer chip restarted | fixed for the next build (fork branch `review-fixes`, stub tests); hardware test open |
-| 17 | Zigbee firmware, two-wire install: `abort` or a second `install` after the read protection was removed dropped the install; a second power cut after one during the option bytes could end it; a taken-up install wrote the bootloader without identifying the chip | fixed for the next build (fork branch `review-fixes`, stub tests); bench tests on a spare module open |
+| 13 | A wall switch, the module button or the auto-off used within a second of a transition time from the network took that time (the light went off or came on over e.g. 45 s) | fixed in 2.2.7 |
+| 14 | A hold from dark let go during a start boost longer than 0.4 s left the light at full | fixed in 2.2.7 |
+| 15 | Zigbee firmware: the update wait did not run for a light that was off when the module started, a transition to off could outlast it, and an offer could go to a chip in its bootloader | fixed in the Zigbee firmware (70 s after the off or the module's start, offers only to a running app), tested on hardware |
+| 16 | Zigbee firmware: a level command during a wall switch hold held the hold's level back for 3 s; Stop did not stop a transition and Move / Step started from its end; an auto-off countdown was lost when the dimmer chip restarted | fixed in the Zigbee firmware; the hold and Stop / Move / Step tested on hardware, the countdown in the simulator only |
+| 17 | Zigbee firmware, two-wire install: `abort` or a second `install` after the read protection was removed dropped the install; a second power cut after one during the option bytes could end it; a taken-up install wrote the bootloader without identifying the chip | fixed in the Zigbee firmware (simulator tests: the usual install paths send the same SWD traffic as before); bench tests of the changed paths on a spare module open |

@@ -3,7 +3,7 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
-## 2.2.7 (unreleased)
+## 2.2.7 (2026-11-21)
 
 - The wall switch, the module button and the auto-off never take a transition time from the
   network. A level command with a time (Adaptive Lighting's 45 s, for one) left its time
@@ -11,6 +11,10 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
   whole time.
 - A hold from dark let go during the start boost leaves the light at its minimum. With a boost
   longer than about 0.4 s it was left at full brightness.
+- The health report (uptime, reset cause, temperature) goes out 3 s after the Zigbee module
+  and the dimmer chip made contact, so a hub sees a restart of either at once; it came a
+  minute after the chip's start, and up to 2 min after the module's. That first report now
+  has a temperature too.
 
 ## 2.2.6 (2026-11-20)
 

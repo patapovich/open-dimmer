@@ -984,7 +984,8 @@ bootloader's (-188). Release R: 11 632 bytes, 656 free; DIAG / MEASURE / SIM 11 
      v1 bootloader (2136 bytes, 0xFF-padded) gives **0xEAC45031**; each v2 build's value goes
      into STATUS.md with the release.
    - DP 137: the boot word at start, low 24 bits (probe time, rescue info, LINK, tries).
-   - Both are sent with the health report (`src/health.c:34-41`, first at 60 s). Under an own
+   - Both are sent with the health report (`src/health.c`, first 3 s after the module asked who
+     we are, from 2.2.7; at 60 s if it never asks, as before 2.2.7). Under an own
      ZTU they are, like DPs 130..135, only logged by the ZTU's MCU link diagnostics: no
      converter change. Under a stock Tuya ZTU all of 130..137 probably reach Zigbee2MQTT as
      unknown Tuya DPs. Its 0x05 handler (stock ZTU 0xD60C) does not check its product-info
