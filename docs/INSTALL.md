@@ -41,8 +41,10 @@ The module stays closed and keeps working with its stock dimmer firmware.
    `configuration.yaml`; create the folder if needed).
 3. **Restart** Zigbee2MQTT.
 4. **Update.** OTA page → check for updates on the dimmer → update.
-5. **Wait.** The module can be away up to ~6 minutes with its LED dark; leave the power on. If
-   it is still missing after that, Permit join.
+5. **Wait.** The module can be away up to ~6 minutes with its LED dark; leave the power on. It
+   comes back on its own: the new firmware takes the network the factory firmware had (same
+   device, same IEEE, no pairing). Do not remove the device from Zigbee2MQTT for this. Only if it
+   is still missing after ~10 minutes: Permit join (it then joins as a new device).
 6. When Zigbee2MQTT shows the model `TS0601-ZDMS16-2` and the build `1.1.3-…`: **Interview**,
    then **Reconfigure** the device.
 
