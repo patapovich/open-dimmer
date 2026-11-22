@@ -1,9 +1,9 @@
 # `_TZE204_o9gyszw2`: a third ZDMS16-2 variant
 
 An AVATTO ZDMS16-2 module that reports itself as `_TZE204_o9gyszw2` (model `TS0601`). It has the
-same board, Zigbee module and dimming MCU as the tested `_TZE284_jtbgusdc` module. Open Dimmer
-has not been installed on it yet: this page records what the module is before anything is
-written to it.
+same board, Zigbee module and dimming MCU as the tested `_TZE284_jtbgusdc` module, but its
+factory dimming MCU is **not read-protected**. This page records the factory state and what it
+took to convert the tested unit.
 
 ## Identity (Zigbee2MQTT, factory firmware)
 
@@ -11,15 +11,16 @@ written to it.
 |---|---|
 | Model / manufacturer | `TS0601` / `_TZE204_o9gyszw2` |
 | Manufacturer code | 4417 |
-| Firmware | Zigbee module **1.0.10** (`appVersion` 74), MCU **1.0.13** (`swBuildId` "Zigbee module: 1.0.10, MCU module: 1.0.13") |
+| Firmware | Zigbee module **1.0.10** (`appVersion` 74), MCU **1.0.13** (read from the MCU by the converted module; the stock `swBuildId` showed "MCU module: 1.0.13" and later "MCU module: 1.0.3") |
 | hwVersion / ZCL | 1 / 3 |
 | Endpoints | 1: Groups, Scenes, Tuya `0xEF00`, Basic; 242: Green Power |
 | Converter | zigbee-herdsman-converters matches it to AVATTO ZDMS16-2, the same definition as `_TZE284_jtbgusdc` |
 
 - The stock MCU firmware is newer than on the tested `_TZE284_jtbgusdc` unit (1.0.13 vs 1.0.7).
 - The ZDMS16-2 definition has no OTA, so Zigbee2MQTT refuses an update check ("does not support
-  OTA updates") and the factory image type and file version were not read. They are probably
-  4417 / 54179 (as on every Tuya Telink ZTU image) and file version 74: **not measured**.
+  OTA updates"). With a converter that adds OTA for this name, Zigbee2MQTT offers the conversion
+  image (manufacturer 4417, image type 54179, the same as the `jtbgusdc` units): the factory
+  image type is 54179.
 
 ## Hardware
 
@@ -80,20 +81,56 @@ power comes from the riser header.
 2. 3.3 V on the riser VCC also powers the main board (the PY32 starts as well). Use an adapter
    whose 3.3 V output can supply the module, or a separate 3.3 V supply.
 3. Read the flash with pvvx's [USBCOMFlashTx](https://pvvx.github.io/ATC_MiThermometer/USBCOMFlashTx.html)
-   (1500000 baud, read `0x100000` bytes) or
-   [Telink-Zigbee-serial-flash-tool](https://github.com/Suxsem/Telink-Zigbee-serial-flash-tool).
+   (1500000 baud, read `0x100000` bytes) or `TLSR825xComFlasher.py` from
+   [TlsrComSwireWriter](https://github.com/pvvx/TlsrComSwireWriter) (`rf 0 0x100000 dump.bin`).
+   [Telink-Zigbee-serial-flash-tool](https://github.com/Suxsem/Telink-Zigbee-serial-flash-tool)
+   reads back over the ZTU's own UART (B1/B7), which the PY32 also drives on this board.
 4. Keep the file; it also holds the module's network keys, so do not publish it.
+
+> [!WARNING]
+> **Not done: the dump of the tested unit failed.** The adapter's own echo (TXD → 1 kΩ → RXD)
+> stopped as soon as the wire touched the SWS pad, also with the RST pad held low, so no tool
+> could reach the chip (`Chip sleep?`). The neighbouring B6 pad stopped the echo as well; D3, D7,
+> C0, A0 and A1 did not. A solder bridge between SWS and B6 or a load on the SWS line is
+> suspected, not confirmed. Tried: a CP2102 adapter (its 3.3 V output tripped the USB
+> over-current protection when connected to the module) and a Raspberry Pi Debugprobe (RP2040) as
+> the USB-UART (its UART forwards only with DTR set). The tested unit has no backup: no factory
+> ZTU image of this variant exists yet.
 
 ## The dimming MCU
 
-The factory PY32 firmware on the tested `_TZE284_jtbgusdc` unit was read-protected (RDP 1): its
-flash cannot be read over SWD, and lifting the protection erases it. The same is expected here.
-The read-only `survey_full` job of the fork's SWD master (wires D3 → CN2 SWC, D7 → CN2 SWD) or an
-SWD probe on CN2 reads the option bytes and shows the protection level without changing anything.
+Unlike the `jtbgusdc` units (read-protected, RDP 1, user option byte 0xF0), the factory PY32 of
+this variant is at **RDP 0**: `FLASH_OPTR` 0x0000BEAA. Its user option byte 0xBE leaves the brown-out
+reset off and NRST a reset pin (on the `jtbgusdc` units NRST is a GPIO; Open Dimmer writes 0xF9:
+brown-out reset on, NRST a GPIO; no NRST wire is used, so the change does nothing on this board).
+
+- **The factory firmware can be read** over SWD (CN2) before anything is written; the install
+  erases it. It takes the SWD pins about 1.5 s after power-up, so a probe or the fork's SWD master
+  attaches right after power-up (about 220 ms on the tested unit).
+- Same Tuya MCU SDK base as the factory firmware of the WiFi twin board (DMS16-W1 1.0.3), as a real
+  2-channel build. It has **no MCU OTA commands** (0x0C–0x0E): the factory dimming firmware cannot
+  be updated over Zigbee.
+- The system ROM's CRC differs from the `jtbgusdc` chips' (0x62889B8E vs 0xA52232EA) with the same
+  debug port, CPUID and IDCODE; installing and writing the bootloader worked on it.
+- The read-only `survey_full` job of the fork's SWD master (wires D3 → CN2 SWC, D7 → CN2 SWD) or an
+  SWD probe on CN2 reads the option bytes and shows the protection level without changing anything.
+
+**Install:** the released fork builds install Open Dimmer on read-protected (RDP 1) factory MCUs
+only and refuse this one (`wrong class`). An install path for RDP 0 factory MCUs (page erase
+instead of the mass erase that lifting RDP 1 does, then Open Dimmer's option bytes and the
+bootloader) is in development in the fork and not released yet; on the tested unit it took
+15.5 s, then the bootloader fetched the app over the UART.
 
 ## Status
 
-- Not converted yet. The fork's device database knows the `jtbgusdc` names only; converting this
-  variant needs an entry for `_TZE204_o9gyszw2`.
+- Zigbee firmware converted on the tested unit: the fork's `-from_tuya` image (the same one as for
+  `jtbgusdc`), offered through a temporary Zigbee2MQTT converter that gives the stock ZDMS16-2
+  definition OTA for `_TZE204_o9gyszw2` (the fork's converter lists the `jtbgusdc` names only, so
+  that converter is still needed for this variant).
+- Open Dimmer on the dimming MCU: installed on the tested unit with a development build of the
+  fork (the RDP 0 path above, not released yet); the released builds refuse this variant's MCU.
+- After the conversion the module came back to the network only with Permit join open (also seen
+  on a `jtbgusdc` unit converted the same day); being looked into in the fork.
+- The factory ZTU firmware was not backed up (the SWS dump failed, see above).
 - Results from other units are welcome: open an issue with the module's `swBuildId` and the board
   marking.
