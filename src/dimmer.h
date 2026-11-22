@@ -44,6 +44,14 @@
  *   DP 105 / 106 wall switch gesture of channel 1 / 2, reported only, never
  *     in the DP dump (ours, gesture_core.h): 1 single, 2 double, 3 triple,
  *     4 hold, 5 release, 6 press (fast press, DP 170 / 171, detached only)
+ *   DP 181 network reset presses (value, 0..255; ours, not saved, in the dump):
+ *     that many closures of one wall switch (S1 or S2, any type, normal or
+ *     detached, never one set off), each within 10 s of the first, ask the
+ *     module for a leave and pairing (Tuya 0x03), as the stock MCU does with
+ *     8; the switch's channel blinks then (identify, 3 s). 0: never; 1..4 act
+ *     as 5 (a single, double or triple tap is never a reset). 8 at every start
+ *     until the module writes its own (the fork's ZTU: its multi-press reset
+ *     count, controls.c)
  *   DP 101 / 102 dimming curve of channel 1 / 2 (enum, curves.h; ours, the
  *   stock MCU has no such DP): 0 linear, 1 led, 2 led_soft, 3 incandescent,
  *   4 led_deep, 5 led_deeper
@@ -89,6 +97,13 @@ typedef struct {
 
 /* A double tap (controls.c): the channel on at its max, a hold from dark ended. */
 void dimmer_local_full(uint8_t ch);
+
+#define DIMMER_RESET_PRESSES_DEFAULT  8   /* the stock MCU's fixed count */
+#define DIMMER_RESET_PRESSES_LEAST    5
+/* DP 181 as it acts: 0 never, else at least DIMMER_RESET_PRESSES_LEAST. */
+uint8_t dimmer_reset_presses(void);
+/* The channel blinks (dark / full, 0.5 s) s seconds, then is as it was; 0 stops (DP 166 / 167). */
+void dimmer_identify(uint8_t ch, uint8_t s);
 
 /* 1: channel ch has a hold running (controls.c: a long press from off without the rise). */
 uint8_t dimmer_holding(uint8_t ch);

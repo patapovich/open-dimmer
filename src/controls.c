@@ -23,6 +23,8 @@ _Static_assert(DIM_HOLD_DARK_WAIT_MS >= INPUT_HOLD_MS + 200u,
 #define LATE_PRESS_MS     10000   /* cold start: a long button hold begun by then is no rejoin */
 #define HOLD_CAP_MS       2000    /* + 2 x hold ms: a hold has reached its end by then */
 #define EV_RING           16      /* power of two */
+#define RESET_WINDOW_MS   10000   /* the presses of a network reset: within this of the first */
+#define RESET_BLINK_S     3       /* ... then the switch's channel blinks that long */
 
 volatile uint8_t g_input_override;
 
@@ -52,6 +54,12 @@ static uint8_t g_early;
 static uint8_t g_button_early;
 
 static uint32_t  g_now;   /* time of the events being handled (controls_poll) */
+
+/* Network reset by presses (DP 181), as the stock MCU counts them: closures of one wall switch,
+ * the first opens the window; another switch's closure starts a new count. */
+static uint8_t  g_reset_input;
+static uint8_t  g_reset_count;
+static uint32_t g_reset_start;
 
 static uint8_t closed(uint8_t idx);
 
@@ -218,6 +226,26 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
     }
 }
 
+/* A wall switch closed (its press, any switch type): one more of a network reset's presses. */
+static void reset_press(uint8_t ch) {
+    uint8_t need = dimmer_reset_presses();
+    if (!need || dimmer_channel(ch)->input_mode == DIMMER_INPUT_OFF) {
+        g_reset_count = 0;
+        return;
+    }
+    if (!g_reset_count || ch != g_reset_input || g_now - g_reset_start >= RESET_WINDOW_MS) {
+        g_reset_count = 0;
+        g_reset_input = ch;
+        g_reset_start = g_now;
+    }
+    if (++g_reset_count >= need) {
+        g_reset_count = 0;
+        uint8_t rejoin = TUYA_RESET_NETWORK_REJOIN;
+        tuya_send(TUYA_CMD_RESET_NETWORK, 0, &rejoin, 1);
+        dimmer_identify(ch, RESET_BLINK_S);
+    }
+}
+
 /* Module button: both channels together (any on -> all off, else all on);
  * held 3 s: rejoin, unless the press began in the first 10 s after a cold start. */
 static void button(uint8_t ev) {
@@ -297,6 +325,9 @@ void controls_poll(uint32_t now) {
             button(ev);
         } else {
             wall_switch(idx, ev);   /* S1 -> channel 1, S2 -> channel 2 */
+            if (ev == INPUT_EV_PRESS) {
+                reset_press(idx);
+            }
         }
     }
 }

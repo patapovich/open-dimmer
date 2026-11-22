@@ -977,6 +977,7 @@ static void test_boost_dp_drives_the_fader_and_the_dump_has_the_new_dps(void) {
     CHECK(host_log_find("162=0") >= 0 && host_log_find("164=0") >= 0 && host_log_find("168=150") >= 0);
     CHECK(host_log_find("163=") >= 0 && host_log_find("169=") >= 0);
     CHECK(host_log_find("166=") < 0);                      /* identify: not in the dump */
+    CHECK(host_log_find("181=8") >= 0);                    /* the reset presses: the default */
     CHECK(host_log_find("170=0") >= 0 && host_log_find("171=0") >= 0);   /* fast press */
     host_write(170, TUYA_DP_TYPE_VALUE, 1);
     host_write(171, TUYA_DP_TYPE_VALUE, 1);

@@ -25,6 +25,9 @@
                                   bits in the mask change (ours, saved; one DP: the start burst) */
 #define DP_CUSTOM_END    180   /* (raw, 6 little-endian u16, the last part's sixth: none; saved,
                                   in the dump, a write answered with the part as kept) */
+#define DP_RESET_PRESSES 181   /* wall switch presses that ask for a network reset (value, 0 =
+                                  never; ours, not saved: DIMMER_RESET_PRESSES_DEFAULT at every
+                                  start, in the dump: a fork ZTU writes its own count again) */
 enum { EX_INPUT, EX_POWER_LEVEL, EX_IDENTIFY, EX_BOOST, EX_FAST_PRESS, EX_COMP };
 #define COUNTDOWN_MAX    86400u
 #define TRANSITION_VALID_MS 1000  /* ... if it comes this soon after (on, then level) */
@@ -116,6 +119,7 @@ static uint32_t g_cd_end[DIMMER_CHANNELS];          /* countdown: when it goes o
  * just before; a flash at full on every update would be wrong); until the first poll. */
 static uint8_t  g_no_boost;
 static uint32_t g_ident_end[DIMMER_CHANNELS];       /* identify: when it stops (0: none) */
+static uint8_t  g_reset_presses;                    /* DP 181 (dimmer_init) */
 static uint8_t  g_ident_s[DIMMER_CHANNELS];         /* ... how long it was asked for */
 static uint16_t g_trans_ms[DIMMER_CHANNELS];        /* DP 160 / 161: a transition time ... */
 static uint32_t g_trans_at[DIMMER_CHANNELS];        /* ... written then */
@@ -217,6 +221,7 @@ static void mark_dirty(void) {
 }
 
 uint8_t dimmer_init(uint32_t reset_csr) {
+    g_reset_presses = DIMMER_RESET_PRESSES_DEFAULT;   /* not saved: every start */
     for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
         /* Factory defaults of the stock firmware. */
         g_ch[i].on          = 0;
@@ -511,9 +516,7 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         } else if (k == EX_POWER_LEVEL) {
             pc->power_level4 = v ? (uint8_t)((clamp_level(v) + 2u) >> 2) : 0;
         } else if (k == EX_IDENTIFY) {
-            g_ident_s[ch]   = (uint8_t)(v > 255u ? 255u : v);
-            g_ident_end[ch] = v ? (g_now + g_ident_s[ch] * 1000u) | 1u : 0;
-            apply(ch);                /* stopped: as it was; started: the blink from the next poll */
+            dimmer_identify(ch, (uint8_t)(v > 255u ? 255u : v));
             return 1;
         } else if (k == EX_FAST_PRESS) {
             if (v > 1u) {
@@ -534,6 +537,14 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
             apply(ch);
         }
         mark_dirty();
+        return 1;
+    }
+    if (dpid == DP_RESET_PRESSES) {
+        uint32_t v = be32(value);
+        if (type != TUYA_DP_TYPE_VALUE || len != 4 || v > 255u) {
+            return 0;
+        }
+        g_reset_presses = (uint8_t)v;
         return 1;
     }
     if (dpid == DP_SWITCH_OPTS) {
@@ -712,6 +723,10 @@ void dimmer_report_dp(uint8_t dpid) {
     }
     if (dpid >= DP_POWER_ON_BASE && dpid < DP_POWER_ON_BASE + DIMMER_CHANNELS) {
         tuya_report_enum(dpid, g_power_on[dpid - DP_POWER_ON_BASE]);
+        return;
+    }
+    if (dpid == DP_RESET_PRESSES) {
+        tuya_report_value(dpid, g_reset_presses);
         return;
     }
     if (dpid == DP_SWITCH_OPTS) {
@@ -907,6 +922,19 @@ void dimmer_hold_end(uint8_t ch) {
     report_local(ch, 1, 0);
 }
 
+uint8_t dimmer_reset_presses(void) {
+    if (g_reset_presses && g_reset_presses < DIMMER_RESET_PRESSES_LEAST) {
+        return DIMMER_RESET_PRESSES_LEAST;
+    }
+    return g_reset_presses;
+}
+
+void dimmer_identify(uint8_t ch, uint8_t s) {
+    g_ident_s[ch]   = s;
+    g_ident_end[ch] = s ? (g_now + s * 1000u) | 1u : 0;
+    apply(ch);                        /* stopped: as it was; started: the blink from the next poll */
+}
+
 void dimmer_hold_cancel(uint8_t ch) {
     if (ch >= DIMMER_CHANNELS || !g_holding[ch]) {
         return;
@@ -926,6 +954,7 @@ __attribute__((section(".text.hidden.dimmer_report_all"), noinline)) void dimmer
     tuya_report_begin(1);
     dimmer_report_dp(DP_POWER_ON);
     dimmer_report_dp(DP_SWITCH_OPTS);
+    dimmer_report_dp(DP_RESET_PRESSES);
     tuya_report_send();
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
         tuya_report_begin(1);

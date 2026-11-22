@@ -82,6 +82,7 @@ channel 1 / channel 2.
 | 172 / 173 | lamp compensation | value units at the min, steps of 4, up to 252; 0: none (2.2.8) |
 | 174..176 / 177..179 | custom curve | raw, 6 little-endian u16 each: points 0-5, 6-11, 12-16 (a sixth: none) of 17 outputs 0..10000 at 0, 1/16 .. 1 of min..max; used when 0 first, 10000 last, never falling (else led_soft); saved with the settings (the record's extension), in the dump, a write answered with the part as kept (2.2.8) |
 | 180 | wall switch options (both channels) | bits set = off (0, all on, the default): 0 / 1 a long press from off does not rise from the min (on at its level, the hold goes on from there), 2 / 3 a double tap does not take the light to full; written as mask << 8 \| bits (2.2.8, saved, in the first dump frame) |
+| 181 | network reset presses (module wide) | value 0..255: that many closures of one wall switch (any type, normal or detached; never a switch set off), each within 10 s of the first, send the leave and pairing request (0x03), as the stock MCU with its fixed 8; the switch's channel blinks 3 s. 0: never; 1..4 act as 5. Not saved: 8 at every start, in the first dump frame; the fork's ZTU writes its multi-press reset count (2.2.8) |
 
 During a hold the level is reported every 0.5 s.
 

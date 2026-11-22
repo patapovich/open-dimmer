@@ -890,6 +890,140 @@ static void test_a_state_switch_says_the_light_when_back_in_normal(void) {
     CHECK(c1()->on == 0);                          /* normal again: as the switch is */
 }
 
+/* ---- network reset by presses (DP 181) ------------------------------------------- */
+
+#define RESET_PRESSES 181
+
+/* n closures of S1 (or S2), every `every` ms; a toggle switch is closed and opened again. */
+static void closures(uint8_t input, int n, uint32_t every) {
+    for (int i = 0; i < n; i++) {
+        if (input == 0) s1(1); else s2(1);
+        run_ms(80);
+        if (input == 0) s1(0); else s2(0);
+        run_ms(every - 80);
+    }
+}
+
+static int resets(void) {
+    int n = 0;
+    for (long at = 0; (at = host_log_find_from(at, "S03")) >= 0; at++) {
+        n++;
+    }
+    return n;
+}
+
+static void reset_ready(uint8_t type) {
+    power_up(1);
+    host_write(CH1_TYPE, TUYA_DP_TYPE_ENUM, type);
+    host_write(CH1_TYPE + 6, TUYA_DP_TYPE_ENUM, type);
+    run_ms(3000);
+    host_log_clear();
+}
+
+/* As the stock MCU: 8 closures of one switch within 10 s of the first ask for a leave and
+ * pairing, once; the switch's channel blinks then. */
+static void test_eight_closures_ask_for_a_network_reset(void) {
+    reset_ready(MOMENTARY);
+    closures(0, 7, 400);
+    CHECK(resets() == 0);
+    closures(0, 1, 400);
+    CHECK(resets() == 1);
+    unsigned dark = 0, full = 0;                    /* the blink: dark and full in turn */
+    for (int i = 0; i < 250; i++) {
+        run_ms(10);
+        dark += g_host_fader[0].current == 0;
+        full += g_host_fader[0].current == DIMMER_LEVEL_MAX;
+    }
+    CHECK(dark > 80 && full > 80);
+    closures(0, 7, 400);                            /* a new count from 0 */
+    CHECK(resets() == 1);
+}
+
+static void test_toggle_and_state_switches_count_their_closures(void) {
+    reset_ready(TOGGLE);
+    closures(0, 8, 1000);                           /* 16 changes, 8 closures in 7.1 s */
+    CHECK(resets() == 1);
+    reset_ready(STATE);
+    closures(1, 8, 1000);                           /* S2 */
+    CHECK(resets() == 1);
+}
+
+static void test_the_window_is_ten_seconds_from_the_first(void) {
+    reset_ready(MOMENTARY);
+    closures(0, 7, 1400);                           /* the 8th 9.8 s after the first: in */
+    closures(0, 1, 400);
+    CHECK(resets() == 1);
+    host_log_clear();
+    closures(0, 7, 1500);                           /* the 8th 10.5 s after the first: out ... */
+    closures(0, 1, 400);
+    CHECK(resets() == 0);
+    closures(0, 7, 400);                            /* ... it began a new count */
+    CHECK(resets() == 1);
+}
+
+static void test_the_other_switch_starts_a_new_count(void) {
+    reset_ready(MOMENTARY);
+    closures(0, 5, 300);
+    closures(1, 1, 300);
+    closures(0, 5, 300);
+    CHECK(resets() == 0);
+    closures(0, 3, 300);
+    CHECK(resets() == 1);
+}
+
+static void test_the_count_is_dp_181(void) {
+    reset_ready(MOMENTARY);
+    host_write(RESET_PRESSES, TUYA_DP_TYPE_VALUE, 0);          /* never */
+    closures(0, 20, 300);
+    CHECK(resets() == 0);
+    host_write(RESET_PRESSES, TUYA_DP_TYPE_VALUE, 3);          /* acts as 5: no triple tap */
+    run_ms(11000);
+    closures(0, 4, 300);
+    CHECK(resets() == 0);
+    closures(0, 1, 300);
+    CHECK(resets() == 1);
+    host_write(RESET_PRESSES, TUYA_DP_TYPE_VALUE, 12);
+    run_ms(11000);
+    host_log_clear();
+    closures(0, 11, 300);
+    CHECK(resets() == 0);
+    closures(0, 1, 300);
+    CHECK(resets() == 1);
+    CHECK(!dimmer_write_dp(RESET_PRESSES, TUYA_DP_TYPE_VALUE, (const uint8_t *)"\0\0\x01\0", 4));
+    boot(DIMMER_RESET_POWER);                                  /* not saved: 8 again */
+    run_ms(3000);
+    host_log_clear();
+    closures(0, 8, 300);
+    CHECK(resets() == 1);
+}
+
+static void test_detached_counts_and_off_does_not(void) {
+    reset_ready(MOMENTARY);
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, DETACHED);
+    closures(0, 8, 300);
+    CHECK(resets() == 1 && c1()->on == 0);          /* the light stays the network's */
+    host_write(CH1_INPUT_MODE, TUYA_DP_TYPE_VALUE, INPUT_OFF);
+    run_ms(11000);
+    host_log_clear();
+    closures(0, 10, 300);
+    CHECK(resets() == 0);
+}
+
+/* A switch closed at power-up rests there: its release is no press, its next closure is. */
+static void test_a_switch_closed_at_power_up_is_no_press(void) {
+    power_up(1);
+    s1(1);
+    boot(DIMMER_RESET_POWER);
+    run_ms(3000);
+    host_log_clear();
+    s1(0);
+    run_ms(300);
+    closures(0, 7, 300);
+    CHECK(resets() == 0);
+    closures(0, 1, 300);
+    CHECK(resets() == 1);
+}
+
 int main(void) {
     RUN(test_type_change_to_state_syncs);
     RUN(test_type_change_mid_press);
@@ -923,6 +1057,13 @@ int main(void) {
     RUN(test_fast_press_reports_the_press_at_once_and_no_multi_taps);
     RUN(test_a_mode_change_drops_a_pending_gesture_and_a_press_under_way);
     RUN(test_a_state_switch_says_the_light_when_back_in_normal);
+    RUN(test_eight_closures_ask_for_a_network_reset);
+    RUN(test_toggle_and_state_switches_count_their_closures);
+    RUN(test_the_window_is_ten_seconds_from_the_first);
+    RUN(test_the_other_switch_starts_a_new_count);
+    RUN(test_the_count_is_dp_181);
+    RUN(test_detached_counts_and_off_does_not);
+    RUN(test_a_switch_closed_at_power_up_is_no_press);
     if (g_fail) {
         printf("test_controls: FAILED\n");
         return 1;

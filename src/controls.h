@@ -9,6 +9,10 @@
  *                while on turns off on release; hold dims (light follows the
  *                finger, stops the moment it is released, or by itself 2 x
  *                hold ms + 2 s after the press began: a stuck input)
+ * Network reset by presses (DP 181, dimmer.h; 8 by default, as the stock MCU):
+ * that many closures of one wall switch, each within 10 s of the first, ask the
+ * Zigbee module to leave and pair again; the switch's channel blinks 3 s.
+ * Another switch's closure starts a new count; a switch set off never counts.
  * Module button: short press switches both channels (any on -> all off, else
  * all on); hold >= 3 s asks the Zigbee module to leave and pair again (it
  * decides, as with the stock MCU).
