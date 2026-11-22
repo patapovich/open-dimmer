@@ -119,7 +119,9 @@ static uint32_t g_cd_end[DIMMER_CHANNELS];          /* countdown: when it goes o
  * just before; a flash at full on every update would be wrong); until the first poll. */
 static uint8_t  g_no_boost;
 static uint32_t g_ident_end[DIMMER_CHANNELS];       /* identify: when it stops (0: none) */
+#if DIMMER_RESET_BY_PRESSES
 static uint8_t  g_reset_presses;                    /* DP 181 (dimmer_init) */
+#endif
 static uint8_t  g_ident_s[DIMMER_CHANNELS];         /* ... how long it was asked for */
 static uint16_t g_trans_ms[DIMMER_CHANNELS];        /* DP 160 / 161: a transition time ... */
 static uint32_t g_trans_at[DIMMER_CHANNELS];        /* ... written then */
@@ -138,7 +140,9 @@ static uint16_t in_range(const dimmer_channel_t *c, uint32_t v) {
     return l;
 }
 
-static void snapshot(saved_t *s) {
+/* In the hidden flash with HIDDEN=1 (py32f002a_app.ld .text_hidden): run at a start, a save and a
+ * planned restart only. */
+__attribute__((section(".text.hidden.snapshot"), noinline)) static void snapshot(saved_t *s) {
     memset(s, 0, sizeof(*s));
     s->format     = SAVED_FORMAT;
     s->power_on   = g_power_on[0];
@@ -221,7 +225,9 @@ static void mark_dirty(void) {
 }
 
 uint8_t dimmer_init(uint32_t reset_csr) {
+#if DIMMER_RESET_BY_PRESSES
     g_reset_presses = DIMMER_RESET_PRESSES_DEFAULT;   /* not saved: every start */
+#endif
     for (uint8_t i = 0; i < DIMMER_CHANNELS; i++) {
         /* Factory defaults of the stock firmware. */
         g_ch[i].on          = 0;
@@ -539,6 +545,7 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         mark_dirty();
         return 1;
     }
+#if DIMMER_RESET_BY_PRESSES
     if (dpid == DP_RESET_PRESSES) {
         uint32_t v = be32(value);
         if (type != TUYA_DP_TYPE_VALUE || len != 4 || v > 255u) {
@@ -547,6 +554,7 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         g_reset_presses = (uint8_t)v;
         return 1;
     }
+#endif
     if (dpid == DP_SWITCH_OPTS) {
         uint32_t v = be32(value);
         if (type != TUYA_DP_TYPE_VALUE || len != 4 || v > 0x0F0Fu) {
@@ -725,10 +733,12 @@ void dimmer_report_dp(uint8_t dpid) {
         tuya_report_enum(dpid, g_power_on[dpid - DP_POWER_ON_BASE]);
         return;
     }
+#if DIMMER_RESET_BY_PRESSES
     if (dpid == DP_RESET_PRESSES) {
         tuya_report_value(dpid, g_reset_presses);
         return;
     }
+#endif
     if (dpid == DP_SWITCH_OPTS) {
         tuya_report_value(dpid, (uint32_t)(g_ch[0].dark_hold_off | g_ch[1].dark_hold_off << 1 |
                                            g_ch[0].double_off << 2 | g_ch[1].double_off << 3));
@@ -922,12 +932,14 @@ void dimmer_hold_end(uint8_t ch) {
     report_local(ch, 1, 0);
 }
 
+#if DIMMER_RESET_BY_PRESSES
 uint8_t dimmer_reset_presses(void) {
     if (g_reset_presses && g_reset_presses < DIMMER_RESET_PRESSES_LEAST) {
         return DIMMER_RESET_PRESSES_LEAST;
     }
     return g_reset_presses;
 }
+#endif
 
 void dimmer_identify(uint8_t ch, uint8_t s) {
     g_ident_s[ch]   = s;
@@ -954,7 +966,9 @@ __attribute__((section(".text.hidden.dimmer_report_all"), noinline)) void dimmer
     tuya_report_begin(1);
     dimmer_report_dp(DP_POWER_ON);
     dimmer_report_dp(DP_SWITCH_OPTS);
+#if DIMMER_RESET_BY_PRESSES
     dimmer_report_dp(DP_RESET_PRESSES);
+#endif
     tuya_report_send();
     for (uint8_t ch = 0; ch < DIMMER_CHANNELS; ch++) {
         tuya_report_begin(1);

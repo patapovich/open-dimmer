@@ -98,6 +98,9 @@ typedef struct {
 /* A double tap (controls.c): the channel on at its max, a hold from dark ended. */
 void dimmer_local_full(uint8_t ch);
 
+/* Bench builds (DIAG, MEASURE, SIM: no hidden flash, their app area full) leave the network reset
+ * by presses out: no DP 181 then. */
+#define DIMMER_RESET_BY_PRESSES       (!DIAG_REPORT && !MEASURE && !SIM_ZC)
 #define DIMMER_RESET_PRESSES_DEFAULT  8   /* the stock MCU's fixed count */
 #define DIMMER_RESET_PRESSES_LEAST    5
 /* DP 181 as it acts: 0 never, else at least DIMMER_RESET_PRESSES_LEAST. */

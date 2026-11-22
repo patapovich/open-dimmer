@@ -55,11 +55,13 @@ static uint8_t g_button_early;
 
 static uint32_t  g_now;   /* time of the events being handled (controls_poll) */
 
+#if DIMMER_RESET_BY_PRESSES
 /* Network reset by presses (DP 181), as the stock MCU counts them: closures of one wall switch,
  * the first opens the window; another switch's closure starts a new count. */
 static uint8_t  g_reset_input;
 static uint8_t  g_reset_count;
 static uint32_t g_reset_start;
+#endif
 
 static uint8_t closed(uint8_t idx);
 
@@ -226,6 +228,7 @@ static void wall_switch(uint8_t ch, uint8_t ev) {
     }
 }
 
+#if DIMMER_RESET_BY_PRESSES
 /* A wall switch closed (its press, any switch type): one more of a network reset's presses. */
 static void reset_press(uint8_t ch) {
     uint8_t need = dimmer_reset_presses();
@@ -245,6 +248,7 @@ static void reset_press(uint8_t ch) {
         dimmer_identify(ch, RESET_BLINK_S);
     }
 }
+#endif
 
 /* Module button: both channels together (any on -> all off, else all on);
  * held 3 s: rejoin, unless the press began in the first 10 s after a cold start. */
@@ -325,9 +329,11 @@ void controls_poll(uint32_t now) {
             button(ev);
         } else {
             wall_switch(idx, ev);   /* S1 -> channel 1, S2 -> channel 2 */
+#if DIMMER_RESET_BY_PRESSES
             if (ev == INPUT_EV_PRESS) {
                 reset_press(idx);
             }
+#endif
         }
     }
 }
