@@ -59,7 +59,9 @@ The stock firmware is quirky in use: it reads the wall switch inconsistently and
 
 - **AVATTO ZDMS16-2**, Tuya model `_TZE284_jtbgusdc`. Tested at 230 V / 50 Hz with LED lamps
   and push buttons. The `_TZE204_jtbgusdc` variant and 60 Hz are untested:
-  [reports welcome](#support).
+  [reports welcome](#support). A third variant, `_TZE204_o9gyszw2`, has the same board; photos,
+  pinout and its factory firmware versions: [docs/variant-tze204-o9gyszw2.md](docs/variant-tze204-o9gyszw2.md)
+  (not converted yet).
 - **Zigbee2MQTT**, with the dimmer paired.
 - A **soldering iron** and two thin wires, or an [SWD programmer](docs/INSTALL-PROGRAMMER.md) (e.g. ST-Link
   or a Raspberry Pi Pico) instead.

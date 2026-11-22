@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="860" viewBox="0 0 1200 860" font-family="DejaVu Sans, Arial, sans-serif">
+  <rect width="1200" height="860" fill="#ffffff"/>
+  <text x="600" y="40" text-anchor="middle" font-size="26" font-weight="bold" fill="#111">ZDMS16-2 dimming MCU: Puya PY32F002AF15P6 (TSSOP20, U4)</text>
+  <text x="600" y="68" text-anchor="middle" font-size="15" fill="#555">Board MK-WC1H16A-A V1.1 (same PCB on _TZE284_jtbgusdc, _TZE204_jtbgusdc and _TZE204_o9gyszw2). Top view, pin 1 at the dimple.</text>
+
+  <!-- package -->
+  <rect x="470" y="110" width="260" height="560" rx="6" fill="#2b2b2b"/>
+  <circle cx="500" cy="140" r="11" fill="#555"/>
+  <text x="600" y="380" text-anchor="middle" font-size="22" fill="#ddd" transform="rotate(-90 600 380)">PY32F002AF15P6</text>
+
+  <!-- datasheet-style top view: 1..10 down the left, 20..11 down the right -->
+  <g font-size="16">
+    <!-- left column pins 1..10, top to bottom -->
+    <g fill="#111">
+      <rect x="440" y="125" width="30" height="16" fill="#bbb"/><text x="430" y="139" text-anchor="end"><tspan font-weight="bold">1</tspan>  VSS — GND (CN2-3)</text>
+      <rect x="440" y="180" width="30" height="16" fill="#bbb"/><text x="430" y="194" text-anchor="end"><tspan font-weight="bold">2</tspan>  PA13 — SWDIO (CN2-1)</text>
+      <rect x="440" y="235" width="30" height="16" fill="#bbb"/><text x="430" y="249" text-anchor="end"><tspan font-weight="bold">3</tspan>  PA14 — SWCLK (CN2-2)</text>
+      <rect x="440" y="290" width="30" height="16" fill="#bbb"/><text x="430" y="304" text-anchor="end" fill="#888"><tspan font-weight="bold" fill="#111">4</tspan>  PB3 — not used by Open Dimmer</text>
+      <rect x="440" y="345" width="30" height="16" fill="#bbb"/><text x="430" y="359" text-anchor="end"><tspan font-weight="bold">5</tspan>  PB6 / PF4-BOOT0 — BOOT0</text>
+      <rect x="440" y="400" width="30" height="16" fill="#bbb"/><text x="430" y="414" text-anchor="end"><tspan font-weight="bold">6</tspan>  PA6 — module button (pull-up, low = pressed)</text>
+      <rect x="440" y="455" width="30" height="16" fill="#bbb"/><text x="430" y="469" text-anchor="end"><tspan font-weight="bold">7</tspan>  PA5 — LED (low = lit)</text>
+      <rect x="440" y="510" width="30" height="16" fill="#bbb"/><text x="430" y="524" text-anchor="end" fill="#888"><tspan font-weight="bold" fill="#111">8</tspan>  PF0-OSC_IN — not used</text>
+      <rect x="440" y="565" width="30" height="16" fill="#bbb"/><text x="430" y="579" text-anchor="end" fill="#888"><tspan font-weight="bold" fill="#111">9</tspan>  PF1-OSC_OUT — not used</text>
+      <rect x="440" y="620" width="30" height="16" fill="#bbb"/><text x="430" y="634" text-anchor="end"><tspan font-weight="bold">10</tspan>  PF2-NRST — GPIO in the option bytes</text>
+    </g>
+    <!-- right column pins 20..11, top to bottom -->
+    <g fill="#111">
+      <rect x="730" y="125" width="30" height="16" fill="#bbb"/><text x="770" y="139"><tspan font-weight="bold">20</tspan>  VCC — 3.3 V (CN2-4)</text>
+      <rect x="730" y="180" width="30" height="16" fill="#bbb"/><text x="770" y="194"><tspan font-weight="bold">19</tspan>  PB1 — wall switch S1 (pull-up)</text>
+      <rect x="730" y="235" width="30" height="16" fill="#bbb"/><text x="770" y="249"><tspan font-weight="bold">18</tspan>  PB2 — wall switch S2 (pull-up)</text>
+      <rect x="730" y="290" width="30" height="16" fill="#bbb"/><text x="770" y="304" fill="#888"><tspan font-weight="bold" fill="#111">17</tspan>  PB0 — not used by Open Dimmer</text>
+      <rect x="730" y="345" width="30" height="16" fill="#bbb"/><text x="770" y="359" fill="#888"><tspan font-weight="bold" fill="#111">16</tspan>  PA7 — not used by Open Dimmer</text>
+      <rect x="730" y="400" width="30" height="16" fill="#bbb"/><text x="770" y="414"><tspan font-weight="bold">15</tspan>  PA4 — mains zero cross (EXTI)</text>
+      <rect x="730" y="455" width="30" height="16" fill="#bbb"/><text x="770" y="469"><tspan font-weight="bold">14</tspan>  PA3 — USART1 RX ← ZTU TX/B1</text>
+      <rect x="730" y="510" width="30" height="16" fill="#bbb"/><text x="770" y="524"><tspan font-weight="bold">13</tspan>  PA2 — USART1 TX → ZTU RX/B7</text>
+      <rect x="730" y="565" width="30" height="16" fill="#bbb"/><text x="770" y="579"><tspan font-weight="bold">12</tspan>  PA1 — gate L1 (TIM1_CH4)</text>
+      <rect x="730" y="620" width="30" height="16" fill="#bbb"/><text x="770" y="634"><tspan font-weight="bold">11</tspan>  PA0 — gate L2 (TIM1_CH3)</text>
+    </g>
+  </g>
+
+  <!-- connectors -->
+  <rect x="40" y="700" width="540" height="140" rx="8" fill="#f4f4f4" stroke="#ccc"/>
+  <text x="56" y="726" font-size="17" font-weight="bold" fill="#111">CN2 (4 pads next to U4)</text>
+  <text x="56" y="752" font-size="15" fill="#222">1 SWD (PA13)   2 SWC (PA14)   3 GND   4 VCC</text>
+  <text x="56" y="778" font-size="14" fill="#555">Pad 1 is the square one. SWD master wires (docs/INSTALL.md):</text>
+  <text x="56" y="800" font-size="14" fill="#555">ZTU D3 → CN2 SWC, ZTU D7 → CN2 SWD.</text>
+  <text x="56" y="826" font-size="14" fill="#555">Factory MCU: read-protected (RDP 1) on the units checked so far.</text>
+
+  <rect x="620" y="700" width="540" height="140" rx="8" fill="#f4f4f4" stroke="#ccc"/>
+  <text x="636" y="726" font-size="17" font-weight="bold" fill="#111">Riser header (ZTU riser WF1 → main board)</text>
+  <text x="636" y="752" font-size="15" fill="#222">1 TX (ZTU B1)   2 RX (ZTU B7)   3 NC   4 VCC   5 GND</text>
+  <text x="636" y="778" font-size="14" fill="#555">UART 115200 8N1 between ZTU and PY32.</text>
+  <text x="636" y="800" font-size="14" fill="#555">Pin 1 at the end away from the button (top view).</text>
+  <text x="636" y="826" font-size="14" fill="#555">Sources: src/board.h, PY32F002AF15P datasheet fig. 3-7.</text>
+</svg>
