@@ -48,8 +48,8 @@
  *     that many closures of one wall switch (S1 or S2, any type, normal or
  *     detached, never one set off), each within 10 s of the first, ask the
  *     module for a leave and pairing (Tuya 0x03), as the stock MCU does with
- *     8; the switch's channel blinks then (identify, 3 s). 0: never; 1..4 act
- *     as 5 (a single, double or triple tap is never a reset). 8 at every start
+ *     8; the switch's channel blinks then (identify, 3 s). 0: never; 1..7 act
+ *     as 8 (the stock MCU's count: quick taps and toggling are no reset). 8 at every start
  *     until the module writes its own (the fork's ZTU: its multi-press reset
  *     count, controls.c)
  *   DP 101 / 102 dimming curve of channel 1 / 2 (enum, curves.h; ours, the
@@ -102,7 +102,7 @@ void dimmer_local_full(uint8_t ch);
  * by presses out: no DP 181 then. */
 #define DIMMER_RESET_BY_PRESSES       (!DIAG_REPORT && !MEASURE && !SIM_ZC)
 #define DIMMER_RESET_PRESSES_DEFAULT  8   /* the stock MCU's fixed count */
-#define DIMMER_RESET_PRESSES_LEAST    5
+#define DIMMER_RESET_PRESSES_LEAST    8   /* as few as the stock MCU, no fewer */
 /* DP 181 as it acts: 0 never, else at least DIMMER_RESET_PRESSES_LEAST. */
 uint8_t dimmer_reset_presses(void);
 /* The channel blinks (dark / full, 0.5 s) s seconds, then is as it was; 0 stops (DP 166 / 167). */

@@ -976,9 +976,16 @@ static void test_the_count_is_dp_181(void) {
     host_write(RESET_PRESSES, TUYA_DP_TYPE_VALUE, 0);          /* never */
     closures(0, 20, 300);
     CHECK(resets() == 0);
-    host_write(RESET_PRESSES, TUYA_DP_TYPE_VALUE, 3);          /* acts as 5: no triple tap */
+    host_write(RESET_PRESSES, TUYA_DP_TYPE_VALUE, 3);          /* acts as 8: no fewer */
     run_ms(11000);
-    closures(0, 4, 300);
+    closures(0, 7, 300);
+    CHECK(resets() == 0);
+    closures(0, 1, 300);
+    CHECK(resets() == 1);
+    host_write(RESET_PRESSES, TUYA_DP_TYPE_VALUE, 7);
+    run_ms(11000);
+    host_log_clear();
+    closures(0, 7, 300);
     CHECK(resets() == 0);
     closures(0, 1, 300);
     CHECK(resets() == 1);

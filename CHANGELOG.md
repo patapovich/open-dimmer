@@ -41,7 +41,8 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
 - Network reset from the wall, as the factory firmware does it: 8 quick closures of one wall
   switch (each within 10 s of the first) ask the Zigbee module to leave and pair again, and the
   switch's light blinks for 3 s. Under the fork's Zigbee firmware the count is its "multi press
-  reset count" (0 turns it off; below 5 it is taken as 5, so double and triple taps never reset).
+  reset count" (0 turns it off; below 8 it is taken as 8, the factory count, so quick taps and
+  toggling never reset).
   A toggle switch counts its closures: 8 of them are about 16 flips.
 - With lamp compensation, a dim-down from a low level (or a hold down at the minimum) reaches
   the same lowest light as one from above; before, it took a visit up first. Switched on at the
