@@ -187,6 +187,10 @@ static void apply(uint8_t ch) {
     dim_profile_t p;
     dim_profile_set(&p, g_ch[ch].fade_on_ms, g_ch[ch].fade_off_ms, g_ch[ch].soft_end_pct,
                     g_ch[ch].hold_ms, g_ch[ch].hold_end_pct);
+    /* The slow zones are % of the channel's min..max (2.2.8; before: of the whole 0..1000). */
+    uint32_t range = g_ch[ch].max > g_ch[ch].min ? (uint32_t)(g_ch[ch].max - g_ch[ch].min) : 0u;
+    p.soft_span = (uint16_t)(p.soft_span * range / 1000u);
+    p.hold_span = (uint16_t)(p.hold_span * range / 1000u);
     p.boost_ms = g_no_boost ? 0 : (uint16_t)(g_ch[ch].boost50 * 50u);
     phase_set_profile(ch, &p);
     if (!g_ch[ch].on) {
@@ -239,9 +243,9 @@ uint8_t dimmer_init(uint32_t reset_csr) {
         g_ch[i].countdown   = 0;
         g_ch[i].fade_on_ms   = DIM_FADE_ON_MS;
         g_ch[i].fade_off_ms  = DIM_FADE_OFF_MS;
-        g_ch[i].soft_end_pct = DIM_SOFT_END_PCT;
+        g_ch[i].soft_end_pct = DIMMER_SOFT_END_PCT;
         g_ch[i].hold_ms      = DIM_HOLD_MS;
-        g_ch[i].hold_end_pct = DIM_HOLD_END_PCT;
+        g_ch[i].hold_end_pct = DIMMER_HOLD_END_PCT;
     }
     g_power_on[0] = POWER_ON_OFF;
     g_power_on[1] = POWER_ON_OFF;

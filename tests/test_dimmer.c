@@ -1118,6 +1118,23 @@ static void test_custom_curve_dps_saved_and_the_curve_id(void) {
     CHECK(!dim_custom_ok(1) && !dim_custom_ok(0));                     /* none: led_soft */
 }
 
+/* 2.2.8: the slow zones (DP 152 / 154) are % of the channel's min..max (before: of 0..1000); the
+ * defaults 15 / 25 % give the old 120 / 200 on the default 200..1000. */
+static void test_slow_zones_are_of_min_to_max(void) {
+    power_up(1);
+    CHECK(c1()->soft_end_pct == 15 && c1()->hold_end_pct == 25);
+    CHECK(g_host_fader[0].prof.soft_span == 120 && g_host_fader[0].prof.hold_span == 200);
+    host_write(CH1_MIN, TUYA_DP_TYPE_VALUE, 276);
+    host_write(CH1_MAX, TUYA_DP_TYPE_VALUE, 551);
+    host_write(154, TUYA_DP_TYPE_VALUE, 22);
+    CHECK(g_host_fader[0].prof.hold_span == 60);           /* 22 % of 275 */
+    CHECK(g_host_fader[0].prof.soft_span == 41);           /* 15 % of 275 */
+    host_write(154, TUYA_DP_TYPE_VALUE, 100);
+    CHECK(g_host_fader[0].prof.hold_span == 275);          /* never past the max */
+    host_write(CH1_MAX, TUYA_DP_TYPE_VALUE, 276);
+    CHECK(c1()->max == 276 && g_host_fader[0].prof.hold_span == 0);   /* min = max: none */
+}
+
 int main(void) {
     RUN(test_custom_curve_dps_saved_and_the_curve_id);
     RUN(test_lamp_compensation_dp_is_saved_in_the_top_bits_of_the_level);
@@ -1157,6 +1174,7 @@ int main(void) {
     RUN(test_no_start_boost_after_a_warm_reset);
     RUN(test_power_cut_level_and_the_spare_bytes);
     RUN(test_identify_blinks_then_is_as_it_was);
+    RUN(test_slow_zones_are_of_min_to_max);
     RUN(test_boost_dp_drives_the_fader_and_the_dump_has_the_new_dps);
     RUN(test_dimmer_dark);
     RUN(test_link_restart_restores_off);

@@ -38,6 +38,12 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
 - Two new settings per channel (DP 180, a bit field of both channels, all on by default):
   whether a long press from off rises from the minimum (off: the light comes on at its level as
   for a tap, and the hold goes on from there), and whether a double tap takes the light to full.
+- The two slow zones (`fade_off_slow_zone`, `hold_slow_zone`) are now a share of the channel's
+  own range from its minimum to its maximum, not of the whole output scale: "25 %" is the lowest
+  quarter of the lamp's range whatever its minimum and maximum, and a zone can no longer be
+  wider than the range. The defaults are 15 % and 25 %, the same zones as before on the default
+  range. A channel with a narrowed range and its own zone values needs them set again: the old
+  value times 1000 / (max - min) on the 10..1000 scale (e.g. 6 on a 276..551 range is now 22).
 - Network reset from the wall, as the factory firmware does it: 8 quick closures of one wall
   switch (each within 10 s of the first) ask the Zigbee module to leave and pair again, and the
   switch's light blinks for 3 s. Under the fork's Zigbee firmware the count is its "multi press

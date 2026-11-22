@@ -9,8 +9,9 @@
  *   DP 103 / 104 power-on behaviour of channel 1 / 2 (ours)
  *   DP 150..154 / 155..159 fade and hold of channel 1 / 2 (values, ours, saved):
  *     fade on ms (dark -> full), fade off ms (full -> dark), soft end % (going
- *     dark, the lowest % above the min slow down), hold ms (whole range), hold
- *     end % (the hold slows down there, to pick a very dim level)
+ *     dark, the lowest % of min..max slow down), hold ms (whole range), hold
+ *     end % (the hold slows down in the lowest % of min..max, to pick a very
+ *     dim level); both % of the channel's min..max from 2.2.8 (before: of 0..1000)
  *   DP 160 / 161 transition time of channel 1 / 2 (value, ms, ours, not saved,
  *     never in the DP dump): the network on / off / level changes written in
  *     the next second each take that long, at one even rate (0: the fade
@@ -101,6 +102,10 @@ void dimmer_local_full(uint8_t ch);
 /* Bench builds (DIAG, MEASURE, SIM: no hidden flash, their app area full) leave the network reset
  * by presses out: no DP 181 then. */
 #define DIMMER_RESET_BY_PRESSES       (!DIAG_REPORT && !MEASURE && !SIM_ZC)
+/* A channel's slow zones (DP 152 / 154 ..., % of its min..max): the same values as the fader's
+ * defaults (dim_core.h, % of 0..1000) on the default 200..1000. */
+#define DIMMER_SOFT_END_PCT           15
+#define DIMMER_HOLD_END_PCT           25
 #define DIMMER_RESET_PRESSES_DEFAULT  8   /* the stock MCU's fixed count */
 #define DIMMER_RESET_PRESSES_LEAST    8   /* as few as the stock MCU, no fewer */
 /* DP 181 as it acts: 0 never, else at least DIMMER_RESET_PRESSES_LEAST. */

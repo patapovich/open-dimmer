@@ -72,7 +72,7 @@ channel 1 / channel 2.
 | 101 / 102 | dimming curve | incandescent, led, led_deep, led_deeper, led_soft (default), linear; custom (6, 2.2.8: the table of DPs 174.., led_soft until it came) |
 | 103 / 104 | power-on | – |
 | 105 / 106 | wall switch gesture (report) | 1 single, 2 double, 3 triple, 4 hold, 5 release, 6 press (fast press) |
-| 150..154 / 155..159 | fade and hold | fade on ms, fade off ms, fade-off slow zone %, hold ms, hold slow zone % |
+| 150..154 / 155..159 | fade and hold | fade on ms, fade off ms, fade-off slow zone %, hold ms, hold slow zone %; the slow zones are % of the channel's min..max (2.2.8; before: of 0..1000), defaults 15 / 25 |
 | 160 / 161 | transition | ms, for the network changes of the next second; not saved |
 | 162 / 163 | wall switch mode | 0 normal, 1 detached (only reports), 2 off |
 | 164 / 165 | level after a power cut | 0: the last level |
@@ -104,7 +104,7 @@ During a hold the level is reported every 0.5 s.
 **Fades**
 
 - On from dark: starts at min, 950 ms to full.
-- Off: 950 ms, slower in the lowest 12 % above min, 80 ms at min, then dark.
+- Off: 950 ms, slower in the lowest 15 % of min..max, 80 ms at min, then dark.
 
 **Wall switch**
 

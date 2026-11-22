@@ -26,7 +26,8 @@ void temp_init(void) {
     ADC1->CR     = ADC_CR_ADEN;
 }
 
-int16_t temp_take(void) {
+/* In the hidden flash with HIDDEN=1 (py32f002a_app.ld .text_hidden): run every 2 min (health). */
+__attribute__((section(".text.hidden.temp_take"), noinline)) int16_t temp_take(void) {
     int16_t t = TEMP_NONE;
     if (g_started && (ADC1->ISR & ADC_ISR_EOC)) {
         t = temp_from_raw(ADC1->DR & 0xFFFu, TS_CAL30, TS_CAL85);   /* the newest conversion */
