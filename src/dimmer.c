@@ -814,7 +814,7 @@ void dimmer_local_full(uint8_t ch) {
     g_ch[ch].level = g_ch[ch].max;
     apply_local(ch);
     mark_dirty();
-    report_local(ch, 0, 0);
+    report_local(ch, 1, 0);           /* the level too: the module would keep the one before */
 }
 
 void dimmer_local_toggle_all(void) {

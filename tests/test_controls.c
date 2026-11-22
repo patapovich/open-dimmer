@@ -608,9 +608,11 @@ static void test_double_tap_takes_the_light_to_full(void) {
     run_ms(3000);
     tap();                                         /* from off */
     run_ms(150);
+    host_log_clear();
     tap();
     run_ms(2000);
     CHECK(c1()->on == 1 && c1()->level == c1()->max && g_host_fader[0].current == c1()->max);
+    CHECK(host_log_find("A[1=1,2=1000]") >= 0);    /* the module told the level, not only the on */
     tap();                                         /* a single: off */
     run_ms(2000);
     CHECK(c1()->on == 0);
