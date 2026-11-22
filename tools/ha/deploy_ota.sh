@@ -14,6 +14,11 @@
 # Local only. Environment (all optional):
 #   IMAGE       a local ZDMS16-2 OTA file (.zigbee) instead of the newest build of home-dimmer_build
 #               (a local build for the spare: tools/ztu_local_build.sh); the same checks apply
+#   STOCK=1     convert modules that still run the Tuya stock Zigbee firmware: the -from_tuya image
+#               (image type 54179, file version 0xFFFFFFFF; by default the one of home-dimmer_build),
+#               offered with modelId TS0601 and the modules' stock manufacturer names (read from the
+#               Z2M database), no force. Zigbee2MQTT must give the stock model OTA (the converter's
+#               stock definition lists the names). Afterwards: Interview, then Reconfigure.
 #   OTA_DELAY_MS Z2M's block response delay while the series runs (default 50 = Z2M's minimum,
 #               50..250; the guard puts 250 back at the first BUFFER_FULL)
 #   ZTU_DIR     checkout of the ZTU fork (default ~/projects/tzs-diag)
@@ -57,6 +62,10 @@ source "$HA_ENV"
 RUNNING=$(pgrep -af zdms16_ota_series.sh || true)
 [ -z "$RUNNING" ] || die "an OTA series is running already (one module at a time): $RUNNING"
 TMP=$(mktemp -d)
+STOCK=${STOCK:-0}
+[ "$STOCK" = 0 ] || [ "$STOCK" = 1 ] || die "STOCK=$STOCK: 0 or 1"
+# the image header: the fork's own image type, or the stock one for a conversion (-from_tuya)
+STOCK_IMAGE_TYPE=54179
 
 # --- the image: newest build of the fork, a valid OTA file that carries a valid PY32 image
 if [ -n "${IMAGE:-}" ]; then
@@ -67,25 +76,38 @@ else
     git -C "$ZTU_DIR" fetch -q "$ZTU_REMOTE" home-dimmer_build
     C=$(git -C "$ZTU_DIR" log --format=%h -1 --grep="Update firmware files" "$ZTU_REMOTE/home-dimmer_build")
     [ -n "$C" ] || die "no 'Update firmware files' commit on $ZTU_REMOTE/home-dimmer_build"
-    P=$(git -C "$ZTU_DIR" show --name-only --format= "$C" | grep "MODULE_AVATTO_ZDMS16_2/.*\.zigbee$" | grep -v "forced\|from_tuya" || true)
+    if [ "$STOCK" = 1 ]; then
+        P=$(git -C "$ZTU_DIR" show --name-only --format= "$C" | grep "MODULE_AVATTO_ZDMS16_2/.*-from_tuya\.zigbee$" || true)
+    else
+        P=$(git -C "$ZTU_DIR" show --name-only --format= "$C" | grep "MODULE_AVATTO_ZDMS16_2/.*\.zigbee$" | grep -v "forced\|from_tuya" || true)
+    fi
     [ -n "$P" ] && [ "$(printf '%s\n' "$P" | wc -l)" -eq 1 ] || die "expected one ZDMS16-2 .zigbee image in $C, found: ${P:-none}"
     F=$(basename "$P")
     git -C "$ZTU_DIR" show "$C:$P" > "$TMP/$F"
 fi
-IMGVER=$(python3 - "$TMP/$F" <<'PY'
+IMGVER=$(python3 - "$TMP/$F" "$STOCK" "$STOCK_IMAGE_TYPE" <<'PY'
 import struct, sys, zlib
 path = sys.argv[1]
+stock, stock_type = sys.argv[2] == "1", int(sys.argv[3])
 name = path.rsplit("/", 1)[1]
 d = open(path, "rb").read()
 if len(d) < 56 or struct.unpack_from("<I", d, 0)[0] != 0x0BEEF11E or struct.unpack_from("<I", d, 52)[0] != len(d):
     sys.exit(f"{name}: not a Zigbee OTA file (magic or total size wrong)")
+itype = struct.unpack_from("<H", d, 12)[0]
 fver = struct.unpack_from("<I", d, 14)[0]
+if stock and (itype != stock_type or fver != 0xFFFFFFFF):
+    sys.exit(f"{name}: image type {itype}, file version 0x{fver:08x}: not a conversion image "
+             f"(STOCK=1 wants the -from_tuya image: type {stock_type}, version 0xffffffff)")
+if not stock and itype == stock_type:
+    sys.exit(f"{name}: image type {itype} is the stock one (a -from_tuya conversion image): use STOCK=1")
 found = None
 pos = d.find(b"APDZ")
 while pos >= 0:                       # the header whose size and CRC check out (the ZTU code
     start = pos - 0xC0                # also contains the magic as a constant)
     size, crc = struct.unpack_from("<II", d, pos + 4) if pos + 12 <= len(d) else (0, 0)
-    if start >= 0 and 0 < size <= 14 * 1024 and start + size <= len(d):   # 14 KB from 2.2.0 (v2 boot)
+    # 26 KB: bootloader v3 (hidden flash) takes up to 26 KB; a v2 unit declines an image over
+    # its 14 KB itself (the ZTU update still goes on)
+    if start >= 0 and 0 < size <= 26 * 1024 and start + size <= len(d):
         img = bytearray(d[start:start + size])
         img[0xC8:0xCC] = bytes(4)
         if zlib.crc32(img) == crc:
@@ -167,6 +189,38 @@ R=$(ssh -n "${SSH_OPTS[@]}" "$HA_SSH" date +%s) || die "ssh $HA_SSH failed"
 SKEW=$(( R - $(date +%s) )); SKEW=${SKEW#-}
 [ "$SKEW" -le 8 ] || die "the clocks here and on $HA_SSH differ by $SKEW s (the Z2M log is read by timestamp)"
 
+# --- a conversion: the modules' stock names from the Z2M database (read only); the index offers
+# the -from_tuya image to modelId TS0601 with these names only
+INDEX_ENV=()
+if [ "$STOCK" = 1 ]; then
+    ssh -n "${SSH_OPTS[@]}" "$HA_SSH" "grep -i -E '$(IFS='|'; echo "${ieees[*]}")' /config/zigbee2mqtt/database.db" > "$TMP/db.txt" ||
+        die "reading the Z2M database failed (or the modules are not in it)"
+    MANUF=$(python3 - "$TMP/db.txt" "${ieees[@]}" <<'PY'
+import json, sys
+recs = {}
+for line in open(sys.argv[1]):
+    try:
+        d = json.loads(line)
+    except ValueError:
+        continue
+    recs[str(d.get("ieeeAddr", "")).lower()] = d
+names = []
+for ieee in sys.argv[2:]:
+    d = recs.get(ieee)
+    if d is None:
+        sys.exit(f"{ieee}: not in the Z2M database")
+    model, manuf = d.get("modelId"), str(d.get("manufName") or "")
+    if model != "TS0601" or not manuf.startswith("_TZE"):
+        sys.exit(f"{ieee}: modelId {model!r}, manufacturer {manuf!r}: not a stock Tuya module (converted already?)")
+    print(f"  {ieee}: stock {manuf}, {d.get('swBuildId')!r}", file=sys.stderr)
+    if manuf not in names:
+        names.append(manuf)
+print(",".join(names))
+PY
+) || die "not deployed"
+    INDEX_ENV=(OTA_INDEX_MODEL=TS0601 "OTA_INDEX_MANUF=$MANUF" OTA_INDEX_FORCE=0)
+fi
+
 if [ ${#notnewer[@]} -gt 0 ]; then
     ask "not newer than the installed firmware on ${notnewer[*]}: deploy there anyway?" || { echo "not deployed"; exit 1; }
 fi
@@ -225,7 +279,7 @@ OTA_DELAY_MS=${OTA_DELAY_MS:-50}
 DELAY_SET=1
 set_delay "$OTA_DELAY_MS" || die "setting image_block_response_delay $OTA_DELAY_MS failed: not deployed"
 : > "$TMP/guard.log"
-"$SERIES" "$F" "${pairs[@]}" > "$TMP/series.log" 2>&1 &
+env "${INDEX_ENV[@]}" "$SERIES" "$F" "${pairs[@]}" > "$TMP/series.log" 2>&1 &
 SP=$!
 "$GUARD" "$TMP/series.log" "$SP" > >(sed -u 's/^/guard: /' > "$TMP/guard.log") 2>&1 &
 GP=$!
@@ -238,7 +292,10 @@ wait "$TP" 2>/dev/null || true
 TP=""; GSHOWN=$(wc -l < "$TMP/guard.log")
 echo "--- series exit $RC"
 grep -a -E "^(=== |DONE|FAILED|NO START|NO BLOCKS|STALLED|TIMEOUT|STOPPED|ALL DONE)" "$TMP/series.log" || true
-if [ "$RC" = 0 ] && [ -x "$HA_HELPERS/zdms16_health.py" ]; then
+if [ "$RC" = 0 ] && [ "$STOCK" = 1 ]; then
+    echo "converted: the first start-up can take minutes (LED dark); when Z2M shows TS0601-ZDMS16-2 and"
+    echo "build 1.1.3-...: Interview, then Reconfigure. With D3/D7 wired, a power cycle installs Open Dimmer."
+elif [ "$RC" = 0 ] && [ -x "$HA_HELPERS/zdms16_health.py" ]; then
     echo "health (a minute after the MCU update): $HA_HELPERS/zdms16_health.py <ieee>"
 fi
 exit "$RC"
