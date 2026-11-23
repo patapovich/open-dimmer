@@ -115,22 +115,23 @@ brown-out reset on, NRST a GPIO; no NRST wire is used, so the change does nothin
 - The read-only `survey_full` job of the fork's SWD master (wires D3 → CN2 SWC, D7 → CN2 SWD) or an
   SWD probe on CN2 reads the option bytes and shows the protection level without changing anything.
 
-**Install:** the released fork builds install Open Dimmer on read-protected (RDP 1) factory MCUs
-only and refuse this one (`wrong class`). An install path for RDP 0 factory MCUs (page erase
-instead of the mass erase that lifting RDP 1 does, then Open Dimmer's option bytes and the
-bootloader) is in development in the fork and not released yet; on the tested unit it took
-15.5 s, then the bootloader fetched the app over the UART.
+**Install:** the fork's builds from the 2.2.8 release (2026-11-24) on install Open Dimmer on this
+MCU too: an RDP 0 factory MCU gets its pages erased by the install (instead of the mass erase
+that lifting RDP 1 does), then Open Dimmer's option bytes and the bootloader. On the tested unit
+it took 15.5 s, then the bootloader fetched the app over the UART. Earlier builds took
+read-protected (RDP 1) factory MCUs only and refused this one (`wrong class`).
 
 ## Status
 
 - Zigbee firmware converted on the tested unit: the fork's `-from_tuya` image (the same one as for
-  `jtbgusdc`), offered through a temporary Zigbee2MQTT converter that gives the stock ZDMS16-2
-  definition OTA for `_TZE204_o9gyszw2` (the fork's converter lists the `jtbgusdc` names only, so
-  that converter is still needed for this variant).
+  `jtbgusdc`). From the 2.2.8 release on the fork's converter and OTA index list
+  `_TZE204_o9gyszw2` too, so Zigbee2MQTT offers the conversion with the fork's converter alone
+  (the tested unit was converted through a temporary converter, before that).
 - Open Dimmer on the dimming MCU: installed on the tested unit with a development build of the
-  fork (the RDP 0 path above, not released yet); the released builds refuse this variant's MCU.
+  RDP 0 path above, released with 2.2.8.
 - After the conversion the module came back to the network only with Permit join open (also seen
-  on a `jtbgusdc` unit converted the same day); being looked into in the fork.
+  on a `jtbgusdc` unit converted the same day). Fixed in the fork from the 2.2.8 release on: a
+  converted module keeps its network (verified on a `jtbgusdc` unit).
 - The factory ZTU firmware was not backed up (the SWS dump failed, see above).
 - Results from other units are welcome: open an issue with the module's `swBuildId` and the board
   marking.

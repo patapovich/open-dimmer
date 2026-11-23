@@ -34,9 +34,13 @@ channels and reports only on, off and level. Open Dimmer adds, per channel:
 
 - dimming curves for LED and incandescent lamps, and a custom curve measured for your lamp
   ([docs/CUSTOM-CURVE.md](docs/CUSTOM-CURVE.md));
+- lamp compensation, for LED lamps that stay brighter at the bottom of a dim-down than when
+  switched on there;
 - adjustable fade and hold times, and it follows Zigbee transitions;
 - wall switch gestures (single, double, triple press and hold) as Zigbee2MQTT actions, and
-  three wall switch modes: normal, detached and off;
+  three wall switch modes: normal, detached and off; a double tap to full brightness;
+- network reset by quick presses of the wall switch, as with the stock firmware (the count is a
+  setting, at least 8);
 - power-on behaviour and level, start boost for LED drivers, auto-off timer, identify;
 - health reports;
 - safe updates over Zigbee: they install while the light is off (a day later at the latest), and
@@ -53,16 +57,17 @@ The stock firmware is quirky in use: it reads the wall switch inconsistently and
 | Tap | on / off | on / off; from dark quickly to the stored level |
 | Hold | slow fixed rate (~6 s over the range) | ~3 s over the range (adjustable); from dark it starts at the minimum; slow near the minimum; learns which way you want at each brightness |
 | Double, triple press, hold | not reported | Zigbee2MQTT actions; can drive bound lights |
+| Double tap | – | full brightness (can be turned off) |
 | Modes | the switch always drives the light | normal, detached (only reports), off |
 | Stuck input | – | a hold ends by itself |
 
 ## Requirements
 
-- **AVATTO ZDMS16-2**, Tuya model `_TZE284_jtbgusdc`. Tested at 230 V / 50 Hz with LED lamps
-  and push buttons. The `_TZE204_jtbgusdc` variant and 60 Hz are untested:
-  [reports welcome](#support). A third variant, `_TZE204_o9gyszw2`, has the same board; photos,
-  pinout and its factory firmware versions: [docs/variant-tze204-o9gyszw2.md](docs/variant-tze204-o9gyszw2.md)
-  (not converted yet).
+- **AVATTO ZDMS16-2**, Tuya models `_TZE284_jtbgusdc` and `_TZE204_jtbgusdc`. Tested at
+  230 V / 50 Hz with LED lamps and push buttons; 60 Hz is untested:
+  [reports welcome](#support). A third variant, `_TZE204_o9gyszw2`, has the same board and was
+  converted and installed on one unit; photos, pinout and its factory firmware versions:
+  [docs/variant-tze204-o9gyszw2.md](docs/variant-tze204-o9gyszw2.md).
 - **Zigbee2MQTT**, with the dimmer paired.
 - A **soldering iron** and two thin wires, or an [SWD programmer](docs/INSTALL-PROGRAMMER.md) (e.g. ST-Link
   or a Raspberry Pi Pico) instead.
@@ -94,7 +99,8 @@ These work with the stock dimmer chip and with Open Dimmer:
 - Zigbee Scenes and groups;
 - direct control: lights and groups bound to the wall switch follow its on, off and hold, also
   without the coordinator;
-- updates over the air, and conversion from the stock Zigbee firmware.
+- updates over the air, and conversion from the stock Zigbee firmware: the module keeps its
+  network (no re-pairing) and shows its factory model as `factory_identity`.
 
 With Open Dimmer, the Zigbee firmware also:
 

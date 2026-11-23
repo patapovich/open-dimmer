@@ -4,7 +4,7 @@ The state of the project for contributors: what is released and tested, the data
 behaviour, how to build and release, and what is open. Users start from the
 [README](../README.md) and the [install guide](INSTALL.md).
 
-Last updated: 2026-11-20.
+Last updated: 2026-11-24.
 
 > [!CAUTION]
 > **The board is not isolated from the mains.** Never connect a programmer, a computer or an earthed
@@ -25,9 +25,9 @@ Last updated: 2026-11-20.
 
 | | |
 |---|---|
-| Release | **2.2.7**, build 1200 |
-| Size | app 13 728 of 14 336 bytes; bootloader 3 364 of 4 096 bytes |
-| Bootloader checksum | CRC-32 `0x7D215316` (health DP 136) |
+| Release | **2.2.8**, build 1300 |
+| Size | app 14 276 of 14 336 bytes in the app area and 1 028 of 12 288 in the hidden flash; bootloader v3 3 628 of 4 096 bytes |
+| Bootloader checksum | v3: CRC-32 `0xA2B67F8C` (health DP 136); v2 of the releases before 2.2.8: `0x7D215316` |
 | Zigbee firmware | fork [`patapovich/tuya-zigbee-switch`](https://github.com/patapovich/tuya-zigbee-switch), branch `home-dimmer`; CI builds the OTA images on `home-dimmer_build` for every change |
 
 The Zigbee firmware carries the newest release. It installs Open Dimmer over the two soldered
@@ -40,7 +40,15 @@ dimmer chip without the wires.
 - updates over Zigbee with both channels lit; a mains cut in the middle recovered;
 - bootloader rewrite over the two wires; re-flash with an SWD programmer keeping the settings;
 - bootloader probe, rescue, button and link watchdog;
-- Zigbee Scenes and wall switch bindings.
+- Zigbee Scenes and wall switch bindings;
+- bootloader v3 and the hidden flash, also written over the two wires to a module on v2, which
+  then fetched the app at once;
+- two-wire install on a factory MCU without read protection (a `_TZE204_o9gyszw2`);
+- conversion from the stock Zigbee firmware that keeps the network (no Permit join);
+- lamp compensation and a custom curve on a measured LED lamp;
+- wall switch and Zigbee commands at the same moment (on, off and taps within 50 ms, taps and a
+  double tap during a fade, a level command right after a wall switch on, an off during a hold);
+- network reset by wall switch presses (the presses given over SWD).
 
 Not yet tested: see [Open items](#open-items).
 
@@ -147,13 +155,16 @@ period.
 | Bootloader | `0x08000000` | 4 KB |
 | App | `0x08001000` | up to 14 KB |
 | Settings ring | `0x08004800` | 2 KB |
+| Hidden flash (bootloader v3) | `0x08005000` | 12 KB: the image's bytes past 14 KB |
 
 Update rules: [BOOTLOADER.md](BOOTLOADER.md).
 
 ### CI
 
 `.github/workflows/ci.yml` runs the host and bootloader tests, the normal, DIAG, MEASURE and SIM
-builds, the layout and header checks and a size report.
+builds, the layout and header checks and a size report. The bench builds (DIAG, MEASURE, SIM)
+use no hidden flash and fill the app area: they leave out the network reset by presses, and SIM
+also the custom curve.
 
 ### Release
 
@@ -188,7 +199,7 @@ Before deploying a changed Zigbee2MQTT converter:
 
 | # | Item | State |
 |---|---|---|
-| 1 | 60 Hz mains and the `_TZE204_jtbgusdc` variant | untested on hardware |
+| 1 | 60 Hz mains | untested on hardware; the `_TZE204_jtbgusdc` variant runs Open Dimmer at 50 Hz, the `_TZE204_o9gyszw2` one took the install |
 | 2 | SWD programmer path: `install.sh`'s option reload on a stock module | never run (the steps by hand have) |
 | 3 | Watchdog and fault light restore | host tests only |
 | 4 | Long trial: read the health DPs 131, 132, 133 and 135 now and then | ongoing |
@@ -204,3 +215,4 @@ Before deploying a changed Zigbee2MQTT converter:
 | 15 | Zigbee firmware: the update wait did not run for a light that was off when the module started, a transition to off could outlast it, and an offer could go to a chip in its bootloader | fixed in the Zigbee firmware (70 s after the off or the module's start, offers only to a running app), tested on hardware |
 | 16 | Zigbee firmware: a level command during a wall switch hold held the hold's level back for 3 s; Stop did not stop a transition and Move / Step started from its end; an auto-off countdown was lost when the dimmer chip restarted | fixed in the Zigbee firmware; the hold and Stop / Move / Step tested on hardware, the countdown in the simulator only |
 | 17 | Zigbee firmware, two-wire install: `abort` or a second `install` after the read protection was removed dropped the install; a second power cut after one during the option bytes could end it; a taken-up install wrote the bootloader without identifying the chip | fixed in the Zigbee firmware (simulator tests: the usual install paths send the same SWD traffic as before); bench tests of the changed paths on a spare module open |
+| 18 | SWD programmer script: cannot write a release that uses the hidden flash (2.2.8 on); installs 2.2.6, whose bootloader v2 keeps the module there | open |

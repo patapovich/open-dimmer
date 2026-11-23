@@ -77,7 +77,7 @@ fw/tools/swd/make_opt_pack.sh "$PWD/py32f0-template" "$PWD/pack"
 
    ```
    cd ~/open-dimmer/fw
-   IMAGE=release FREQ=400000 tools/swd/install.sh
+   IMAGE=release:v2.2.6 FREQ=400000 tools/swd/install.sh
    ```
 
 5. **When it beeps,** press the clip onto CN2 and hold it there until it says **DONE**
@@ -86,7 +86,15 @@ fw/tools/swd/make_opt_pack.sh "$PWD/py32f0-template" "$PWD/pack"
 The script downloads the newest release and checks it against the release's `SHA256SUMS`, then
 removes the read protection (which erases the stock firmware), writes the bootloader and Open
 Dimmer, reads them back and starts the firmware. On a module that already runs Open Dimmer it
-only re-flashes and keeps the settings. `IMAGE=release:vX.Y.Z` picks a release.
+only re-flashes and keeps the settings. `IMAGE=release:vX.Y.Z` picks a release, `IMAGE=release`
+the newest.
+
+> [!NOTE]
+> From 2.2.8 the app uses the dimmer chip's hidden flash (bootloader v3), and this script
+> cannot write such a release yet: it stops with "has no full image". Install 2.2.6 as above.
+> The module then keeps bootloader v2 and stays on 2.2.6, also when the Zigbee firmware carries
+> a newer version; run the script again once it writes v3 (the settings stay). With the
+> [two wires](INSTALL.md) instead, the Zigbee firmware writes v3 itself.
 
 > [!IMPORTANT]
 > The step after `option bytes: protection off ...` has not run on a stock module yet. If no
@@ -119,9 +127,9 @@ Reconfigure again.
      -O connect_mode=attach --base-address 0x1FFF0E80 fw/tools/swd/ob_bor25.bin
    ```
 
-3. **Firmware:** `FREQ=400000 IMAGE=release fw/tools/swd/install.sh`, or `IMAGE=<file>` for a
-   `zdms16_py32_full.bin` of your own build. It reads back and compares (`make flash-all`
-   refuses an image this size).
+3. **Firmware:** `FREQ=400000 IMAGE=release:v2.2.6 fw/tools/swd/install.sh` (the note in
+   section 3), or `IMAGE=<file>` for a `zdms16_py32_full.bin` of your own build. It reads back
+   and compares (`make flash-all` refuses an image this size).
 
 Never flash a `SIM=1` build to a module that goes back on the mains.
 

@@ -112,6 +112,20 @@ firmware started, if it was off already), a day later at the latest. The install
 seconds and keeps the light dark, then the light comes back as it was. A version that fails to
 start three times in a row is reinstalled by itself. The wires stay in the module.
 
+**From 2.2.7 or older to 2.2.8:** 2.2.8 needs the dimmer chip's bootloader v3, and a bootloader
+is written only over the wires. A module installed with an earlier Zigbee firmware has v2 and
+keeps its Open Dimmer version until it gets v3:
+
+1. Update the Zigbee firmware to a build that carries 2.2.8.
+2. Set the device option `mcu_flasher` to `show`.
+3. Write `update_bootloader` to `mcu_flasher_confirm`, then within 60 s set `mcu_flasher` to
+   `update_bootloader`. The light goes dark for a few seconds while the bootloader is written.
+4. ✅ `mcu_flasher_status` says the job is done; the new bootloader fetches 2.2.8 at once (no
+   power cycle) and `mcu_version` shows 2.2.8 a minute later.
+
+A module installed with an SWD programmer and no wires stays on its version for now: the
+programmer script cannot write v3 yet ([INSTALL-PROGRAMMER.md](INSTALL-PROGRAMMER.md)).
+
 **Button rescue** (reinstalls the version the Zigbee firmware carries; the case stays closed):
 
 1. Power off.

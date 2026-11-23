@@ -3,14 +3,21 @@
 Short, user-facing summary per release. The release notes on GitHub are taken from here
 (`tools/changelog.py`); a release without a section for its version is refused.
 
-## 2.2.8 (unreleased)
+## 2.2.8 (2026-11-24)
 
+- Also brings 2.2.7's changes (2.2.7 got no release of its own): the wall switch, the module
+  button and the auto-off never take a transition time from the network; a hold from dark let
+  go during the start boost leaves the light at its minimum; the health report goes out 3 s
+  after the Zigbee module and the dimmer chip made contact.
 - Bootloader v3 and the hidden flash: the PY32F002A has 12 KB of flash above its 20 KB that
   Puya does not guarantee. Bootloader v3 takes images up to 26 KB and puts their part past 14 KB
   there, past the settings ring, after it has tested each of those pages on that chip; a chip
   whose hidden flash fails keeps its app. The app's constants now live there. A module needs v3
   (written over SWD: the module's own SWD job where its Zigbee chip is wired to the MCU, a
-  programmer otherwise) for this and later releases; with v2 it stays on 2.2.7.
+  programmer otherwise) for this and later releases; with v2 it keeps the version it has. A
+  module with the two wires gets v3 from Zigbee2MQTT (the install guide's
+  [Updates](docs/INSTALL.md#updates)). The SWD programmer script cannot write v3 yet: it
+  installs 2.2.6 until it can.
 - Lamp compensation (a setting per channel, off by default). Some LED lamps give more light
   at the same output after they have been brighter: dimmed down to a level they are brighter
   than when switched on at it, so the bottom of a dim-down never gets as dim as a start from
@@ -58,7 +65,7 @@ Short, user-facing summary per release. The release notes on GitHub are taken fr
 - A downgrade to an older release keeps every setting except a channel's saved level when its
   compensation was set: that level is taken as the maximum once.
 
-## 2.2.7 (2026-11-21)
+## 2.2.7 (2026-11-21, tagged, no release: its changes came with 2.2.8)
 
 - The wall switch, the module button and the auto-off never take a transition time from the
   network. A level command with a time (Adaptive Lighting's 45 s, for one) left its time
