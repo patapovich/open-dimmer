@@ -163,6 +163,10 @@ uint16_t dim_curve(uint8_t curve, uint16_t value);
  * falling). dim_custom_raw: the channel's CUSTOM_RAW bytes, channel 2's right after channel
  * 1's (the record takes both at once), for the record and the DPs' reports. */
 #define CURVE_CUSTOM    6      /* = CURVE_COUNT (curves.h, checked in dim_core.c) */
+/* The SIM bench build (a virtual zero cross: never on the mains, never a lamp) leaves the custom
+ * curve out for room: its DPs 174..179 are neither taken nor reported and curve 6 acts as
+ * led_soft; a table saved by another build stays in the settings as it was. */
+#define DIM_CUSTOM_CURVE (!SIM_ZC)
 #define CUSTOM_POINTS   17
 #define CUSTOM_RAW      36     /* 3 parts of 6 points, little-endian (the last part's sixth: none) */
 void     dim_custom_put(uint8_t ch, uint8_t first, const uint8_t *le16);

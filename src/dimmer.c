@@ -575,6 +575,7 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         mark_dirty();
         return 1;
     }
+#if DIM_CUSTOM_CURVE
     if (dpid >= DP_CUSTOM_BASE && dpid < DP_CUSTOM_END) {
         uint8_t k = (uint8_t)(dpid - DP_CUSTOM_BASE);
         if (type != TUYA_DP_TYPE_RAW || len != 12) {
@@ -588,6 +589,7 @@ uint8_t dimmer_write_dp(uint8_t dpid, uint8_t type, const uint8_t *value, uint16
         }
         return 1;
     }
+#endif
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
         if (type != TUYA_DP_TYPE_ENUM || len != 1 || value[0] > CURVE_CUSTOM) {
             return 0;
@@ -748,11 +750,13 @@ void dimmer_report_dp(uint8_t dpid) {
                                            g_ch[0].double_off << 2 | g_ch[1].double_off << 3));
         return;
     }
+#if DIM_CUSTOM_CURVE
     if (dpid >= DP_CUSTOM_BASE && dpid < DP_CUSTOM_END) {       /* the part's points, as kept */
         uint8_t k = (uint8_t)(dpid - DP_CUSTOM_BASE);
         tuya_report_raw(dpid, dim_custom_raw((uint8_t)(k / 3)) + 12u * (k % 3), 12);
         return;
     }
+#endif
     if (dpid >= DP_CURVE_BASE && dpid < DP_CURVE_BASE + DIMMER_CHANNELS) {
         tuya_report_enum(dpid, g_ch[dpid - DP_CURVE_BASE].curve);
         return;
@@ -991,9 +995,11 @@ __attribute__((section(".text.hidden.dimmer_report_all"), noinline)) void dimmer
         dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_POWER_LEVEL + ch));
         dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_BOOST + ch));
         dimmer_report_dp((uint8_t)(DP_EXTRA_BASE + 2 * EX_COMP + ch));   /* a frame of its own */
+#if DIM_CUSTOM_CURVE
         for (uint8_t k = 0; k < 3; k++) {
             dimmer_report_dp((uint8_t)(DP_CUSTOM_BASE + 3 * ch + k));     /* the custom curve */
         }
+#endif
         tuya_report_send();
     }
 }

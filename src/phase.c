@@ -326,9 +326,11 @@ void phase_hold_start(uint8_t ch, int8_t dir, uint16_t lo, uint16_t hi, uint8_t 
         }
         /* the custom curve is even: a hold of the lit light keeps its rate to the min (the slow
          * zone is for a hold from dark only) */
+#if DIM_CUSTOM_CURVE
         if (g_curve[ch] == CURVE_CUSTOM) {
             g_fader[ch].hold_fine = 0;
         }
+#endif
     }
     __enable_irq();
 }

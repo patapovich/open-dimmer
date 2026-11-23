@@ -282,6 +282,10 @@ uint8_t         dim_custom_ch;
 _Static_assert(sizeof(g_custom) == 2 * CUSTOM_RAW, "two tables of CUSTOM_RAW bytes, in a row");
 
 void dim_custom_check(uint8_t ch) {
+#if !DIM_CUSTOM_CURVE
+    g_custom_ok[ch & 1u] = 0;             /* SIM: no custom curve, led_soft */
+    return;
+#endif
     const uint16_t *t  = g_custom[ch & 1u];
     uint8_t         ok = t[0] == 0 && t[CUSTOM_POINTS - 1] == CURVE_OUT_MAX;
     for (uint8_t i = 1; i < CUSTOM_POINTS; i++) {
