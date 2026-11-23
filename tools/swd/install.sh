@@ -103,7 +103,15 @@ if [ "$IMAGE" = "release" ] || [ "${IMAGE#release:}" != "$IMAGE" ]; then
     REL="$TMP/release"
     mkdir -p "$REL"
     for f in zdms16_py32_full.bin boot.bin zdms16_py32.img SHA256SUMS; do
-        curl -fsSL -o "$REL/$f" "$REPO_URL/releases/download/$TAG/$f" || die "could not download $f of $TAG"
+        curl -fsSL -o "$REL/$f" "$REPO_URL/releases/download/$TAG/$f" && continue
+        # From 2.2.8 the app uses the hidden flash (bootloader v3, docs/BOOTLOADER.md section 18):
+        # its part past 14 KB lies beyond the settings ring, so the release has no full image.
+        [ "$f" = zdms16_py32_full.bin ] &&
+            curl -fsSL -o "$REL/zdms16_py32.img" "$REPO_URL/releases/download/$TAG/zdms16_py32.img" &&
+            die "$TAG has no full image: its app uses the hidden flash (bootloader v3), which this script
+cannot write yet. Install IMAGE=release:v2.2.6 for now: that module keeps bootloader v2 and so
+stays on 2.2.6 until this script writes v3 (run it again then; the settings stay)."
+        die "could not download $f of $TAG"
     done
     # Lists up to v2.1.11 name build/ paths: compare by file name. Every file must be listed.
     sed 's|  .*/|  |; s| \*.*/| *|' "$REL/SHA256SUMS" > "$REL/sums"

@@ -1409,6 +1409,17 @@ class FakeChip(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertIn("could not download", out)
 
+    def test_release_without_a_full_image(self):
+        """A hidden-flash release (2.2.8 on) has no full image: told, nothing written."""
+        self.release_files()
+        os.remove(os.path.join(self.rel, "zdms16_py32_full.bin"))
+        self.chip()
+        rc, out = self.install("release")
+        self.assertNotEqual(rc, 0)
+        self.assertIn("has no full image", out)
+        self.assertIn("IMAGE=release:v2.2.6", out)
+        self.assertEqual(self.events("load"), [])
+
     def test_release_old_style_sums(self):
         self.release_files(sums_prefix="build/")
         self.chip()
