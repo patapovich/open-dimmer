@@ -96,6 +96,7 @@ per channel: dimming curve, power-on behaviour, fade and hold times, wall switch
 | `mcu_firmware` "power-cycle the module to install Open Dimmer" | The wires were there before step 1. Switch the module off for a few seconds and on again. |
 | `mcu_firmware` still "Tuya (stock)" | Set the device option `mcu_flasher` to `show` and read `mcu_flasher_status`. |
 | `mcu_flasher_status` "no answer (wires? power?)" | Mains off, check the two joints. |
+| Light and wall switch dead after a failed install | The failed attempt leaves the dimmer chip stopped. Switch the module off for a few seconds and on again. |
 | Start the install again | Write `install` to `mcu_flasher_confirm`, within 60 s set `mcu_flasher` to `install`, power-cycle the module when the status asks for it. |
 | Power cut during the install | Switch on again: it goes on or starts over by itself. |
 | `mcu_flasher_status` "kept" (error 16) after `abort` or a second `install` | The install had already removed the chip's read protection, so the chip may be without firmware and the install stays armed. Switch the module off for a few seconds and on again: it goes on. |
