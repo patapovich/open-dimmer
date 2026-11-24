@@ -19,7 +19,7 @@ Open Dimmer and keeps it up to date.
 
 ## Contents
 
-- [Features](#features)
+- [Features](#features) (every setting: [docs/FEATURES.md](docs/FEATURES.md))
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Zigbee firmware features](#zigbee-firmware-features)
@@ -45,6 +45,8 @@ channels and reports only on, off and level. Open Dimmer adds, per channel:
 - health reports;
 - safe updates over Zigbee: they install while the light is off (a day later at the latest), and
   a failed update reinstalls itself.
+
+Every feature and setting, with its values and default: [docs/FEATURES.md](docs/FEATURES.md).
 
 ### The wall switch: stock vs Open Dimmer
 
@@ -108,6 +110,8 @@ With Open Dimmer, the Zigbee firmware also:
 - shows every Open Dimmer setting in Zigbee2MQTT;
 - lets wall switch gestures drive bound lights, including double and triple press actions and
   scene recall.
+
+Scenes, bindings and every other setting: [docs/FEATURES.md](docs/FEATURES.md).
 
 What changed: the [releases](https://github.com/patapovich/open-dimmer/releases) and the
 [Zigbee firmware changelog](https://github.com/patapovich/tuya-zigbee-switch/blob/home-dimmer/docs/changelog_home_dimmer.md).

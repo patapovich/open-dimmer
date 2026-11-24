@@ -110,8 +110,9 @@ module that already runs Open Dimmer is left alone. A `device_config` written by
 Update the Zigbee firmware over the air as usual. It carries Open Dimmer and updates the dimmer
 chip by itself while the light is off: 70 seconds after it was switched off (or after the Zigbee
 firmware started, if it was off already), a day later at the latest. The install takes a few
-seconds and keeps the light dark, then the light comes back as it was. A version that fails to
-start three times in a row is reinstalled by itself. The wires stay in the module.
+seconds and keeps the light dark, then the light comes back as it was. An update cut short is
+fetched again, and a version that fails to start three times in a row gets another image the
+Zigbee firmware carries installed (an older one too). The wires stay in the module.
 
 **From 2.2.7 or older to 2.2.8:** 2.2.8 needs the dimmer chip's bootloader v3, and a bootloader
 is written only over the wires. A module installed with an earlier Zigbee firmware has v2 and

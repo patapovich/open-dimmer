@@ -2,7 +2,8 @@
 
 The state of the project for contributors: what is released and tested, the datapoints, the
 behaviour, how to build and release, and what is open. Users start from the
-[README](../README.md) and the [install guide](INSTALL.md).
+[README](../README.md), the [install guide](INSTALL.md) and the [features and
+settings](FEATURES.md).
 
 Last updated: 2026-11-24.
 
