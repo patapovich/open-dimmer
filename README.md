@@ -70,6 +70,17 @@ The stock firmware is quirky in use: it reads the wall switch inconsistently and
   [reports welcome](#support). A third variant, `_TZE204_o9gyszw2`, has the same board and was
   converted and installed on one unit; photos, pinout and its factory firmware versions:
   [docs/variant-tze204-o9gyszw2.md](docs/variant-tze204-o9gyszw2.md).
+- **Other modules (not tested):**
+  - The 1-channel **AVATTO ZDMS16-1** (for example `_TZE204_nqqylykc`, `_TZE284_nqqylykc`,
+    `_TZE204_5cuocqty`) looks like the same board with one channel. **Testers wanted:**
+    [open an issue](https://github.com/patapovich/open-dimmer/issues) with what Zigbee2MQTT shows
+    for the device (manufacturer name, app version, firmware build) and photos of both sides of
+    the board, and a test build follows. A conversion cannot be undone.
+  - A module that pairs as **`_TZE28C1000000_…`** runs a newer Tuya firmware. **Do not convert it
+    yet:** nobody knows whether that conversion works or whether it can leave the module dead.
+    The same details in an issue help to find out.
+  - Modules with a Silicon Labs radio (for example the Tuya **TS110F**, manufacturer code 4098)
+    cannot run this firmware.
 - **Zigbee2MQTT**, with the dimmer paired.
 - A **soldering iron** and two thin wires, or an [SWD programmer](docs/INSTALL-PROGRAMMER.md) (e.g. ST-Link
   or a Raspberry Pi Pico) instead.
@@ -116,6 +127,10 @@ Scenes, bindings and every other setting: [docs/FEATURES.md](docs/FEATURES.md).
 What changed: the [releases](https://github.com/patapovich/open-dimmer/releases) and the
 [Zigbee firmware changelog](https://github.com/patapovich/tuya-zigbee-switch/blob/home-dimmer/docs/changelog_home_dimmer.md).
 Project state and datapoints: [docs/STATUS.md](docs/STATUS.md).
+
+**Coming next:** fixes from field reports, acknowledged reports, and a build for the Tuya TS110E
+2-gang dimmer (`_TZ3210_3mpwqzuu`) with the same settings as Open Dimmer. Details and what is
+planned later: [docs/STATUS.md#coming-next](docs/STATUS.md#coming-next).
 
 ## Support
 

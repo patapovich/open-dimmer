@@ -15,6 +15,7 @@ Last updated: 2026-11-24.
 ## Contents
 
 - [At a glance](#at-a-glance)
+- [Coming next](#coming-next)
 - [Terms](#terms)
 - [Datapoints](#datapoints)
 - [Behaviour](#behaviour)
@@ -52,6 +53,33 @@ dimmer chip without the wires.
 - network reset by wall switch presses (the presses given over SWD).
 
 Not yet tested: see [Open items](#open-items).
+
+## Coming next
+
+Planned, may change; nothing here is released yet.
+
+**Zigbee firmware (fork), next build:**
+
+- Fixes from field reports: the network frame counter is never lowered at start-up; a module
+  whose own network commands went out unsecured repairs itself (new diagnostic
+  `nwk_command_security`); the module restarts after it has left a network; the dimmer chip is
+  updated by build number (new diagnostic `mcu_build`).
+- Fixes backported from the newer Telink Zigbee SDK 4.0.x.
+- Attribute reports ask for an acknowledgement, so a report lost on the way is sent again.
+- The ZDMS16-2 module no longer answers routing-table requests (Zigbee2MQTT's network map shows
+  no routes from it): there is no room left in the current flash layout.
+- **Tuya TS110E** 2-gang dimmer (`_TZ3210_3mpwqzuu`, ZH-Z06): the Zigbee firmware gets a TS110E
+  build. That module keeps its factory dimmer chip; the Zigbee module does the fades, holds,
+  curves, wall switches and gestures itself, so the dimmer works with the same settings as a
+  ZDMS16-2 with Open Dimmer, as far as that hardware allows.
+
+**Other modules (planned, untested):** the 1-channel AVATTO ZDMS16-1 needs only a board entry in
+the Zigbee firmware (the same board with one channel); a 1-channel TS110E needs code. Both wait
+for a test unit: reports from owners are welcome (see the README).
+
+**Later:** a larger flash layout for the ZDMS16-2 Zigbee module (256 KB instead of 208 KB for the
+firmware). This is a one-way move done with two updates in a row; it will be announced here with
+instructions before it is released.
 
 ## Terms
 
