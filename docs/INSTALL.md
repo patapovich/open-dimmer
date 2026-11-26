@@ -45,6 +45,14 @@ The module stays closed and keeps working with its stock dimmer firmware.
    comes back on its own: the new firmware takes the network the factory firmware had (same
    device, same IEEE, no pairing). Do not remove the device from Zigbee2MQTT for this. Only if it
    is still missing after ~10 minutes: Permit join (it then joins as a new device).
+
+   > [!CAUTION]
+   > **No power cut while the module is away.** When the download ends, the module restarts
+   > and Tuya's own boot loader copies the new firmware into place. A power cut during that
+   > copy can make the boot loader write over the whole flash of the Zigbee module, including
+   > its calibration, MAC address and keys: the module is then lost, and only a wired
+   > re-flash can bring it back (if at all). Do not switch the circuit off, and do not do this
+   > step during a thunderstorm or work on the mains.
 6. When Zigbee2MQTT shows the model `TS0601-ZDMS16-2` and the build `1.1.3-…`: **Interview**,
    then **Reconfigure** the device.
 
