@@ -1,0 +1,5 @@
+# ADALM-Pluto (Analog Devices, USB 0456:b673): libiio's usb: backend opens the USB device node.
+# This gives the sniffer's group access. The group must exist before the rule runs.
+# LXC container: put the rule on the host with MODE="0666" instead (the container's group ids
+# are not the host's), see README.md.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0456", ATTR{idProduct}=="b673", GROUP="zbsniff", MODE="0660"

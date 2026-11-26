@@ -1,0 +1,23 @@
+[Unit]
+Description=zbsniff: Zigbee channel sniffer (ADALM-Pluto, hourly pcaps)
+StartLimitIntervalSec=0
+
+[Service]
+User=zbsniff
+Group=zbsniff
+# settings: KEY=VALUE lines (README); URI is also used by the ExecStopPost lines below
+Environment=URI=usb:
+EnvironmentFile=-/etc/zbsniff/zbsniff.conf
+ExecStart=/usr/bin/python3 /opt/zbsniff/zbsniff.py
+# captures can hold key material: not readable by others
+UMask=0027
+Restart=always
+RestartSec=30
+# bad settings (zbsniff.py exits 78 before it touches the radio): no restart loop
+RestartPreventExitStatus=78
+# a stopped sniffer leaves no LO running beside the devices under test
+ExecStopPost=-/usr/bin/iio_attr -u ${URI} -c ad9361-phy altvoltage0 powerdown 1
+ExecStopPost=-/usr/bin/iio_attr -u ${URI} -c ad9361-phy altvoltage1 powerdown 1
+
+[Install]
+WantedBy=multi-user.target

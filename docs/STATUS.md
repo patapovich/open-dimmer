@@ -175,6 +175,8 @@ period.
 | `src/`, `boot/` | the app and the bootloader |
 | `tests/` | host tests (`make test`, with the bootloader harness) |
 | `tools/` | image and release tools; `swd/` SWD programmer install; `ha/` Zigbee2MQTT / Home Assistant helpers |
+| `tools/sniffer/` | Zigbee channel sniffer (ADALM-Pluto + GNU Radio, hourly pcaps) and its MAC-level analysis ([README](../tools/sniffer/README.md)) |
+| `tools/sws/` | reading a Telink Zigbee module's flash over SWS with a Raspberry Pi Debugprobe ([README](../tools/sws/README.md)) |
 | `docs/` | [INSTALL.md](INSTALL.md), [INSTALL-PROGRAMMER.md](INSTALL-PROGRAMMER.md), [BOOTLOADER.md](BOOTLOADER.md) (design record), [stock-firmware-analysis.md](stock-firmware-analysis.md), [ZC-DELAY-MEASUREMENT.md](ZC-DELAY-MEASUREMENT.md) |
 
 ### Flash layout

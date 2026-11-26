@@ -11,7 +11,7 @@
 # Releases to the house still go through the CI chain (traceable builds).
 #
 # Usage: tools/ztu_local_build.sh [<fork tree>]          (default ~/projects/tzs-diag)
-#   then: IMAGE=<printed .zigbee path> HA_HELPERS=~/ha-claude tools/ha/deploy_ota.sh <spare ieee>
+#   then: IMAGE=<printed .zigbee path> HA_ENV=<file with HA_URL/HA_TOKEN> tools/ha/deploy_ota.sh <ieee>
 # Environment (optional):
 #   ZTU_REMOTE  the fork's remote (default patapovich): its main is where the depth is counted from
 #   TELINK_SDK  Telink Zigbee SDK 3.7.2.0 (default ~/tools/telink_zigbee_sdk-3.7.2.0)
@@ -19,6 +19,7 @@
 #   OUT         where the OTA file is copied (default ~/projects/zdms16-py32/build-ztu)
 #   PYTHON      Python with PyYAML (default ~/projects/tuya-zigbee-switch/.venv/bin/python)
 set -euo pipefail
+HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)   # before the cd into the tree
 TREE=$(readlink -f "${1:-$HOME/projects/tzs-diag}")
 ZTU_REMOTE=${ZTU_REMOTE:-patapovich}
 TELINK_SDK=${TELINK_SDK:-$HOME/tools/telink_zigbee_sdk-3.7.2.0}
@@ -80,4 +81,4 @@ cp build/ota/local.zigbee "$F"
 SIZE=$(stat -c %s "$F")
 [ "$SIZE" -lt $((0x34000)) ] || die "OTA file of $SIZE bytes: over the 0x34000 limit"
 echo "OTA file: $F ($SIZE bytes, $(( 0x34000 - SIZE )) below the limit)"
-echo "deploy:   IMAGE=$F HA_HELPERS=~/ha-claude ~/projects/zdms16-py32/fw/tools/ha/deploy_ota.sh <ieee>"
+echo "deploy:   IMAGE=$F HA_ENV=<file with HA_URL/HA_TOKEN> $HERE/ha/deploy_ota.sh <ieee>"

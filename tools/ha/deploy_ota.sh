@@ -23,10 +23,11 @@
 #               50..250; the guard puts 250 back at the first BUFFER_FULL)
 #   ZTU_DIR     checkout of the ZTU fork (default ~/projects/tzs-diag)
 #   ZTU_REMOTE  its remote for github.com/patapovich/tuya-zigbee-switch (default patapovich)
-#   HA_HELPERS  directory of the local helpers (default ~/ha):
+#   HA_HELPERS  directory of the OTA helpers (default: this script's directory):
 #                 zdms16_ota_series.sh <image> <name:ieee>...  updates the modules one at a time
 #                 zdms16_ota_guard.sh <series output> <pid>    puts 250 ms back at the first BUFFER_FULL
-#   HA_ENV      file with HA_URL= and HA_TOKEN= (default $HA_HELPERS/.env)
+#   HA_ENV      file with HA_URL= and HA_TOKEN= (default $HA_HELPERS/.env when HA_HELPERS is set,
+#               else ~/ha/.env, as ha_ws.py: the token file stays out of this repository)
 #   HA_SSH      ssh target of the HA host whose /config holds zigbee2mqtt (default root@homeassistant.local)
 #   HA_WS       websocket client for the registry lookup (default ha_ws.py beside this script)
 # Exit status: the series' status (0 = all modules done); 3 when 250 ms could not be put back.
@@ -34,8 +35,8 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 ZTU_DIR=${ZTU_DIR:-$HOME/projects/tzs-diag}
 ZTU_REMOTE=${ZTU_REMOTE:-patapovich}
-HA_HELPERS=${HA_HELPERS:-$HOME/ha}
-HA_ENV=${HA_ENV:-$HA_HELPERS/.env}
+HA_ENV=${HA_ENV:-${HA_HELPERS:-$HOME/ha}/.env}   # before HA_HELPERS gets its default
+HA_HELPERS=${HA_HELPERS:-$HERE}
 HA_SSH=${HA_SSH:-root@homeassistant.local}
 HA_WS=${HA_WS:-$HERE/ha_ws.py}
 export HA_ENV HA_SSH
@@ -295,7 +296,5 @@ grep -a -E "^(=== |DONE|FAILED|NO START|NO BLOCKS|STALLED|TIMEOUT|STOPPED|ALL DO
 if [ "$RC" = 0 ] && [ "$STOCK" = 1 ]; then
     echo "converted: the first start-up can take minutes (LED dark); when Z2M shows TS0601-ZDMS16-2 and"
     echo "build 1.1.3-...: Interview, then Reconfigure. With D3/D7 wired, a power cycle installs Open Dimmer."
-elif [ "$RC" = 0 ] && [ -x "$HA_HELPERS/zdms16_health.py" ]; then
-    echo "health (a minute after the MCU update): $HA_HELPERS/zdms16_health.py <ieee>"
 fi
 exit "$RC"

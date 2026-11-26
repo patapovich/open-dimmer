@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Minimal Home Assistant websocket client (stdlib only): send commands, print results.
 Usage: ha_ws.py [--json] '<json command without id>' ...
-  HA_URL and HA_TOKEN come from the file $HA_ENV (default $HA_HELPERS/.env, HA_HELPERS default ~/ha).
+  HA_URL and HA_TOKEN come from the file $HA_ENV (default $HA_HELPERS/.env when HA_HELPERS is
+  set, else ~/ha/.env).
   Default output: one summary line per command. --json: each command's full result as one JSON
   line on stdout (e.g. for config/device_registry/list); a failed command goes to stderr, exit 1."""
 import base64, json, os, socket, ssl, struct, sys, urllib.parse
