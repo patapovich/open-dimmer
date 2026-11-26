@@ -85,6 +85,8 @@ power comes from the riser header.
    [TlsrComSwireWriter](https://github.com/pvvx/TlsrComSwireWriter) (`rf 0 0x100000 dump.bin`).
    [Telink-Zigbee-serial-flash-tool](https://github.com/Suxsem/Telink-Zigbee-serial-flash-tool)
    reads back over the ZTU's own UART (B1/B7), which the PY32 also drives on this board.
+   With a Raspberry Pi Debugprobe as the bridge: [tools/sws](../tools/sws/README.md) (the
+   changes it needs and a verified dump; used on a TS110E's ZT3L).
 4. Keep the file; it also holds the module's network keys, so do not publish it.
 
 > [!WARNING]
